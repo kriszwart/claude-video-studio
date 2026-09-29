@@ -413,11 +413,9 @@ export function sectionsFromTranscript(segments: TranscriptSegment[], durationSe
 /** Short takeaway line for a section: its most informative sentence, markers stripped. */
 export function takeaway(text: string, maxChars = 60): string {
   const sentences = text.split(/(?<=[.!?])\s+/).map((s) => s.trim()).filter(Boolean);
-  const scored = sentences
-    .map((s) => ({ s, n: tokens(s).filter((t) => !FILLERS.has(t)).length }))
-    .filter((x) => x.n >= 3)
-    .sort((a, b) => b.n - a.n);
-  let best = (scored[0]?.s ?? sentences[0] ?? "").replace(/^(first|second|third|fourth|fifth|next|then|finally|lastly),?\s*/i, "");
+  // The first informative sentence: on screen while it is being said, not ahead of it.
+  const first = sentences.find((s) => tokens(s).filter((t) => !FILLERS.has(t)).length >= 4);
+  let best = (first ?? sentences[0] ?? "").replace(/^(first|second|third|fourth|fifth|next|then|finally|lastly),?\s*/i, "");
   best = best.charAt(0).toUpperCase() + best.slice(1);
   if (best.length <= maxChars) return best.replace(/[.]$/, "");
   const cut = best.slice(0, maxChars);

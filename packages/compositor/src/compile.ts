@@ -319,8 +319,11 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       const at = sourceToOutput(doc, beat.cue.sourceStartSec, { snap: "next" });
       if (at === null || at >= timeline.totalFrames) return;
       const len = Math.min(beat.durationFrames, timeline.totalFrames - at);
-      const w = beat.visualAction === "emphasis" ? 0.8 : 0.34;
-      const h = beat.visualAction === "emphasis" ? 0.14 : beat.visualAction === "label" ? 0.12 : 0.28;
+      const portrait = doc.format.aspect === "9:16";
+      const media = beat.visualAction === "logo" || beat.visualAction === "image" || beat.visualAction === "b-roll";
+      // Portrait: media cards are wide and short so they sit below the face, above captions.
+      const w = beat.visualAction === "emphasis" ? 0.8 : portrait ? (media ? 0.9 : 0.8) : 0.34;
+      const h = beat.visualAction === "emphasis" ? 0.14 : beat.visualAction === "label" ? (portrait ? 0.07 : 0.12) : portrait ? 0.24 : 0.28;
       const ax = beat.anchor?.x ?? (i % 2 === 0 ? 0.22 : 0.78);
       const ay = beat.anchor?.y ?? (beat.visualAction === "emphasis" ? 0.7 : 0.3);
       const bx = Math.max(0, Math.min(1 - w, ax - w / 2));
@@ -336,6 +339,10 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
         const darkLogo = a.opaqueLuma !== undefined && a.opaqueLuma !== null && a.opaqueLuma < 0.45;
         const cardBg = darkLogo ? hexWithAlpha("#f8fafc", beat.backing === "solid" ? 1 : 0.94) : back;
         const cardInk = darkLogo ? "#0f172a" : resolveColor(brand, "brand.text", "#fff");
+        if (a.kind === "video") {
+          // Moving B-roll: muted (speech is never replaced), cropped into a rounded card.
+          inner = `<div style="width:100%;height:100%;border-radius:${f3(18 * unit)}px;overflow:hidden;box-shadow:0 10px 30px rgba(0,0,0,.4)"><video id="${`beat-${i}-v`}" src="${a.file}" muted playsinline data-start="${sec(at)}" data-duration="${sec(len)}" data-media-start="0" style="width:100%;height:100%;object-fit:cover"></video></div>`;
+        } else
         inner = `<div style="width:100%;height:100%;background:${cardBg};border-radius:${f3(18 * unit)}px;padding:${f3(12 * unit)}px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:${f3(12 * unit)}px"><img src="${a.file}" alt="" style="max-height:100%;max-width:${beat.text ? "40%" : "100%"};object-fit:contain">${beat.text ? `<span style="font-size:${f3(size)}px;font-weight:700;color:${cardInk}">${escapeHtml(beat.text)}</span>` : ""}</div>`;
       } else {
         inner = `<div class="fit" data-size="${f3(size)}" style="font-size:${f3(size)}px;font-family:${cssFamily(brand.fonts.heading.family)},sans-serif;font-weight:${brand.fonts.heading.weight};color:${resolveColor(brand, "brand.text", "#ffffff")};justify-content:center;text-align:center;"><div><span style="background:${back};padding:.12em .45em;border-radius:.25em;-webkit-box-decoration-break:clone;box-decoration-break:clone;">${escapeHtml(beat.text || beat.cue.phrase)}</span></div></div>`;

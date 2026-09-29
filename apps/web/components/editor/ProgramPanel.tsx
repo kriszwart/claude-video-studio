@@ -106,6 +106,7 @@ function TranscriptSection({ projectId, doc, jobs, tx, apply, onChanged }: { pro
           </ol>
         </>
       )}
+      <p className="text-[11px] text-faint">Background removal: unavailable — no segmentation provider is connected. The original background is always kept.</p>
       {doc.program?.edl && <p className="text-[11px] text-faint">Output {(programFrames(doc) / 30).toFixed(1)} s from {doc.program.edl.length} kept range(s).</p>}
     </section>
   );
@@ -223,6 +224,16 @@ function BeatSheet({ projectId, doc, view, apply }: { projectId: string; doc: Pr
     <section aria-labelledby="beats-h" className="space-y-2">
       <h3 id="beats-h" className="font-medium">Beat sheet</h3>
       <p className="text-xs text-dim">Editorial beats are timed to what you say, not to music. Repeated phrases resolve to the occurrence you choose; after cuts or corrections they follow the utterance or are flagged.</p>
+      <fieldset className="card flex flex-wrap items-center gap-3 p-2 text-xs">
+        <legend className="px-1 text-faint">Assistant creative mode</legend>
+        {(["strict", "flexible"] as const).map((m) => (
+          <label key={m} className="flex items-center gap-1.5">
+            <input type="radio" name="creative-mode" checked={doc.program!.creativeMode === m} onChange={() => apply([{ op: "setCreativeMode", mode: m }])} />
+            {m === "strict" ? "Strict — only my beats" : `Flexible — up to ${doc.program!.flexibleBeatLimit} supporting beats`}
+          </label>
+        ))}
+        <span className="text-faint">Neither mode changes approved claims or locked beats, and flexible additions use only media already in this project.</span>
+      </fieldset>
       <div className="card space-y-2 p-2 text-xs">
         <label className="label" htmlFor="beat-phrase">Cue phrase</label>
         <div className="flex gap-2">
@@ -264,6 +275,7 @@ function BeatRow({ b, doc, view, apply }: { b: EditorialBeat; doc: ProjectDocume
     <li className="card space-y-2 p-2 text-xs" data-testid={`beat-${b.id}`}>
       <div className="flex flex-wrap items-center gap-2">
         <span className="font-medium">“{b.cue.phrase}”</span>
+        {b.origin === "assistant-flexible" && <span className="chip">assistant</span>}
         <span className="text-faint">#{b.cue.occurrence}</span>
         <span className={status}>{b.status}</span>
         {b.outputFrame !== undefined && b.status === "mapped" && <span className="text-faint">at {fmt(b.outputFrame / 30)}</span>}
@@ -309,7 +321,8 @@ function BeatRow({ b, doc, view, apply }: { b: EditorialBeat; doc: ProjectDocume
       {(b.visualAction === "logo" || b.visualAction === "image" || b.visualAction === "b-roll") && (
         <div>
           <label className="label">Approved asset</label>
-          <AssetPicker kind="image" value={b.assetId ? [b.assetId] : []} onChange={(ids) => patch({ assetId: ids[0] })} />
+          <AssetPicker kind={b.visualAction === "b-roll" ? "video" : "image"} value={b.assetId ? [b.assetId] : []} onChange={(ids) => patch({ assetId: ids[0] })} />
+          {b.visualAction === "b-roll" && <p className="mt-1 text-[11px] text-faint">B-roll plays muted in a card, so your speech is never replaced.</p>}
         </div>
       )}
       <AnchorPad b={b} doc={doc} view={view} apply={apply} />

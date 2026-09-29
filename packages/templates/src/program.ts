@@ -8,6 +8,7 @@
 import { sketchItemsFromText } from "@vs/compositor";
 import {
   findPhraseOccurrences,
+  keptStart,
   programCaptionCues,
   ProjectDocument,
   sectionsFromTranscript,
@@ -149,7 +150,7 @@ function insertBeats(sections: TranscriptSection[], segments: TranscriptSegment[
       visualAction: style === "social" ? "b-roll" : "image",
       text: "",
       assetId: asset,
-      anchor: style === "social" ? { x: 0.5, y: 0.64 } : { x: k % 2 === 0 ? 0.76 : 0.24, y: 0.34 },
+      anchor: style === "social" ? { x: 0.5, y: 0.69 } : { x: k % 2 === 0 ? 0.76 : 0.24, y: 0.34 },
       anchorLocked: false,
       durationFrames: style === "social" ? 75 : 90,
       emphasis: "medium",
@@ -171,7 +172,9 @@ export function buildProgramScenes(doc: ProjectDocument, opts: BuildProgramOptio
   const p = doc.program;
   if (!p) throw new Error("This project has no source recording.");
   const style = p.style;
-  const sections = sectionsFromTranscript(opts.segments, opts.sourceDurationSec, { maxSections: style === "social" ? 8 : 6 });
+  // Headlines and inserts come only from speech that is still in the edit.
+  const kept = opts.segments.filter((g) => keptStart(doc, g.startSec, g.endSec) !== null);
+  const sections = sectionsFromTranscript(kept, opts.sourceDurationSec, { maxSections: style === "social" ? 8 : 6 });
   const scenes = sections.map((s, i) => sceneFor(s, i, sections.length, style, doc, opts.newId));
   const captionStyle = style === "social" ? { maxWords: 3, maxChars: 20 } : { maxWords: 7, maxChars: 42 };
   const cues = programCaptionCues(opts.segments, p.sourceAssetId, captionStyle);

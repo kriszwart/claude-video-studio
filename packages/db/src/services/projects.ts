@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   applyOperations,
+  checkCreativeMode,
   computeTimeline,
   DEFAULT_BUDGET,
   DOCUMENT_SCHEMA_VERSION,
@@ -164,11 +165,20 @@ export async function applyProjectOperations(db: DbOrTx, input: ApplyInput) {
   try {
     result = applyOperations(doc, input.ops, input.actor);
   } catch (e) {
-    if (e instanceof OperationError) throw new AppError(e.code === "locked" || e.code === "approved_claim" ? 403 : 422, e.code, e.message, undefined, e.details);
+    if (e instanceof OperationError) throw new AppError(e.code === "locked" || e.code === "approved_claim" || e.code === "strict_mode" ? 403 : 422, e.code, e.message, undefined, e.details);
     throw e;
   }
   if (touchesProgram(input.ops)) {
     result.doc = ProjectDocument.parse(await deriveProgramState(db, result.doc, input.workspaceId, { regenerateCaptions: input.ops.some((o) => o.op === "correctTranscript" || o.op === "setProgram") }));
+    // Beat output frames are only known after resolution: re-check A24 limits with them.
+    if (input.actor === "assistant") {
+      try {
+        checkCreativeMode(doc, result.doc);
+      } catch (e) {
+        if (e instanceof OperationError) throw new AppError(e.code === "strict_mode" || e.code === "locked" || e.code === "approved_claim" ? 403 : 422, e.code, e.message);
+        throw e;
+      }
+    }
   }
   if (hashDocument(result.doc) === current!.documentHash) {
     return { revision: current!, doc: result.doc, changedSceneIds: [], noop: true };

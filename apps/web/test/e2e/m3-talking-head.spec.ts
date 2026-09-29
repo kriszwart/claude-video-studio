@@ -159,12 +159,24 @@ test.describe.serial("M3 talking head", () => {
     const orig2 = await (await request.get(`/api/projects/${projectId}`)).json();
     expect(orig2.revision.id).toBe(after.revision.id);
 
+    // Moving B-roll on the social variant: a muted clip timed to "sourdough"; the voice is kept.
+    const broll = await apiUpload(request, join(FIX, "broll-dashboard-pan.mp4"), "video/mp4");
+    const soc = await ops(request, ids.social, [
+      { op: "setBeats", beats: [...social.doc.beats, { id: "brollBeat", cue: { phrase: "sourdough", occurrence: 1 }, visualAction: "b-roll", assetId: broll, text: "", durationFrames: 90, anchor: { x: 0.5, y: 0.62 } }] },
+    ]);
+    const brollBeat = soc.doc.beats.find((b: Beat) => b.id === "brollBeat") as Beat;
+    expect(brollBeat.status).toBe("mapped");
+
     for (const [style, id] of Object.entries(ids)) {
       const r = await renderAndWait(request, id, "preview");
       expect(r.job.status, `${style}: ${JSON.stringify(r.job.error)}`).toBe("succeeded");
       const exp = r.view.exports.find((e: { jobId: string }) => e.jobId === r.job.id);
       const { file } = await downloadAndProbe(page, exp.downloadUrl, `a18-${style}.mp4`);
       expect(exp.loudness.lufs).toBeGreaterThan(-20);
+      if (style === "social") {
+        frameAt(file, brollBeat.outputFrame! / 30 + 0.5, "a18-social-broll-a.png");
+        frameAt(file, brollBeat.outputFrame! / 30 + 2.5, "a18-social-broll-b.png");
+      }
       const scenes = r.view.doc.scenes as { durationFrames: number }[];
       let t = 0;
       scenes.forEach((s, i) => {

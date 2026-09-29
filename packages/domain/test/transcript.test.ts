@@ -131,3 +131,55 @@ describe("transcript", () => {
     expect(synced.scenes[0]!.durationFrames).toBeLessThan(Math.round(18.6 * 30) - 200);
   });
 });
+
+describe("A24 strict vs flexible creative mode", () => {
+  const base = () =>
+    ({
+      schemaVersion: 1,
+      title: "t",
+      template: { templateId: "talking-head", version: 1, family: "talking-head" },
+      format: { aspect: "16:9", fps: 30 },
+      brand: {
+        name: "B",
+        colors: { primary: "#112233", secondary: "#223344", accent: "#ff6600", background: "#000000", surface: "#111111", text: "#ffffff", muted: "#999999" },
+        fonts: { heading: { family: "Inter", weight: 700 }, body: { family: "Inter", weight: 400 } },
+      },
+      profile: {},
+      brief: { approvedFacts: [{ id: "f1", text: "Ready in 5 minutes", approved: true }], inputs: { visuals: ["ast_img1"] } },
+      scenes: [{ id: "s1", purpose: "p", recipeSlot: "p", durationFrames: 1146, layout: "presenter-full", background: { type: "color", color: "#000000" }, layers: [], sourceRange: { startSec: 0, endSec: 38.21 } }],
+      program: { sourceAssetId: "src", edl: [{ id: "k", sourceAssetId: "src", sourceInSec: 0, sourceOutSec: 38.21 }] },
+      beats: [{ id: "owner1", cue: { phrase: "Tool A", occurrence: 1, sourceStartSec: 16 }, outputFrame: 480, durationFrames: 60, locked: true, status: "mapped" }],
+    }) as unknown;
+  const flexBeat = (extra: Record<string, unknown> = {}) => ({ id: "ai1", cue: { phrase: "sourdough", occurrence: 1 }, origin: "assistant-flexible", durationFrames: 45, outputFrame: 600, text: "Sourdough", ...extra });
+
+  it("strict mode rejects any assistant-added beat but allows the owner", async () => {
+    const { ProjectDocument, applyOperations, OperationError } = await import("../src");
+    const doc = ProjectDocument.parse(base());
+    const next = [...doc.beats, flexBeat()];
+    expect(() => applyOperations(doc, [{ op: "setBeats", beats: next } as never], "assistant")).toThrow(OperationError);
+    try {
+      applyOperations(doc, [{ op: "setBeats", beats: next } as never], "assistant");
+    } catch (e) {
+      expect((e as InstanceType<typeof OperationError>).code).toBe("strict_mode");
+    }
+    expect(applyOperations(doc, [{ op: "setBeats", beats: next } as never], "user").doc.beats).toHaveLength(2);
+    expect(() => applyOperations(doc, [{ op: "setCreativeMode", mode: "flexible" }], "assistant")).toThrow(/owner/);
+  });
+
+  it("flexible mode admits bounded additions that respect locks, facts, media and duration", async () => {
+    const { ProjectDocument, applyOperations } = await import("../src");
+    let doc = ProjectDocument.parse(base());
+    doc = applyOperations(doc, [{ op: "setCreativeMode", mode: "flexible", flexibleBeatLimit: 2 }], "user").doc;
+    const ok = applyOperations(doc, [{ op: "setBeats", beats: [...doc.beats, flexBeat({ assetId: "ast_img1", visualAction: "image" })] } as never], "assistant");
+    expect(ok.doc.beats.at(-1)!.origin).toBe("assistant-flexible");
+    const bad = (b: Record<string, unknown>, re: RegExp) => expect(() => applyOperations(doc, [{ op: "setBeats", beats: [...doc.beats, flexBeat(b)] } as never], "assistant")).toThrow(re);
+    bad({ outputFrame: 470 }, /overlap the locked beat/);
+    bad({ text: "Ready in 3 minutes" }, /figure 3/);
+    bad({ assetId: "ast_generated" }, /already in the project/);
+    bad({ outputFrame: 1140 }, /past the end/);
+    bad({ origin: "user" }, /marked as flexible/);
+    expect(() => applyOperations(doc, [{ op: "setBeats", beats: [...doc.beats, flexBeat({ id: "a" }), flexBeat({ id: "b", outputFrame: 700 }), flexBeat({ id: "c", outputFrame: 800 })] } as never], "assistant")).toThrow(/at most 2/);
+    // Approved figures are fine.
+    expect(applyOperations(doc, [{ op: "setBeats", beats: [...doc.beats, flexBeat({ text: "Ready in 5 minutes" })] } as never], "assistant").doc.beats).toHaveLength(2);
+  });
+});

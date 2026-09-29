@@ -20,7 +20,7 @@ import {
   Transition,
 } from "./document";
 import { AspectRatio, SafeAreaPresetIdSchema } from "./format";
-import { validateTimeline } from "./timeline";
+import { computeTimeline, validateTimeline } from "./timeline";
 import { syncProgramScenes } from "./program";
 
 const Unit = z.number().min(0).max(1);
@@ -87,6 +87,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("restoreSourceRange"), sourceInSec: z.number().min(0), sourceOutSec: z.number().positive() }),
   z.object({ op: z.literal("correctTranscript"), segmentId: z.string().max(40), text: z.string().max(2000) }),
   z.object({ op: z.literal("setCleanupPolicy"), autoAcceptSilence: z.boolean(), autoAcceptFillers: z.boolean() }),
+  z.object({ op: z.literal("setCreativeMode"), mode: z.enum(["strict", "flexible"]), flexibleBeatLimit: z.number().int().min(0).max(20).optional() }),
   z.object({ op: z.literal("setPresenterFraming"), framing: Program.shape.presenterFraming.unwrap() }),
   z.object({ op: z.literal("setBeats"), beats: z.array(EditorialBeat).max(200) }),
   z.object({ op: z.literal("updateBeat"), beatId: Id, patch: EditorialBeat.omit({ id: true }).partial() }),
@@ -100,7 +101,7 @@ export type Actor = "user" | "assistant" | "bulk" | "system";
 
 export class OperationError extends Error {
   constructor(
-    public code: "not_found" | "locked" | "approved_claim" | "invalid" | "timeline" | "conflict",
+    public code: "not_found" | "locked" | "approved_claim" | "invalid" | "timeline" | "conflict" | "strict_mode" | "flexible_limit" | "flexible_asset",
     message: string,
     public details?: unknown,
   ) {
@@ -155,6 +156,7 @@ export function applyOperations(input: ProjectDocument, ops: Operation[], actor:
   if (!parsed.success) {
     throw new OperationError("invalid", "The edit produced an invalid project document.", parsed.error.issues.slice(0, 5));
   }
+  if (actor === "assistant") checkCreativeMode(input, parsed.data);
   const introduced = validateTimeline(parsed.data).filter(
     (i) => i.severity === "error" && !before.has(`${i.code}:${i.sceneId ?? ""}:${i.layerId ?? ""}`),
   );
@@ -452,6 +454,13 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       requireProgram(doc).cleanupPolicy = { autoAcceptSilence: op.autoAcceptSilence, autoAcceptFillers: op.autoAcceptFillers };
       return doc;
     }
+    case "setCreativeMode": {
+      if (actor !== "user") throw new OperationError("invalid", "Only the owner can change the creative mode.");
+      const p = requireProgram(doc);
+      p.creativeMode = op.mode;
+      if (op.flexibleBeatLimit !== undefined) p.flexibleBeatLimit = op.flexibleBeatLimit;
+      return doc;
+    }
     case "setPresenterFraming":
       requireProgram(doc).presenterFraming = op.framing;
       return doc;
@@ -547,4 +556,52 @@ export function restoreRange(edl: EdlEntry[], inSec: number, outSec: number, ass
 
 function stripUndefined<T extends object>(o: T): Partial<T> {
   return Object.fromEntries(Object.entries(o).filter(([, v]) => v !== undefined)) as Partial<T>;
+}
+
+/**
+ * A24 — strict vs flexible creative mode for assistant edits. Strict: the assistant may
+ * refine owner-specified beats but never add one. Flexible: additions are marked as
+ * assistant-originated, bounded in number, never overlap locked beats, stay inside the
+ * output, use only media already in the project (no new spending) and introduce no
+ * figures that are not approved facts or spoken in the cue.
+ */
+export function checkCreativeMode(before: ProjectDocument, after: ProjectDocument) {
+  const prevIds = new Set(before.beats.map((b) => b.id));
+  const added = after.beats.filter((b) => !prevIds.has(b.id));
+  if (!added.length) return;
+  const p = after.program;
+  if (!p || p.creativeMode === "strict") {
+    throw new OperationError("strict_mode", `Strict mode: only the beats you specified are used, so the assistant can't add “${added[0]!.cue.phrase}”. Switch to flexible mode to allow supporting additions.`);
+  }
+  const already = before.beats.filter((b) => b.origin === "assistant-flexible").length;
+  if (already + added.length > p.flexibleBeatLimit) {
+    throw new OperationError("flexible_limit", `Flexible mode allows at most ${p.flexibleBeatLimit} assistant-added beats.`);
+  }
+  const total = computeTimeline(after).totalFrames;
+  const known = new Set<string>([...referencedAssetIdsOf(before)]);
+  const facts = before.brief.approvedFacts.map((f) => f.text).join(" ");
+  for (const b of added) {
+    if (b.origin !== "assistant-flexible" || b.locked) throw new OperationError("invalid", "Assistant-added beats must be marked as flexible additions and cannot be locked.");
+    if (b.assetId && !known.has(b.assetId)) throw new OperationError("flexible_asset", "Flexible additions can only use media already in the project (no new generation or spending).");
+    for (const n of b.text.match(/\d[\d.,%]*/g) ?? []) {
+      if (!facts.includes(n) && !b.cue.phrase.includes(n)) throw new OperationError("approved_claim", `“${b.text}” introduces the figure ${n}, which is not an approved fact.`);
+    }
+    if (b.outputFrame !== undefined) {
+      if (b.outputFrame + b.durationFrames > total) throw new OperationError("timeline", `Beat “${b.cue.phrase}” would run past the end of the video.`);
+      for (const l of after.beats.filter((x) => x.locked && x.outputFrame !== undefined)) {
+        if (b.outputFrame < l.outputFrame! + l.durationFrames && l.outputFrame! < b.outputFrame + b.durationFrames) {
+          throw new OperationError("locked", `Beat “${b.cue.phrase}” would overlap the locked beat “${l.cue.phrase}”.`);
+        }
+      }
+    }
+  }
+}
+
+function referencedAssetIdsOf(doc: ProjectDocument): string[] {
+  const ids: string[] = [];
+  for (const s of doc.scenes) for (const l of s.layers) if ((l.kind === "image" || l.kind === "video") && l.assetId) ids.push(l.assetId);
+  for (const b of doc.beats) if (b.assetId) ids.push(b.assetId);
+  for (const v of Object.values(doc.brief.inputs)) for (const x of Array.isArray(v) ? v : [v]) if (typeof x === "string" && /^ast_/.test(x)) ids.push(x);
+  if (doc.brand.logoAssetId) ids.push(doc.brand.logoAssetId);
+  return ids;
 }

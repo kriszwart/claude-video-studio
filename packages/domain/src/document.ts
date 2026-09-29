@@ -322,6 +322,10 @@ export const Program = z.object({
   corrections: z.record(z.string().max(40), z.string().max(2000)).default({}),
   /** Cleanup the owner authorised once for this project; mistakes/retakes always need review. */
   cleanupPolicy: z.object({ autoAcceptSilence: z.boolean().default(false), autoAcceptFillers: z.boolean().default(false) }).default({ autoAcceptSilence: false, autoAcceptFillers: false }),
+  /** A24: strict = only owner-specified beats; flexible = assistant may add supporting beats within limits. */
+  creativeMode: z.enum(["strict", "flexible"]).default("strict"),
+  /** Most beats the assistant may add in flexible mode (each one is also bounded by locks, facts and duration). */
+  flexibleBeatLimit: z.number().int().min(0).max(20).default(4),
   /** Style treatment of this variant; siblings share source + transcript, never the document. */
   style: z.enum(["presenter-intro", "whiteboard", "course", "social", "balanced"]).default("balanced"),
 });
