@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { mkdir, rm, stat } from "node:fs/promises";
 import { extname, join } from "node:path";
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { dataDir, getDb, getStore, insertReadyAsset, JobError, newId, schema, setStage, type AssetRow, type JobRow } from "@vs/db";
 import type { ProjectDocument } from "@vs/domain";
 import { probeMedia, type ResolvedAssetFile } from "@vs/rendering";
@@ -104,12 +104,18 @@ export async function registerFile(
   path: string,
   opts: { kind: AssetRow["kind"]; originalName: string; provenance: Record<string, unknown>; generated?: boolean; isSample?: boolean; mime?: string; probe?: boolean },
 ): Promise<AssetRow> {
+  const contentHashEarly = await sha256File(path);
+  if (opts.kind !== "render") {
+    // Identical derived artifacts (e.g. an unchanged keyframe) reuse the existing immutable asset.
+    const existing = await getDb().query.assets.findFirst({ where: and(eq(schema.assets.workspaceId, workspaceId), eq(schema.assets.contentHash, contentHashEarly), eq(schema.assets.status, "ready"), eq(schema.assets.kind, opts.kind)) });
+    if (existing) return existing;
+  }
   const id = newId("ast");
   const ext = extname(path) || "";
   const key = `ws/${workspaceId}/assets/${id}/${opts.originalName.replace(/[^a-zA-Z0-9._-]/g, "_") || `file${ext}`}`;
   await getStore().putFile(key, path, opts.mime);
   const bytes = (await stat(path)).size;
-  const contentHash = await sha256File(path);
+  const contentHash = contentHashEarly;
   let media: Record<string, unknown> = {};
   if (opts.probe !== false && ["video", "audio", "image", "render"].includes(opts.kind)) {
     const p = await probeMedia(path).catch(() => null);

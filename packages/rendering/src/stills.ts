@@ -10,11 +10,16 @@ export interface StillsRequest {
   /** Output path per time index. */
   outPath: (index: number) => string;
   signal?: AbortSignal;
+  webgpu?: boolean;
+  /** Called with the page before capturing (tests: e.g. simulate device loss). */
+  beforeCapture?: (page: import("playwright-core").Page, index: number) => Promise<void>;
 }
 
 export interface PageReport {
   overflow: string[];
   missingFonts: string[];
+  skia?: unknown;
+  redraw?: unknown;
 }
 
 export interface StillsResult {
@@ -33,7 +38,7 @@ export async function captureStills(req: StillsRequest): Promise<StillsResult> {
   let browser: Browser | undefined;
   try {
     const executablePath = await resolveChromePath();
-    browser = await chromium.launch({ executablePath, args: ["--no-sandbox", "--disable-dev-shm-usage", "--force-color-profile=srgb", "--hide-scrollbars"] });
+    browser = await chromium.launch({ executablePath, args: ["--no-sandbox", "--disable-dev-shm-usage", "--force-color-profile=srgb", "--hide-scrollbars", ...(req.webgpu ? ["--enable-unsafe-webgpu"] : [])] });
     const page = await browser.newPage({ viewport: { width: req.width, height: req.height }, deviceScaleFactor: 1 });
     await page.goto(`${server.url}/index.html`, { waitUntil: "load", timeout: 60_000 });
     await page.waitForFunction(() => (window as unknown as { __renderReady?: boolean }).__renderReady === true, null, { timeout: 60_000 });
@@ -41,6 +46,7 @@ export async function captureStills(req: StillsRequest): Promise<StillsResult> {
     for (let i = 0; i < req.times.length; i++) {
       if (req.signal?.aborted) throw new Error("canceled");
       const t = req.times[i]!;
+      await req.beforeCapture?.(page, i);
       await page.evaluate(async (time) => {
         const w = window as unknown as { __hf: { seek: (t: number) => void }; __hfWaitForSeekCompletion?: () => Promise<void> };
         w.__hf.seek(time);
@@ -50,7 +56,10 @@ export async function captureStills(req: StillsRequest): Promise<StillsResult> {
       await page.locator("#root").screenshot({ path: out, type: out.endsWith(".png") ? "png" : "jpeg", quality: out.endsWith(".png") ? undefined : 85 });
       files.push(out);
     }
-    const report = (await page.evaluate(() => (window as unknown as { __vsReport?: PageReport }).__vsReport ?? { overflow: [], missingFonts: [] })) as PageReport;
+    const report = (await page.evaluate(() => {
+      const w = window as unknown as { __vsReport?: PageReport; __vsSkiaReport?: unknown; __vsRedrawReport?: unknown };
+      return { ...(w.__vsReport ?? { overflow: [], missingFonts: [] }), skia: w.__vsSkiaReport ?? null, redraw: w.__vsRedrawReport ?? null };
+    })) as PageReport;
     return { files, report };
   } finally {
     await browser?.close();

@@ -42,6 +42,8 @@ export interface RenderRequest {
   /** Additional audio (e.g. talking-head source segments mapped through the EDL). */
   extraMix?: MixInput[];
   workers?: number;
+  /** Launch the renderer with WebGPU enabled (Redraw layers). */
+  webgpu?: boolean;
 }
 
 export interface RenderResult {
@@ -84,8 +86,16 @@ async function findPlaywrightHeadlessShell(): Promise<string | undefined> {
   return undefined;
 }
 
-export async function resolveChromePath(): Promise<string | undefined> {
-  return defaultChromePath() ?? (await findPlaywrightHeadlessShell());
+export async function resolveChromePath(opts: { webgpu?: boolean } = {}): Promise<string | undefined> {
+  const base = defaultChromePath() ?? (await findPlaywrightHeadlessShell());
+  if (!base || !opts.webgpu) return base;
+  // HyperFrames adds --enable-unsafe-webgpu only outside software mode; this wrapper enables
+  // WebGPU (a software adapter on GPU-less workers) for compositions with Redraw layers.
+  const dir = join(process.env.DATA_DIR ?? join(process.cwd(), "data"), "bin");
+  const wrapper = join(dir, "chrome-webgpu.sh");
+  await mkdir(dir, { recursive: true });
+  await writeFile(wrapper, `#!/bin/sh\nexec "${base.replace(/"/g, "")}" --enable-unsafe-webgpu "$@"\n`, { mode: 0o755 });
+  return wrapper;
 }
 
 async function exists(p: string) {
@@ -293,6 +303,7 @@ export async function renderProject(req: RenderRequest): Promise<RenderResult> {
   await progress("rendering", 0, "Capturing frames");
   const videoOnly = join(req.workDir, "video-only.mp4");
   await renderWithHyperFrames(b.bundleDir, videoOnly, {
+    webgpu: req.webgpu,
     quality: req.quality,
     workers: req.workers ?? Number(process.env.RENDER_WORKERS ?? 2),
     signal: req.signal,
@@ -319,6 +330,7 @@ export async function renderProject(req: RenderRequest): Promise<RenderResult> {
 }
 
 export interface HfRenderOptions {
+  webgpu?: boolean;
   quality: "draft" | "standard" | "high";
   workers: number;
   signal?: AbortSignal;
@@ -328,7 +340,7 @@ export interface HfRenderOptions {
 /** Thin adapter over the pinned @hyperframes/producer API (0.8.90). */
 export async function renderWithHyperFrames(projectDir: string, outputPath: string, opts: HfRenderOptions): Promise<void> {
   const producer = await import("@hyperframes/producer");
-  const chromePath = await resolveChromePath();
+  const chromePath = await resolveChromePath({ webgpu: opts.webgpu });
   const engineConfig = producer.resolveConfig({ chromePath, browserGpuMode: "software", concurrency: opts.workers } as never);
   const request = producer.createRenderRequest({
     projectDir,

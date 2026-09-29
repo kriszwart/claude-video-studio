@@ -1,6 +1,7 @@
 import { z } from "zod";
 import {
   AudioTrack,
+  ColorRef,
   Background,
   BrandSnapshot,
   CaptionCue,
@@ -47,6 +48,7 @@ export const Operation = z.discriminatedUnion("op", [
   }),
   z.object({ op: z.literal("setLayerBox"), sceneId: Id, layerId: Id, box: LayerBox.nullable() }),
   z.object({ op: z.literal("setLayerHidden"), sceneId: Id, layerId: Id, hidden: z.boolean() }),
+  z.object({ op: z.literal("setShapeColor"), sceneId: Id, layerId: Id, color: ColorRef }),
   z.object({ op: z.literal("setGraphicsParams"), sceneId: Id, layerId: Id, params: z.record(z.string(), z.union([z.number(), z.string().max(400), z.boolean()])) }),
   z.object({ op: z.literal("addLayer"), sceneId: Id, layer: Layer }),
   z.object({ op: z.literal("removeLayer"), sceneId: Id, layerId: Id }),
@@ -115,6 +117,7 @@ const SCENE_CONTENT_OPS = new Set<Operation["op"]>([
   "setLayerBox",
   "setLayerHidden",
   "setGraphicsParams",
+  "setShapeColor",
   "addLayer",
   "removeLayer",
   "setSceneDuration",
@@ -247,6 +250,13 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       const layer = findLayer(sceneOp!, op.layerId);
       if (layer.kind !== "graphics") throw new OperationError("invalid", "Not a graphics layer.");
       layer.params = { ...layer.params, ...op.params };
+      changed.add(sceneOp!.id);
+      return doc;
+    }
+    case "setShapeColor": {
+      const layer = findLayer(sceneOp!, op.layerId);
+      if (layer.kind !== "shape") throw new OperationError("invalid", "Not a shape layer.");
+      layer.color = op.color;
       changed.add(sceneOp!.id);
       return doc;
     }

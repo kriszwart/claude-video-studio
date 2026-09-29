@@ -41,7 +41,10 @@ export function toJobError(e: unknown): JobError {
   if (e instanceof ProviderError) return new JobError(e.code, e.message, e.retryable, e.recovery);
   if (e instanceof AppError) return new JobError(e.code, e.message, false, e.recovery);
   if (e instanceof OperationError) return new JobError(e.code, e.message, false);
-  return new JobError("internal", e instanceof Error ? e.message : String(e), true);
+  // Unexpected errors: log details server-side, show a safe message to the user.
+  console.error("[worker] unexpected error", e instanceof Error ? e.stack : e);
+  if (e instanceof Error && /canceled|aborted/i.test(e.message)) return new JobError("canceled", "Canceled.", false);
+  return new JobError("internal", "An internal error interrupted this job. It will be retried automatically; if it keeps failing, check the worker log.", true);
 }
 
 async function recordUsage(workspaceId: string, projectId: string | null, jobId: string, usage: StructuredResult["usage"][], capability: string) {

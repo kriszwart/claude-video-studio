@@ -12,6 +12,7 @@
     "@vs/compositor": "workspace:*",
     "@vs/db": "workspace:*",
     "@vs/domain": "workspace:*",
+    "@vs/graphics": "workspace:*",
     "@vs/providers": "workspace:*",
     "@vs/rendering": "workspace:*",
     "@vs/templates": "workspace:*",

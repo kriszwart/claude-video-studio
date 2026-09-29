@@ -38,9 +38,22 @@ export interface StagedFont {
 /** A graphics layer compiled by a backend adapter (section 27). */
 export interface GraphicsFragment {
   html: string;
-  /** Script executed once; must register hf-seek + buildReady per the adapter contract. */
+  /** Inline script registering this layer's spec (runs before the runtimes). */
   script?: string;
+  /** Runtime scripts (bundle-relative), emitted once each after all layer specs. */
+  scriptSrcs?: string[];
   files?: { path: string; source: string }[];
+}
+
+export interface GraphicsCompileInfo {
+  sceneStartSec: number;
+  sceneDurationSec: number;
+  width: number;
+  height: number;
+  box: Box;
+  brand: BrandSnapshot;
+  fonts: StagedFont[];
+  assetFile: (assetId: string) => string | undefined;
 }
 
 export interface CompileContext {
@@ -51,7 +64,7 @@ export interface CompileContext {
   /** Pre-mixed audio bed covering the full timeline. */
   audioMix?: { file: string };
   /** Compile a graphics layer; throw GraphicsUnavailableError when the backend cannot render. */
-  graphics?: (layer: Extract<Layer, { kind: "graphics" }>, info: { sceneStartSec: number; sceneDurationSec: number; width: number; height: number; box: Box }) => GraphicsFragment;
+  graphics?: (layer: Extract<Layer, { kind: "graphics" }>, info: GraphicsCompileInfo) => GraphicsFragment;
   /** Relative path of the vendored GSAP build inside the bundle. */
   gsapFile: string;
 }
@@ -140,6 +153,7 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
   const warnings: string[] = [];
   const extraFiles: { path: string; source: string }[] = [];
   const scripts: string[] = [];
+  const scriptSrcs = new Set<string>();
   const tweens: string[] = [];
   const sec = (frames: number) => f3(frames / fps);
 
@@ -223,10 +237,11 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           break;
         case "graphics": {
           if (!ctx.graphics) throw new GraphicsUnavailableError(`No ${layer.backend} graphics backend is configured for this render.`);
-          const frag = ctx.graphics(layer, { sceneStartSec: start, sceneDurationSec: dur, width, height, box });
+          const frag = ctx.graphics(layer, { sceneStartSec: start, sceneDurationSec: dur, width, height, box, brand, fonts: ctx.fonts, assetFile: (id) => ctx.assets.get(id)?.file });
           parts.push(`<div class="layer gfx" id="${lid}" style="${boxCss(box)}z-index:${z};">${frag.html}</div>`);
           if (frag.script) scripts.push(frag.script);
-          if (frag.files) extraFiles.push(...frag.files);
+          for (const src of frag.scriptSrcs ?? []) scriptSrcs.add(src);
+          for (const f of frag.files ?? []) if (!extraFiles.some((e) => e.path === f.path)) extraFiles.push(f);
           break;
         }
       }
@@ -351,6 +366,7 @@ tl.set({}, {}, ${f3(durationSec)});
 window.__timelines["main"] = tl;
 </script>
 ${scripts.map((s) => `<script>${s}</script>`).join("\n")}
+${[...scriptSrcs].map((src) => `<script src="${escapeHtml(src)}"></script>`).join("\n")}
 </body></html>`;
 
   const manifest = {

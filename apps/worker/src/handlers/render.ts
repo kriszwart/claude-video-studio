@@ -6,7 +6,7 @@ import { GraphicsUnavailableError } from "@vs/compositor";
 import { computeTimeline, ProjectDocument, toSrt, toVtt, validateTimeline } from "@vs/domain";
 import { extractFrame, renderProject } from "@vs/rendering";
 import { referencedAssetIds, registerFile, resolveAssets, type Handler } from "../context";
-import { graphicsCompilerFor } from "../graphics";
+import { graphicsCompilerFor, needsWebGpu } from "../graphics";
 import { programMixInputs } from "../program";
 
 /**
@@ -41,6 +41,7 @@ export const renderRevision: Handler = async (ctx) => {
       quality: kind === "final" ? "standard" : "draft",
       signal: ctx.signal,
       graphics: await graphicsCompilerFor(doc, ctx),
+      webgpu: needsWebGpu(doc),
       extraMix: programMixInputs(doc, assets),
       onProgress: async (stage, fraction, message) => {
         await ctx.stage(stage, fraction, { message });

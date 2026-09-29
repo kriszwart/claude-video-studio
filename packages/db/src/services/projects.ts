@@ -278,3 +278,9 @@ export async function restoreDeletedProject(db: DbOrTx, projectId: string, works
 }
 
 export { emitJobEvent };
+
+/** Everything that affects how one scene's keyframe looks. */
+export function keyframeHash(doc: ProjectDocument, sceneId: string): string {
+  const scene = doc.scenes.find((s) => s.id === sceneId);
+  return createHash("sha256").update(stableStringify({ scene, format: doc.format, brand: doc.brand, profile: doc.profile })).digest("hex").slice(0, 20);
+}

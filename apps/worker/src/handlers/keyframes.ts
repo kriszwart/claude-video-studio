@@ -1,9 +1,9 @@
 import { join } from "node:path";
-import { getDb, getRevision } from "@vs/db";
+import { getDb, getRevision, keyframeHash } from "@vs/db";
 import { computeTimeline, ProjectDocument } from "@vs/domain";
 import { captureStills, prepareBundle } from "@vs/rendering";
 import { referencedAssetIds, registerFile, resolveAssets, type Handler } from "../context";
-import { graphicsCompilerFor } from "../graphics";
+import { graphicsCompilerFor, needsWebGpu } from "../graphics";
 
 /** Storyboard keyframes: actual frames captured from the compiled composition (FR-05). */
 export const renderKeyframes: Handler = async (ctx) => {
@@ -23,11 +23,11 @@ export const renderKeyframes: Handler = async (ctx) => {
     return (s.start + Math.min(off, s.duration - 1)) / doc.format.fps;
   });
   await ctx.stage("capturing keyframes", 0);
-  const stills = await captureStills({ bundleDir: b.bundleDir, width: b.width, height: b.height, times, outPath: (i) => join(ctx.workDir, `kf-${i}.jpg`), signal: ctx.signal });
+  const stills = await captureStills({ bundleDir: b.bundleDir, width: b.width, height: b.height, times, outPath: (i) => join(ctx.workDir, `kf-${i}.jpg`), signal: ctx.signal, webgpu: needsWebGpu(doc) });
   const keyframes = [];
   for (const [i, file] of stills.files.entries()) {
     const a = await registerFile(ctx.job.workspaceId, file, { kind: "image", originalName: `keyframe-${i + 1}.jpg`, mime: "image/jpeg", provenance: { source: "keyframe", revisionId: revision.id, sceneId: doc.scenes[i]!.id, timeSec: times[i] } });
-    keyframes.push({ sceneId: doc.scenes[i]!.id, assetId: a.id, timeSec: times[i] });
+    keyframes.push({ sceneId: doc.scenes[i]!.id, assetId: a.id, timeSec: times[i], sceneHash: keyframeHash(doc, doc.scenes[i]!.id) });
     await ctx.stage("capturing keyframes", (i + 1) / stills.files.length);
   }
   return { revisionId: revision.id, keyframes, report: stills.report, bundleHash: b.bundleHash };

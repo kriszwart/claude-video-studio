@@ -1,0 +1,40 @@
+# Local services for development. The app itself runs with pnpm (see README).
+# Worker containers need FFmpeg and a Chromium headless shell; see infra/worker.Dockerfile.
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: studio
+      POSTGRES_PASSWORD: studio
+      POSTGRES_DB: studio
+    ports: ["127.0.0.1:5432:5432"]
+    volumes: [pgdata:/var/lib/postgresql/data]
+  redis:
+    image: redis:7-alpine
+    ports: ["127.0.0.1:6379:6379"]
+  minio:
+    image: quay.io/minio/minio:latest
+    command: server /data --console-address :9001
+    environment:
+      MINIO_ROOT_USER: studio
+      MINIO_ROOT_PASSWORD: studio-dev-secret
+    ports: ["127.0.0.1:9000:9000", "127.0.0.1:9001:9001"]
+    volumes: [minio:/data]
+    profiles: [s3]
+  worker:
+    build:
+      context: ..
+      dockerfile: infra/worker.Dockerfile
+    env_file: ../.env
+    environment:
+      DATABASE_URL: postgres://studio:studio@postgres:5432/studio
+      REDIS_URL: redis://redis:6379
+      DATA_DIR: /data
+    volumes: [studio-data:/data]
+    depends_on: [postgres, redis]
+    shm_size: 2gb
+    profiles: [worker]
+volumes:
+  pgdata:
+  minio:
+  studio-data:

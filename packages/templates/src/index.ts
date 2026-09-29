@@ -10,3 +10,4 @@ export const BUILTIN_TEMPLATES: TemplateDefinition[] = [productLaunch].map((t) =
 export function getBuiltinTemplate(id: string, version?: number): TemplateDefinition | undefined {
   return BUILTIN_TEMPLATES.find((t) => t.id === id && (version === undefined || t.version === version));
 }
+export * from "./fromProject";

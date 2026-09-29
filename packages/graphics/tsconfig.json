@@ -1,0 +1,6 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": { "types": ["node", "@webgpu/types"] },
+  "include": ["src", "test", "scripts"],
+  "exclude": ["src/runtime/redraw-runtime.ts"]
+}

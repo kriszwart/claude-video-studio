@@ -162,16 +162,20 @@ export function appSecret(): string {
   return "development-only-secret-do-not-use-in-production-000";
 }
 
+export type AssetVariant = "original" | "thumb" | "proxy" | "raster";
+
 /** Sign an asset download for a workspace; verified by the file route after authorisation. */
-export function signAssetUrl(assetId: string, workspaceId: string, ttlSec = 600, disposition: "inline" | "attachment" = "inline"): string {
-  const exp = Math.floor(Date.now() / 1000) + ttlSec;
-  const sig = createHmac("sha256", appSecret()).update(`${assetId}.${workspaceId}.${exp}.${disposition}`).digest("base64url");
-  return `/api/files/${assetId}?exp=${exp}&d=${disposition}&sig=${sig}`;
+export function signAssetUrl(assetId: string, workspaceId: string, opts: { ttlSec?: number; disposition?: "inline" | "attachment"; variant?: AssetVariant } = {}): string {
+  const exp = Math.floor(Date.now() / 1000) + (opts.ttlSec ?? 3600);
+  const d = opts.disposition ?? "inline";
+  const v = opts.variant ?? "original";
+  const sig = createHmac("sha256", appSecret()).update(`${assetId}.${workspaceId}.${exp}.${d}.${v}`).digest("base64url");
+  return `/api/files/${assetId}?exp=${exp}&d=${d}&v=${v}&sig=${sig}`;
 }
 
-export function verifyAssetSignature(assetId: string, workspaceId: string, exp: number, disposition: string, sig: string): boolean {
+export function verifyAssetSignature(assetId: string, workspaceId: string, exp: number, disposition: string, variant: string, sig: string): boolean {
   if (!Number.isFinite(exp) || exp < Date.now() / 1000) return false;
-  const expected = createHmac("sha256", appSecret()).update(`${assetId}.${workspaceId}.${exp}.${disposition}`).digest();
+  const expected = createHmac("sha256", appSecret()).update(`${assetId}.${workspaceId}.${exp}.${disposition}.${variant}`).digest();
   const given = Buffer.from(sig, "base64url");
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
