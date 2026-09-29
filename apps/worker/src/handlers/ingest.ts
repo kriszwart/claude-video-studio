@@ -1,8 +1,9 @@
+import { parseSubtitles } from "@vs/domain";
 import { open, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import { findDuplicate, getDb, getStore, JobError, schema, UPLOAD_LIMITS } from "@vs/db";
-import { FFMPEG, probeMedia, resolveChromePath, run, runOk } from "@vs/rendering";
+import { FFMPEG, opaqueLuma, probeMedia, resolveChromePath, run, runOk } from "@vs/rendering";
 import { chromium } from "playwright-core";
 import { sha256File, type Handler } from "../context";
 
@@ -127,6 +128,7 @@ export const ingestAsset: Handler = async (ctx) => {
       media.width = p!.video!.width;
       media.height = p!.video!.height;
       media.format = img;
+      media.opaqueLuma = await opaqueLuma(path!);
     } else if (/<svg|<\?xml/i.test(head.toString("utf8"))) {
       kind = "svg";
       await ctx.stage("rasterising SVG");
@@ -135,7 +137,7 @@ export const ingestAsset: Handler = async (ctx) => {
       const rasterKey = `${asset.storageKey}.raster.png`;
       await store.putFile(rasterKey, out, "image/png");
       derived.rasterKey = rasterKey;
-      Object.assign(media, dim, { format: "svg", rasterized: true });
+      Object.assign(media, dim, { format: "svg", rasterized: true, opaqueLuma: await opaqueLuma(out) });
     } else {
       await fail("invalid_image", "The file's contents are not a supported image (PNG, JPEG, WebP, GIF or SVG).");
     }
@@ -181,6 +183,14 @@ export const ingestAsset: Handler = async (ctx) => {
       await ctx.stage("computing waveform");
       derived.peaks = await audioPeaks(path!);
     }
+  } else if (kind === "document") {
+    // Subtitle/transcript files: must be UTF-8 text that parses as SRT or WebVTT.
+    if (size > 5 * 1024 * 1024) await fail("too_large", "Subtitle files are limited to 5 MB.");
+    const txt = (await readFile(path!)).toString("utf8");
+    if (txt.includes("\u0000") || /\uFFFD/.test(txt.slice(0, 2000))) await fail("invalid_subtitles", "The file is not UTF-8 text.");
+    const cues = parseSubtitles(txt);
+    if (!cues.length) await fail("invalid_subtitles", "No timed cues were found; upload an SRT or WebVTT file.");
+    Object.assign(media, { format: /^\uFEFF?WEBVTT/.test(txt) ? "vtt" : "srt", cues: cues.length, durationSec: cues.at(-1)!.endSec });
   } else if (kind === "font") {
     const f = sniffFont(head);
     if (!f) await fail("invalid_font", "The file is not a TTF, OTF, WOFF or WOFF2 font.");
@@ -203,3 +213,4 @@ export const ingestAsset: Handler = async (ctx) => {
   await writeFile(join(ctx.workDir, "ok"), "");
   return { assetId, kind, media };
 };
+

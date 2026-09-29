@@ -1,3 +1,4 @@
+import { FFMPEG, run as runBin } from "./exec";
 import { FFPROBE, runOk } from "./exec";
 
 export interface MediaProbe {
@@ -42,4 +43,22 @@ export async function probeMedia(path: string): Promise<MediaProbe> {
       : undefined,
     hasAlpha: !!pix && /a|rgba|argb|yuva/.test(pix) && !/^yuv4[0-9]{2}p$/.test(pix),
   };
+}
+
+/**
+ * Mean Rec.709 luminance (0..1) of an image's opaque pixels, sampled at 64×64. Used to give
+ * logos a contrasting backing (a dark wordmark on a dark card is unreadable). Null if unknown.
+ */
+export async function opaqueLuma(file: string): Promise<number | null> {
+  const r = await runBin(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-i", file, "-frames:v", "1", "-vf", "scale=64:64:flags=area,format=rgba", "-f", "rawvideo", "-"], { timeoutMs: 30_000 }).catch(() => null);
+  const buf = r?.code === 0 ? r.stdoutBuffer : null;
+  if (!buf || buf.length < 64 * 64 * 4) return null;
+  let sum = 0;
+  let n = 0;
+  for (let i = 0; i + 3 < buf.length; i += 4) {
+    if (buf[i + 3]! < 128) continue;
+    sum += (0.2126 * buf[i]! + 0.7152 * buf[i + 1]! + 0.0722 * buf[i + 2]!) / 255;
+    n++;
+  }
+  return n ? Math.round((sum / n) * 1000) / 1000 : null;
 }

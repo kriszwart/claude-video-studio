@@ -232,10 +232,12 @@ function InputControl({ field, value, onChange }: { field: InputField; value: un
     case "image":
     case "images":
     case "audio":
-    case "video": {
-      const k = field.kind === "images" ? "image" : (field.kind as "image" | "audio" | "video");
+    case "video":
+    case "videos":
+    case "subtitle": {
+      const k = field.kind === "images" ? "image" : field.kind === "videos" ? "video" : field.kind === "subtitle" ? "document" : (field.kind as "image" | "audio" | "video");
       const ids = Array.isArray(value) ? value : value ? [String(value)] : [];
-      return <AssetPicker kind={k} multiple={field.kind === "images"} max={field.maxItems} value={ids} onChange={(v) => onChange(field.kind === "images" ? v : (v[0] ?? ""))} />;
+      return <AssetPicker kind={k} multiple={field.kind === "images" || field.kind === "videos"} max={field.maxItems} value={ids} onChange={(v) => onChange(field.kind === "images" || field.kind === "videos" ? v : (v[0] ?? ""))} />;
     }
     default:
       return <input id={id} className="input" type={field.kind === "url" ? "text" : "text"} value={String(value ?? "")} maxLength={field.maxLength} onChange={(e) => onChange(e.target.value)} />;

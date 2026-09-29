@@ -5,7 +5,7 @@ import { extname, join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { dataDir, getDb, getStore, insertReadyAsset, JobError, newId, schema, setStage, type AssetRow, type JobRow } from "@vs/db";
 import type { ProjectDocument } from "@vs/domain";
-import { probeMedia, type ResolvedAssetFile } from "@vs/rendering";
+import { opaqueLuma, probeMedia, type ResolvedAssetFile } from "@vs/rendering";
 
 export interface JobContext {
   job: JobRow;
@@ -85,13 +85,19 @@ export async function resolveAssets(workspaceId: string, ids: string[]): Promise
     const derived = a.derived as { rasterKey?: string };
     const key = a.kind === "svg" && derived.rasterKey ? derived.rasterKey : a.storageKey;
     const path = await store.materialize(key);
-    const media = a.media as { width?: number; height?: number; durationSec?: number; hasAudio?: boolean; font?: { family: string; weight: number; style?: "normal" | "italic" } };
+    if ((a.kind === "image" || a.kind === "svg") && (a.media as { opaqueLuma?: number }).opaqueLuma === undefined) {
+      // Backfill for assets ingested before luminance was measured.
+      const luma = await opaqueLuma(path).catch(() => null);
+      a.media = { ...(a.media as object), opaqueLuma: luma };
+      await db.update(schema.assets).set({ media: a.media }).where(eq(schema.assets.id, a.id));
+    }
+    const media = a.media as { width?: number; height?: number; durationSec?: number; hasAudio?: boolean; opaqueLuma?: number; font?: { family: string; weight: number; style?: "normal" | "italic" } };
     out.set(id, {
       id,
       path,
       kind: renderKind(a),
       contentHash: a.contentHash ?? id,
-      media: { width: media.width, height: media.height, durationSec: media.durationSec, hasAudio: media.hasAudio },
+      media: { width: media.width, height: media.height, durationSec: media.durationSec, hasAudio: media.hasAudio, opaqueLuma: media.opaqueLuma },
       font: a.kind === "font" ? media.font : undefined,
     });
   }

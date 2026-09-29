@@ -8,12 +8,13 @@ import { AudioPanel } from "./AudioPanel";
 import { ExportPanel } from "./ExportPanel";
 import { DebouncedText } from "./fields";
 import { Preview } from "./Preview";
+import { ProgramPanel } from "./ProgramPanel";
 import { ProjectPanel } from "./ProjectPanel";
 import { SceneInspector } from "./SceneInspector";
 import { SceneList } from "./SceneList";
 import { useProject } from "./useProject";
 
-type Tab = "scene" | "assistant" | "audio" | "export" | "project";
+type Tab = "scene" | "transcript" | "assistant" | "audio" | "export" | "project";
 
 export function Editor({ projectId }: { projectId: string }) {
   const p = useProject(projectId);
@@ -87,13 +88,14 @@ export function Editor({ projectId }: { projectId: string }) {
         </main>
         <aside className="order-3 flex min-h-0 flex-col border-line lg:border-l">
           <div role="tablist" aria-label="Inspector" className="flex gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
-            {(["scene", "assistant", "audio", "export", "project"] as Tab[]).map((t) => (
+            {((doc.program ? ["transcript", "scene", "assistant", "audio", "export", "project"] : ["scene", "assistant", "audio", "export", "project"]) as Tab[]).map((t) => (
               <button key={t} role="tab" aria-selected={tab === t} className={`btn btn-ghost shrink-0 px-2 py-1 text-xs capitalize ${tab === t ? "bg-panel-2 text-ink" : "text-dim"}`} onClick={() => setTab(t)}>
                 {t === "assistant" ? "Assistant" : t}
               </button>
             ))}
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-3" role="tabpanel">
+            {tab === "transcript" && doc.program && <ProgramPanel projectId={projectId} doc={doc} view={view} apply={p.apply} onChanged={() => p.refresh()} />}
             {tab === "scene" && <SceneInspector doc={doc} scene={scene} apply={p.apply} />}
             {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claudeConfigured={claude} />}
             {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}

@@ -17,7 +17,7 @@ export type Capability = z.infer<typeof Capability>;
 export const InputField = z.object({
   id: z.string().regex(/^[a-zA-Z][a-zA-Z0-9_]{0,39}$/),
   label: z.string().max(80),
-  kind: z.enum(["text", "longtext", "list", "url", "image", "images", "audio", "video", "select", "number", "facts"]),
+  kind: z.enum(["text", "longtext", "list", "url", "image", "images", "audio", "video", "videos", "subtitle", "select", "number", "facts"]),
   required: z.boolean().default(false),
   help: z.string().max(300).default(""),
   maxLength: z.number().int().positive().optional(),
@@ -146,6 +146,16 @@ export const TemplateDefinition = z.object({
   checklist: z.array(z.string().max(200)).max(20).default([]),
   /** Workflow engine the family uses beyond scene recipes. */
   engine: z.enum(["scenes", "program", "shots"]).default("scenes"),
+  /** Program engine (talking head): which input is the recording, which the optional subtitle file, and the style treatment. */
+  program: z
+    .object({
+      sourceInput: z.string(),
+      transcriptInput: z.string().optional(),
+      bRollInput: z.string().optional(),
+      style: z.enum(["presenter-intro", "whiteboard", "course", "social", "balanced"]).default("balanced"),
+      presenterFraming: z.enum(["full", "split-right", "split-left", "rounded-inset", "hidden"]).default("full"),
+    })
+    .optional(),
   /** Present on templates saved from projects. */
   derivedFrom: z.object({ projectId: z.string(), revisionId: z.string() }).optional(),
 });

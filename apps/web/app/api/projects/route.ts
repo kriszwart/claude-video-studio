@@ -42,12 +42,16 @@ export const POST = route(async (req) => {
   const missing = missingRequiredInputs(template, input.inputs);
   if (missing.length) throw new AppError(422, "missing_inputs", `Required inputs are missing: ${missing.join(", ")}.`);
   // Asset inputs must belong to this workspace.
-  for (const f of template.inputs.filter((x) => ["image", "images", "audio", "video"].includes(x.kind))) {
+  const assetDurations = new Map<string, number>();
+  for (const f of template.inputs.filter((x) => ["image", "images", "audio", "video", "videos", "subtitle"].includes(x.kind))) {
     const v = input.inputs[f.id];
     for (const id of Array.isArray(v) ? v : v ? [String(v)] : []) {
       const a = await db.query.assets.findFirst({ where: and(eq(schema.assets.id, id), eq(schema.assets.workspaceId, s.workspaceId)) });
       if (!a) throw new AppError(422, "unknown_asset", `An asset selected for "${f.label}" is not available.`);
       if (a.status !== "ready") throw new AppError(409, "asset_not_ready", `"${a.originalName}" is still processing.`);
+      if (f.kind === "subtitle" && a.kind !== "document") throw new AppError(422, "invalid_input", `"${a.originalName}" is not a subtitle file.`);
+      if ((f.kind === "video" || f.kind === "videos") && a.kind !== "video") throw new AppError(422, "invalid_input", `"${a.originalName}" is not a video.`);
+      assetDurations.set(id, Number((a.media as { durationSec?: number }).durationSec ?? 0));
     }
   }
   let brand = { ...DEFAULT_BRAND, name: String(input.inputs.productName ?? "") };
@@ -57,7 +61,8 @@ export const POST = route(async (req) => {
     brand = BrandSnapshot.parse({ ...(kit.data as object), brandKitId: kit.id, brandKitVersion: kit.version });
   }
   if (typeof input.inputs.logo === "string" && input.inputs.logo && !brand.logoAssetId) brand = { ...brand, logoAssetId: input.inputs.logo };
-  const doc = instantiateTemplate(template, { title: input.title, aspect: input.aspect, brand, inputs: input.inputs, durationSec: input.durationSec, newId });
+  const sourceId = template.program ? String(input.inputs[template.program.sourceInput] ?? "") : "";
+  const doc = instantiateTemplate(template, { title: input.title, aspect: input.aspect, brand, inputs: input.inputs, durationSec: input.durationSec, newId, sourceDurationSec: assetDurations.get(sourceId) });
   const budget: BudgetPolicy = { ...DEFAULT_BUDGET, ...input.budget };
   const result = await db.transaction(async (tx) => {
     const created = await createProject(tx, { workspaceId: s.workspaceId, doc, templateId: template.id, templateVersion: template.version, family: template.family, budget, action: "created from template" });
@@ -68,8 +73,15 @@ export const POST = route(async (req) => {
       }
       job = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "plan", input: { baseRevisionId: created.revision.id, targetDurationSec: input.durationSec ?? template.duration.defaultSec }, idempotencyKey: idem ? `plan:${idem}` : null })).job;
     }
+    // Talking-head projects start transcript-first: import the supplied subtitles, or
+    // transcribe with whatever provider is available (the job fails clearly if none is).
+    let transcribeJob = null;
+    if (template.program) {
+      const sub = template.program.transcriptInput ? String(input.inputs[template.program.transcriptInput] ?? "") : "";
+      transcribeJob = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "transcribe", input: { assetId: sourceId, subtitleAssetId: sub || undefined, provider: "auto" }, idempotencyKey: idem ? `transcribe:${idem}` : null })).job;
+    }
     await tx.insert(schema.analyticsEvents).values({ workspaceId: s.workspaceId, name: "project_created", props: { family: template.family, template: template.id, plan: input.plan } });
-    return { project: created.project, job };
+    return { project: created.project, job, transcribeJob };
   });
-  return json({ ...(await projectView(result.project.id, s.workspaceId)), planJobId: result.job?.id ?? null }, 201);
+  return json({ ...(await projectView(result.project.id, s.workspaceId)), planJobId: result.job?.id ?? null, transcribeJobId: result.transcribeJob?.id ?? null }, 201);
 });

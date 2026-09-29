@@ -7,3 +7,4 @@ export * from "./revisions";
 export * from "./budget";
 export * from "./captions";
 export * from "./program";
+export * from "./transcript";

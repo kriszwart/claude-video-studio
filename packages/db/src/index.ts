@@ -10,3 +10,4 @@ export * from "./services/auth";
 export * from "./services/crypto";
 export * from "./services/templates";
 export * from "./services/providers";
+export * from "./services/transcripts";

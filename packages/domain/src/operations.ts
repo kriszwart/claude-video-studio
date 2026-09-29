@@ -85,6 +85,9 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("acceptCuts"), cutIds: z.array(Id).min(1) }),
   z.object({ op: z.literal("rejectCuts"), cutIds: z.array(Id).min(1) }),
   z.object({ op: z.literal("restoreSourceRange"), sourceInSec: z.number().min(0), sourceOutSec: z.number().positive() }),
+  z.object({ op: z.literal("correctTranscript"), segmentId: z.string().max(40), text: z.string().max(2000) }),
+  z.object({ op: z.literal("setCleanupPolicy"), autoAcceptSilence: z.boolean(), autoAcceptFillers: z.boolean() }),
+  z.object({ op: z.literal("setPresenterFraming"), framing: Program.shape.presenterFraming.unwrap() }),
   z.object({ op: z.literal("setBeats"), beats: z.array(EditorialBeat).max(200) }),
   z.object({ op: z.literal("updateBeat"), beatId: Id, patch: EditorialBeat.omit({ id: true }).partial() }),
   z.object({ op: z.literal("setBeatAnchor"), beatId: Id, anchor: z.object({ x: Unit, y: Unit }).nullable(), lock: z.boolean().default(true) }),
@@ -438,6 +441,20 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       p.edl = restoreRange(p.edl, op.sourceInSec, op.sourceOutSec, p.sourceAssetId);
       return syncProgramScenes(doc);
     }
+    case "correctTranscript": {
+      if (actor === "assistant") throw new OperationError("invalid", "Transcript corrections are made by the owner.");
+      const p = requireProgram(doc);
+      p.corrections = { ...p.corrections, [op.segmentId]: op.text.trim() };
+      return doc;
+    }
+    case "setCleanupPolicy": {
+      if (actor !== "user") throw new OperationError("invalid", "Only the owner can authorise a cleanup policy.");
+      requireProgram(doc).cleanupPolicy = { autoAcceptSilence: op.autoAcceptSilence, autoAcceptFillers: op.autoAcceptFillers };
+      return doc;
+    }
+    case "setPresenterFraming":
+      requireProgram(doc).presenterFraming = op.framing;
+      return doc;
     case "rejectCuts": {
       const p = requireProgram(doc);
       p.proposedCuts = p.proposedCuts.filter((c) => !op.cutIds.includes(c.id));

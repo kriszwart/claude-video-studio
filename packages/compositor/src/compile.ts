@@ -27,6 +27,8 @@ export interface StagedAsset {
   height?: number;
   durationSec?: number;
   hasAudio?: boolean;
+  /** Mean luminance (0..1) of an image's opaque pixels, measured at ingest; picks a contrasting backing. */
+  opaqueLuma?: number;
 }
 
 export interface StagedFont {
@@ -203,7 +205,7 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       if (!src) warnings.push("The source recording is missing; the presenter is omitted.");
       else if (pslot && doc.program.presenterFraming !== "hidden") {
         const pbox = boxFor(pslot);
-        const rounded = scene.layout === "presenter-inset" || doc.profile.framing === "rounded-inset";
+        const rounded = scene.layout === "presenter-inset" || scene.layout === "lesson-takeaway" || doc.program.presenterFraming === "rounded-inset" || doc.profile.framing === "rounded-inset";
         const radius = rounded ? `border-radius:${f3(Math.min(pbox.width, pbox.height) * 0.08)}px;` : "";
         const shadow = rounded ? "box-shadow:0 12px 40px rgba(0,0,0,.45);" : "";
         let segIndex = 0;
@@ -330,7 +332,11 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       let inner = "";
       if ((beat.visualAction === "logo" || beat.visualAction === "image" || beat.visualAction === "b-roll") && beat.assetId && ctx.assets.get(beat.assetId)) {
         const a = ctx.assets.get(beat.assetId)!;
-        inner = `<div style="width:100%;height:100%;background:${back};border-radius:${f3(18 * unit)}px;padding:${f3(12 * unit)}px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:${f3(12 * unit)}px"><img src="${a.file}" alt="" style="max-height:100%;max-width:${beat.text ? "40%" : "100%"};object-fit:contain">${beat.text ? `<span style="font-size:${f3(size)}px;font-weight:700;color:${resolveColor(brand, "brand.text", "#fff")}">${escapeHtml(beat.text)}</span>` : ""}</div>`;
+        // Contrast fallback (FR-14): a dark logo gets a light card, a light logo a dark card.
+        const darkLogo = a.opaqueLuma !== undefined && a.opaqueLuma !== null && a.opaqueLuma < 0.45;
+        const cardBg = darkLogo ? hexWithAlpha("#f8fafc", beat.backing === "solid" ? 1 : 0.94) : back;
+        const cardInk = darkLogo ? "#0f172a" : resolveColor(brand, "brand.text", "#fff");
+        inner = `<div style="width:100%;height:100%;background:${cardBg};border-radius:${f3(18 * unit)}px;padding:${f3(12 * unit)}px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:${f3(12 * unit)}px"><img src="${a.file}" alt="" style="max-height:100%;max-width:${beat.text ? "40%" : "100%"};object-fit:contain">${beat.text ? `<span style="font-size:${f3(size)}px;font-weight:700;color:${cardInk}">${escapeHtml(beat.text)}</span>` : ""}</div>`;
       } else {
         inner = `<div class="fit" data-size="${f3(size)}" style="font-size:${f3(size)}px;font-family:${cssFamily(brand.fonts.heading.family)},sans-serif;font-weight:${brand.fonts.heading.weight};color:${resolveColor(brand, "brand.text", "#ffffff")};justify-content:center;text-align:center;"><div><span style="background:${back};padding:.12em .45em;border-radius:.25em;-webkit-box-decoration-break:clone;box-decoration-break:clone;">${escapeHtml(beat.text || beat.cue.phrase)}</span></div></div>`;
       }
@@ -406,7 +412,7 @@ html,body{margin:0;padding:0;background:#000;}
 })();`;
 
   const html = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="generator" content="video-studio-compositor/1">
+<html><head><meta charset="utf-8"><meta name="generator" content="video-studio-compositor/2">
 <style>${css}</style>
 <script src="${ctx.gsapFile}"></script>
 </head><body>
@@ -429,7 +435,7 @@ ${[...scriptSrcs].map((src) => `<script src="${escapeHtml(src)}"></script>`).joi
 </body></html>`;
 
   const manifest = {
-    compiler: "video-studio-compositor/1",
+    compiler: "video-studio-compositor/2",
     width,
     height,
     fps,

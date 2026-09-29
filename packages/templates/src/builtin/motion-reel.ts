@@ -6,7 +6,7 @@ export const motionReel: TemplateDefinitionInput = {
   family: "motion-reel",
   name: "Motion Graphics Reel",
   description: "Hook → kinetic typography → graphic progression → focal reveal → end card. Five distinct visual beats built from real type and shape animation, with your logo and music.",
-  version: 1,
+  version: 2,
   tags: { purpose: ["brand", "social", "announcement"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -76,7 +76,7 @@ export const motionReel: TemplateDefinitionInput = {
       motion: 0.7,
       layers: [
         { kind: "image", slot: "media", asset: "{{heroImage}}", fit: "cover", animation: "fade", kenBurns: true },
-        { kind: "text", slot: "headline", role: "headline", text: "{{focal}}", optional: true, backing: "translucent", animation: "rise", delaySec: 0.5 },
+        { kind: "text", slot: "headline", role: "label", text: "{{brandName}}", optional: true, backing: "translucent", animation: "rise", delaySec: 0.5 },
       ],
     },
     {
@@ -89,8 +89,8 @@ export const motionReel: TemplateDefinitionInput = {
       background: { type: "gradient", from: "brand.secondary", to: "brand.background", angle: 200 },
       motion: 0.7,
       layers: [
-        { kind: "shape", slot: "decor", shape: "ring", color: "brand.accent", animation: "pop", loop: "spin", box: { x: 0.3, y: 0.05, w: 0.4, h: 0.9 } },
-        { kind: "text", slot: "headline", role: "headline", text: "{{focal}}", scale: 1.1, animation: "pop" },
+        { kind: "shape", slot: "decor", shape: "ring", color: "brand.accent", animation: "pop", loop: "spin", box: { x: 0.15, y: -0.25, w: 0.7, h: 1.5 } },
+        { kind: "text", slot: "headline", role: "headline", text: "{{focal}}", scale: 1.1, backing: "translucent", animation: "pop" },
       ],
     },
     {

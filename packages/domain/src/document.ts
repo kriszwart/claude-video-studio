@@ -318,6 +318,12 @@ export const Program = z.object({
   audioFadeMs: z.number().int().min(0).max(200).default(12),
   handlesMs: z.number().int().min(0).max(1000).default(120),
   presenterFraming: z.enum(["full", "split-right", "split-left", "rounded-inset", "hidden"]).default("full"),
+  /** Derived (edited) transcript: corrections keyed by immutable source segment id. */
+  corrections: z.record(z.string().max(40), z.string().max(2000)).default({}),
+  /** Cleanup the owner authorised once for this project; mistakes/retakes always need review. */
+  cleanupPolicy: z.object({ autoAcceptSilence: z.boolean().default(false), autoAcceptFillers: z.boolean().default(false) }).default({ autoAcceptSilence: false, autoAcceptFillers: false }),
+  /** Style treatment of this variant; siblings share source + transcript, never the document. */
+  style: z.enum(["presenter-intro", "whiteboard", "course", "social", "balanced"]).default("balanced"),
 });
 export type Program = z.infer<typeof Program>;
 

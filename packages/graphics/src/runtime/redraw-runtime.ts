@@ -127,7 +127,8 @@ async function acquireDevice(): Promise<GPUDevice> {
   d.lost.then((l) => {
     report.lost++;
     report.errors.push(`device lost: ${l.reason} ${l.message}`);
-    device = null;
+    // Only clear the current device; a stale loss must not clobber a rebuilt one.
+    if (device === d) device = null;
   });
   return d;
 }
@@ -190,7 +191,7 @@ async function renderLayer(L: Layer, t: number) {
   L.ctx2d.putImageData(img, 0, 0);
 }
 
-async function drawAll(time: number) {
+async function drawOnce(time: number) {
   if (!device) {
     // Device loss: reinitialise from project data (frames are stateless) and redraw.
     await rebuild(layers.map((l) => l.spec));
@@ -204,6 +205,22 @@ async function drawAll(time: number) {
     await renderLayer(L, tt);
     L.lastT = tt;
     report.frames++;
+  }
+}
+
+function isDeviceLoss(e: unknown): boolean {
+  return device === null || (e instanceof DOMException && (e.name === "AbortError" || e.name === "OperationError")) || /device.*lost|lost.*device/i.test(String(e));
+}
+
+/** Draw a frame; a device lost mid-frame (the loss promise may not have settled yet) is rebuilt once and the frame redrawn. */
+async function drawAll(time: number) {
+  try {
+    await drawOnce(time);
+  } catch (e) {
+    if (!isDeviceLoss(e)) throw e;
+    report.errors.push(`recovered from device loss while drawing t=${time.toFixed(3)}: ${String(e).slice(0, 160)}`);
+    device = null;
+    await drawOnce(time);
   }
 }
 

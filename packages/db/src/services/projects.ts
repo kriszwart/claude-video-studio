@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   applyOperations,
+  computeTimeline,
   DEFAULT_BUDGET,
   DOCUMENT_SCHEMA_VERSION,
   historyForEdit,
@@ -21,6 +22,7 @@ import { AppError, conflict, notFound } from "../errors";
 import { newId } from "../ids";
 import { cleanupTasks, jobs, projectRevisions, projects } from "../schema";
 import { emitJobEvent, requestCancel } from "./jobs";
+import { deriveProgramState, touchesProgram } from "./transcripts";
 
 export type ProjectRow = typeof projects.$inferSelect;
 export type RevisionRow = typeof projectRevisions.$inferSelect;
@@ -165,6 +167,9 @@ export async function applyProjectOperations(db: DbOrTx, input: ApplyInput) {
     if (e instanceof OperationError) throw new AppError(e.code === "locked" || e.code === "approved_claim" ? 403 : 422, e.code, e.message, undefined, e.details);
     throw e;
   }
+  if (touchesProgram(input.ops)) {
+    result.doc = ProjectDocument.parse(await deriveProgramState(db, result.doc, input.workspaceId, { regenerateCaptions: input.ops.some((o) => o.op === "correctTranscript" || o.op === "setProgram") }));
+  }
   if (hashDocument(result.doc) === current!.documentHash) {
     return { revision: current!, doc: result.doc, changedSceneIds: [], noop: true };
   }
@@ -279,8 +284,14 @@ export async function restoreDeletedProject(db: DbOrTx, projectId: string, works
 
 export { emitJobEvent };
 
+/** Bumped when still capture changes (e.g. video frame injection) so cached keyframes refresh. */
+const KEYFRAME_RENDER_VERSION = 2;
+
 /** Everything that affects how one scene's keyframe looks. */
 export function keyframeHash(doc: ProjectDocument, sceneId: string): string {
   const scene = doc.scenes.find((s) => s.id === sceneId);
-  return createHash("sha256").update(stableStringify({ scene, format: doc.format, brand: doc.brand, profile: doc.profile })).digest("hex").slice(0, 20);
+  // Program projects: the presenter footage, captions and beats shown depend on the EDL and
+  // on where the scene sits in the output, so those are part of the look too.
+  const program = doc.program ? { edl: doc.program.edl, framing: doc.program.presenterFraming, start: computeTimeline(doc).scenes.find((s) => s.sceneId === sceneId)?.start, beats: doc.beats, captions: doc.captions } : null;
+  return createHash("sha256").update(stableStringify({ v: KEYFRAME_RENDER_VERSION, scene, format: doc.format, brand: doc.brand, profile: doc.profile, program })).digest("hex").slice(0, 20);
 }

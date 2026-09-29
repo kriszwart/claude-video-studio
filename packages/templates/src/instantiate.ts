@@ -4,6 +4,7 @@ import {
   DOCUMENT_SCHEMA_VERSION,
   ProjectDocument,
   secondsToFrames,
+  syncProgramScenes,
   type AspectRatio,
   type AudioTrack,
   type BrandSnapshot,
@@ -25,6 +26,8 @@ export interface InstantiateOptions {
   /** Deterministic id generator (tests) or random (app). */
   newId: (prefix: string) => string;
   seed?: number;
+  /** Program engine: probed duration of the source recording. */
+  sourceDurationSec?: number;
 }
 
 const BINDING = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\.([a-zA-Z_]+))?(?:\[(\d+|i)\])?\s*\}\}/g;
@@ -156,8 +159,37 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
     seed: opts.seed ?? 1,
   });
 
+  if (def.engine === "program") return withProgram(def, doc, inputs, opts);
+
   const target = opts.durationSec ?? (typeof inputs.durationSec === "number" ? inputs.durationSec : Number(inputs.durationSec) || undefined);
   return target ? fitDuration(doc, clamp(target, def.duration.minSec, def.duration.maxSec)) : doc;
+}
+
+/**
+ * Talking-head documents start as the untouched source: one presenter scene covering the
+ * whole recording and an EDL that keeps everything. Sections, captions and overlays are
+ * built once the transcript exists (buildProgramScenes); cuts are separate opt-in edits.
+ */
+function withProgram(def: TemplateDefinition, doc: ProjectDocument, inputs: InputValues, opts: InstantiateOptions): ProjectDocument {
+  const cfg = def.program;
+  if (!cfg) throw new Error(`Template ${def.id} uses the program engine without a program config.`);
+  const sourceAssetId = firstString(inputs[cfg.sourceInput]);
+  if (!sourceAssetId) throw new Error("A source recording is required.");
+  const dur = opts.sourceDurationSec;
+  if (!dur || dur <= 0) throw new Error("The source recording's duration is unknown; wait for it to finish processing.");
+  const first = doc.scenes[0]!;
+  const next = ProjectDocument.parse({
+    ...doc,
+    scenes: [{ ...first, sourceRange: { startSec: 0, endSec: dur }, durationFrames: Math.max(1, Math.round(dur * 30)), transitionIn: { type: "cut", durationFrames: 0 } }],
+    program: {
+      sourceAssetId,
+      edl: [{ id: opts.newId("edl"), sourceAssetId, sourceInSec: 0, sourceOutSec: dur, reason: "source", review: "accepted" }],
+      proposedCuts: [],
+      presenterFraming: cfg.presenterFraming,
+      style: cfg.style,
+    },
+  });
+  return syncProgramScenes(next);
 }
 
 function buildScene(

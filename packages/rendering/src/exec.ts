@@ -4,6 +4,8 @@ export interface ExecResult {
   code: number;
   stdout: string;
   stderr: string;
+  /** Raw stdout bytes (binary output such as rawvideo). */
+  stdoutBuffer: Buffer;
 }
 
 /** Run a binary with an argument array (never a shell string). */
@@ -26,7 +28,8 @@ export function run(bin: string, args: string[], opts: { signal?: AbortSignal; t
     });
     child.on("close", (code) => {
       if (timer) clearTimeout(timer);
-      resolve({ code: code ?? -1, stdout: Buffer.concat(out).toString("utf8"), stderr: Buffer.concat(err).toString("utf8") });
+      const buf = Buffer.concat(out);
+      resolve({ code: code ?? -1, stdout: buf.toString("utf8"), stdoutBuffer: buf, stderr: Buffer.concat(err).toString("utf8") });
     });
     if (opts.input) child.stdin.end(opts.input);
     else child.stdin.end();

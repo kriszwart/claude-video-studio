@@ -348,6 +348,72 @@ export const LAYOUTS: Record<string, LayoutDef> = {
       decor: full,
     },
   },
+  /** Full-screen whiteboard illustration; the presenter is off screen but still heard. */
+  whiteboard: {
+    "16:9": {
+      headline: { x: 0.06, y: 0.05, w: 0.88, h: 0.14, align: "center" },
+      overlay: { x: 0.08, y: 0.2, w: 0.84, h: 0.6, align: "center" },
+      label: { x: 0.1, y: 0.8, w: 0.8, h: 0.09, align: "center" },
+      decor: full,
+    },
+    "9:16": {
+      headline: { x: 0.04, y: 0.05, w: 0.92, h: 0.12, align: "center" },
+      overlay: { x: 0.04, y: 0.2, w: 0.92, h: 0.46, align: "center" },
+      label: { x: 0.06, y: 0.66, w: 0.88, h: 0.08, align: "center" },
+      decor: full,
+    },
+    "1:1": {
+      headline: { x: 0.04, y: 0.04, w: 0.92, h: 0.14, align: "center" },
+      overlay: { x: 0.06, y: 0.2, w: 0.88, h: 0.56, align: "center" },
+      label: { x: 0.06, y: 0.77, w: 0.88, h: 0.08, align: "center" },
+      decor: full,
+    },
+  },
+  /** Course opening: full-frame presenter with a large lower title card. */
+  "lesson-intro": {
+    "16:9": {
+      presenter: full,
+      kicker: { x: 0.05, y: 0.6, w: 0.5, h: 0.06, align: "start", valign: "end" },
+      headline: { x: 0.05, y: 0.67, w: 0.62, h: 0.2, align: "start", valign: "start" },
+      decor: full,
+    },
+    "9:16": {
+      presenter: full,
+      kicker: { x: 0.06, y: 0.52, w: 0.88, h: 0.04, align: "start", valign: "end" },
+      headline: { x: 0.06, y: 0.57, w: 0.88, h: 0.14, align: "start", valign: "start" },
+      decor: full,
+    },
+    "1:1": {
+      presenter: full,
+      kicker: { x: 0.05, y: 0.58, w: 0.7, h: 0.06, align: "start", valign: "end" },
+      headline: { x: 0.05, y: 0.65, w: 0.8, h: 0.18, align: "start", valign: "start" },
+      decor: full,
+    },
+  },
+  /** Course lesson body: large concise takeaway with a rounded presenter crop. */
+  "lesson-takeaway": {
+    "16:9": {
+      presenter: { x: 0.6, y: 0.16, w: 0.36, h: 0.68, z: 3 },
+      kicker: { x: 0.05, y: 0.18, w: 0.5, h: 0.07, align: "start", valign: "end" },
+      headline: { x: 0.05, y: 0.27, w: 0.52, h: 0.4, align: "start", valign: "start" },
+      overlay: { x: 0.05, y: 0.62, w: 0.5, h: 0.24, align: "start" },
+      decor: full,
+    },
+    "9:16": {
+      presenter: { x: 0.14, y: 0.5, w: 0.72, h: 0.34, z: 3 },
+      kicker: { x: 0.06, y: 0.1, w: 0.88, h: 0.04, align: "start", valign: "end" },
+      headline: { x: 0.06, y: 0.15, w: 0.88, h: 0.24, align: "start", valign: "start" },
+      overlay: { x: 0.06, y: 0.39, w: 0.88, h: 0.1, align: "start" },
+      decor: full,
+    },
+    "1:1": {
+      presenter: { x: 0.56, y: 0.2, w: 0.4, h: 0.56, z: 3 },
+      kicker: { x: 0.05, y: 0.2, w: 0.48, h: 0.07, align: "start", valign: "end" },
+      headline: { x: 0.05, y: 0.28, w: 0.48, h: 0.4, align: "start", valign: "start" },
+      overlay: { x: 0.05, y: 0.66, w: 0.48, h: 0.2, align: "start" },
+      decor: full,
+    },
+  },
   lyric: {
     "16:9": {
       headline: { x: 0.06, y: 0.34, w: 0.88, h: 0.32, align: "center" },

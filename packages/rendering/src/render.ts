@@ -15,7 +15,7 @@ export interface ResolvedAssetFile {
   path: string;
   kind: StagedAsset["kind"] | "document" | "other" | "render";
   contentHash: string;
-  media: { width?: number; height?: number; durationSec?: number; hasAudio?: boolean };
+  media: { width?: number; height?: number; durationSec?: number; hasAudio?: boolean; opaqueLuma?: number };
   /** Uploaded fonts only. */
   font?: { family: string; weight: number; style?: "normal" | "italic" };
 }
@@ -64,7 +64,7 @@ export interface RenderResult {
 export const RENDERER_VERSIONS = {
   "@hyperframes/producer": "0.8.90",
   gsap: "3.15.0",
-  compositor: "video-studio-compositor/1",
+  compositor: "video-studio-compositor/2",
 };
 
 export function defaultChromePath(): string | undefined {
@@ -189,7 +189,7 @@ export async function prepareBundle(req: RenderRequest, opts: { withAudio: boole
     const ext = extname(a.path).toLowerCase() || (a.kind === "svg" ? ".svg" : "");
     const rel = `assets/${id}${ext}`;
     await linkOrCopy(a.path, join(bundleDir, rel));
-    staged.set(id, { file: rel, kind: a.kind, width: a.media.width, height: a.media.height, durationSec: a.media.durationSec, hasAudio: a.media.hasAudio });
+    staged.set(id, { file: rel, kind: a.kind, width: a.media.width, height: a.media.height, durationSec: a.media.durationSec, hasAudio: a.media.hasAudio, opaqueLuma: a.media.opaqueLuma });
     assetHashes[id] = a.contentHash;
   }
   const uploadedFonts: StagedFont[] = [...req.assets.values()]

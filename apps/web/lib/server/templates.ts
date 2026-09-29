@@ -11,12 +11,12 @@ export async function templateAvailability(def: TemplateDefinition, workspaceId:
   const providers = await providerStatus(getDb(), workspaceId);
   const configured = (p: string) => providers.find((x) => x.provider === p)?.configured ?? false;
   const workers = await getDb().query.workerCapabilities.findMany({ where: gt(schema.workerCapabilities.heartbeatAt, new Date(Date.now() - 120_000)), orderBy: desc(schema.workerCapabilities.heartbeatAt) });
-  const caps = workers.map((w) => w.capabilities as { tts?: { pico?: boolean; espeak?: boolean }; transcription?: { pocketsphinx?: boolean }; graphics?: { skia?: boolean; redraw?: boolean } });
+  const caps = workers.map((w) => w.capabilities as { tts?: { pico?: boolean; espeak?: boolean }; transcription?: { whisperCpp?: boolean }; graphics?: { skia?: boolean; redraw?: boolean } });
   const any = (f: (c: (typeof caps)[number]) => boolean | undefined) => caps.some((c) => !!f(c));
   const check: Record<string, () => boolean> = {
     planner: () => configured("anthropic"),
     tts: () => any((c) => c.tts?.pico || c.tts?.espeak) || configured("elevenlabs"),
-    transcription: () => any((c) => c.transcription?.pocketsphinx) || configured("elevenlabs"),
+    transcription: () => any((c) => c.transcription?.whisperCpp) || configured("elevenlabs"),
     "image-generation": () => configured("fal"),
     "video-generation": () => configured("fal"),
     segmentation: () => false,

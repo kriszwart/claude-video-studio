@@ -7,6 +7,7 @@ const ACCEPT: Record<string, string> = {
   video: "video/mp4,video/quicktime,video/webm",
   audio: "audio/*",
   font: ".ttf,.otf,.woff,.woff2",
+  document: ".srt,.vtt,application/x-subrip,text/vtt",
 };
 
 /** Pick assets from the workspace library or upload new ones (with a rights acknowledgement). */
@@ -17,7 +18,7 @@ export function AssetPicker({
   onChange,
   max = 8,
 }: {
-  kind: "image" | "video" | "audio" | "font";
+  kind: "image" | "video" | "audio" | "font" | "document";
   multiple?: boolean;
   value: string[];
   onChange: (ids: string[]) => void;
@@ -60,7 +61,7 @@ export function AssetPicker({
           </span>
         ))}
         <button type="button" className="btn text-xs" onClick={() => setOpen(!open)} aria-expanded={open}>
-          {open ? "Close library" : selected.length ? "Change…" : `Choose ${kind}${multiple ? "s" : ""}…`}
+          {open ? "Close library" : selected.length ? "Change…" : `Choose ${kind === "document" ? "subtitle file" : kind}${multiple ? "s" : ""}…`}
         </button>
       </div>
       {open && (

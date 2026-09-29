@@ -17,6 +17,7 @@ export const JOB_TYPES = [
   "export",
   "tts",
   "transcribe",
+  "propose_cuts",
   "generate_image",
   "generate_video",
   "quality_review",

@@ -44,6 +44,22 @@ export const COMPONENTS: ComponentDef[] = [
     seekable: true,
   },
   {
+    id: "sketch",
+    version: 1,
+    backend: "skia",
+    name: "Whiteboard sketch",
+    description: "Hand-drawn line illustrations (chosen by keyword from a built-in set) drawn on stroke by stroke, with handwritten-style labels.",
+    params: [
+      { name: "items", kind: "text", default: "idea", label: "Illustrations (keywords, separate with |)" },
+      { name: "labels", kind: "text", default: "", label: "Labels (separate with |)" },
+      { name: "ink", kind: "color", default: "#1f2937", label: "Marker colour" },
+      { name: "accent", kind: "color", default: "#f59e0b", label: "Highlight colour" },
+      { name: "drawSec", kind: "number", default: 1.6, min: 0.4, max: 10, label: "Seconds per drawing" },
+    ],
+    notes: ["Icons are a small original line-art set matched by keyword; unmatched keywords use a light-bulb sketch. They illustrate, they do not depict your real product."],
+    seekable: true,
+  },
+  {
     id: "mask-reveal",
     version: 1,
     backend: "skia",

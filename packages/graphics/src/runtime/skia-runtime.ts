@@ -6,6 +6,7 @@
  *    and completes synchronously (CPU raster surface), so the frame is final when the
  *    listener returns. No wall clock, no requestAnimationFrame, seeded randomness only.
  */
+import { sketchIconFor } from "../../../compositor/src/sketch";
 import type { Canvas, CanvasKit, Image, Paint, Path, Surface, Typeface } from "canvaskit-wasm";
 
 declare const CanvasKitInit: (opts: { locateFile: (f: string) => string }) => Promise<CanvasKit>;
@@ -265,8 +266,95 @@ function typeOverlay(ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number)
   provider.delete();
 }
 
+
+/**
+ * sketch v1: hand-drawn whiteboard illustrations. Each item is an icon chosen from a small
+ * built-in line-art set by keyword, drawn on stroke by stroke with a seeded double-line
+ * "marker" wobble, then its label is written underneath. Icons are original line art.
+ */
+const SKETCH_ICONS: Record<string, string> = {
+  toast: "M22 40 C10 40 10 18 30 18 C38 10 62 10 70 18 C90 18 90 40 78 40 L78 86 L22 86 Z M34 52 L46 52 M40 64 L58 64 M50 74 L62 74",
+  avocado: "M50 8 C34 8 26 30 24 48 C20 74 32 92 50 92 C68 92 80 74 76 48 C74 30 66 8 50 8 Z M50 50 m-14 0 a14 16 0 1 0 28 0 a14 16 0 1 0 -28 0",
+  bowl: "M10 44 L90 44 C88 70 72 86 50 86 C28 86 12 70 10 44 Z M30 44 C32 30 44 26 50 34 C56 24 70 30 70 44 M84 18 L60 46",
+  knife: "M12 70 L62 26 C74 16 90 20 86 30 L40 72 Z M40 72 L50 82 C46 88 36 88 30 80 Z",
+  spread: "M12 70 L62 26 C74 16 90 20 86 30 L40 72 Z M18 88 C34 80 52 92 70 84 C78 80 86 84 92 88",
+  chili: "M24 30 C18 60 44 92 86 84 C60 76 44 58 40 30 Z M30 30 C30 20 38 14 46 18 M34 22 L28 10",
+  lemon: "M14 50 C14 28 34 16 50 16 C66 16 86 28 86 50 C86 72 66 84 50 84 C34 84 14 72 14 50 Z M8 50 L14 50 M86 50 L92 50 M34 42 C40 36 48 34 56 36",
+  salt: "M30 30 L70 30 L76 88 L24 88 Z M34 30 C34 16 66 16 66 30 M42 20 L42 22 M50 18 L50 20 M58 20 L58 22",
+  clock: "M50 10 C72 10 90 28 90 50 C90 72 72 90 50 90 C28 90 10 72 10 50 C10 28 28 10 50 10 Z M50 26 L50 50 L66 60",
+  check: "M50 10 C72 10 90 28 90 50 C90 72 72 90 50 90 C28 90 10 72 10 50 C10 28 28 10 50 10 Z M30 52 L44 66 L72 36",
+  bulb: "M50 10 C30 10 20 26 22 42 C24 56 36 62 38 74 L62 74 C64 62 76 56 78 42 C80 26 70 10 50 10 Z M40 82 L60 82 M44 90 L56 90",
+  plate: "M50 18 C78 18 94 34 94 50 C94 66 78 82 50 82 C22 82 6 66 6 50 C6 34 22 18 50 18 Z M50 34 C66 34 76 42 76 50 C76 58 66 66 50 66 C34 66 24 58 24 50 C24 42 34 34 50 34 Z",
+  laptop: "M20 22 L80 22 L80 66 L20 66 Z M8 78 L92 78 L84 66 L16 66 Z",
+  calendar: "M14 22 L86 22 L86 88 L14 88 Z M14 40 L86 40 M32 12 L32 30 M68 12 L68 30 M30 56 L40 56 M48 56 L58 56 M66 56 L76 56 M30 72 L40 72 M48 72 L58 72",
+  person: "M50 12 C62 12 68 22 68 32 C68 44 60 52 50 52 C40 52 32 44 32 32 C32 22 38 12 50 12 Z M16 92 C18 70 32 60 50 60 C68 60 82 70 84 92",
+  star: "M50 8 L61 36 L92 38 L68 58 L76 90 L50 72 L24 90 L32 58 L8 38 L39 36 Z",
+  heart: "M50 86 C20 64 8 46 14 30 C20 14 42 12 50 30 C58 12 80 14 86 30 C92 46 80 64 50 86 Z",
+  arrow: "M10 50 L86 50 M64 28 L88 50 L64 72",
+  idea: "M50 10 C30 10 20 26 22 42 C24 56 36 62 38 74 L62 74 C64 62 76 56 78 42 C80 26 70 10 50 10 Z M40 82 L60 82 M10 20 L18 26 M90 20 L82 26 M4 46 L14 46 M96 46 L86 46",
+};
+function sketch(ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number) {
+  const p = L.spec.params;
+  const items = String(p.items ?? "idea").split("|").map((x) => x.trim()).filter(Boolean).slice(0, 4);
+  const labels = String(p.labels ?? "").split("|").map((x) => x.trim());
+  const ink = String(p.ink ?? "#1f2937");
+  const accent = String(p.accent ?? "#f59e0b");
+  const n = items.length;
+  const W0 = L.spec.width;
+  const H0 = L.spec.height;
+  const per = Math.max(0.4, Number(p.drawSec ?? Math.min(2, (dur * 0.7) / n)));
+  const cell = Math.min(W0 / n, H0 * 0.78);
+  const iconSize = cell * 0.72;
+  const r = rng(L.spec.seed);
+  const paint = new ck.Paint();
+  paint.setAntiAlias(true);
+  paint.setStyle(ck.PaintStyle.Stroke);
+  paint.setStrokeCap(ck.StrokeCap.Round);
+  paint.setStrokeJoin(ck.StrokeJoin.Round);
+  const provider = ck.TypefaceFontProvider.Make();
+  items.forEach((item, i) => {
+    const local = clamp01((t - i * per) / per);
+    if (local <= 0) return;
+    const icon = SKETCH_ICONS[sketchIconFor(item, Object.keys(SKETCH_ICONS))]!;
+    const path = ck.Path.MakeFromSVGString(icon);
+    if (!path) return;
+    const cx = (W0 / n) * (i + 0.5);
+    const top = (H0 - cell) / 2 + cell * 0.02;
+    const scale = iconSize / 100;
+    const drawT = ease(clamp01(local / 0.7));
+    // Two slightly offset passes give a marker-on-whiteboard line.
+    for (let pass = 0; pass < 2; pass++) {
+      const dx = (r() - 0.5) * 2.4;
+      const dy = (r() - 0.5) * 2.4;
+      const tr = trim(path, drawT);
+      if (!tr) continue;
+      c.save();
+      c.translate(cx - iconSize / 2 + dx, top + dy);
+      c.scale(scale, scale);
+      paint.setStrokeWidth(((pass === 0 ? 7 : 3) * Math.max(0.5, iconSize / 300)) / scale);
+      paint.setColor(hex(ck, pass === 0 ? ink : accent, pass === 0 ? 1 : 0.55));
+      c.drawPath(tr, paint);
+      c.restore();
+      if (tr !== path) tr.delete();
+    }
+    path.delete();
+    const labelT = clamp01((local - 0.6) / 0.35);
+    const label = labels[i] ?? "";
+    if (labelT > 0 && label) {
+      const shown = label.slice(0, Math.ceil(label.length * labelT));
+      const para = paragraph(ck, provider, L, shown, Math.min(cell * 0.13, 64), ink, W0 / n - 16);
+      para.layout(W0 / n - 16);
+      c.drawParagraph(para, cx - (W0 / n - 16) / 2, top + iconSize + cell * 0.04);
+      para.delete();
+    }
+  });
+  provider.delete();
+  paint.delete();
+}
+
 const COMPONENTS: Record<string, (ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number) => void> = {
   "path-diagram@1": pathDiagram,
+  "sketch@1": sketch,
   "mask-reveal@1": maskReveal,
   "type-overlay@1": typeOverlay,
 };

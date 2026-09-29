@@ -37,15 +37,17 @@ const DECLARED: Record<string, AssetKind> = {
   "font/woff2": "font",
   "application/font-woff": "font",
   "application/x-font-ttf": "font",
+  "application/x-subrip": "document",
+  "text/vtt": "document",
 };
 
 export function kindForDeclaredType(mime: string, filename: string): AssetKind {
   const k = DECLARED[mime.toLowerCase()];
   if (k) return k;
   const ext = filename.toLowerCase().split(".").pop() ?? "";
-  const byExt: Record<string, AssetKind> = { png: "image", jpg: "image", jpeg: "image", webp: "image", svg: "svg", mp4: "video", mov: "video", webm: "video", mp3: "audio", m4a: "audio", wav: "audio", aac: "audio", flac: "audio", ogg: "audio", ttf: "font", otf: "font", woff: "font", woff2: "font" };
+  const byExt: Record<string, AssetKind> = { png: "image", jpg: "image", jpeg: "image", webp: "image", svg: "svg", mp4: "video", mov: "video", webm: "video", mp3: "audio", m4a: "audio", wav: "audio", aac: "audio", flac: "audio", ogg: "audio", ttf: "font", otf: "font", woff: "font", woff2: "font", srt: "document", vtt: "document" };
   const e = byExt[ext];
-  if (!e) throw new AppError(415, "unsupported_type", `Files of type "${mime || ext}" are not supported.`, "Upload images (PNG, JPEG, WebP, SVG), video (MP4, MOV, WebM), audio (MP3, M4A, WAV) or fonts (TTF, OTF, WOFF).");
+  if (!e) throw new AppError(415, "unsupported_type", `Files of type "${mime || ext}" are not supported.`, "Upload images (PNG, JPEG, WebP, SVG), video (MP4, MOV, WebM), audio (MP3, M4A, WAV) fonts (TTF, OTF, WOFF) or subtitles (SRT, VTT).");
   return e;
 }
 
