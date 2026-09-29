@@ -111,6 +111,30 @@ test.describe.serial("security (A14, A15)", () => {
     expect(edit.status()).toBe(422);
     // Alice's project is unchanged.
     expect((await (await alice.get(`/api/projects/${aliceProject}`)).json()).doc.title).toBe(aliceTitle);
+
+    // Collections, quotes, profiles and quality reports are workspace-scoped too.
+    const col = (await (await alice.post("/api/collections", { data: { name: "Alice secret event" } })).json()).collection.id;
+    const prof = (await (await alice.post("/api/profiles", { data: { name: "Alice secret style", preset: "calm-technical" } })).json()).profile.id;
+    for (const [method, url, data] of [
+      ["get", `/api/collections/${col}`, undefined],
+      ["get", `/api/collections/${col}/search?q=secret`, undefined],
+      ["post", `/api/collections/${col}/index`, { all: true }],
+      ["post", `/api/collections/${col}/uploads`, { filename: "x.mp4", mime: "video/mp4", bytes: 10, rightsAcknowledged: true }],
+      ["post", `/api/collections/${col}/sizzle`, { title: "x", inputs: { eventName: "x" }, quotes: [{ transcriptId: "trn_x", segmentIds: ["a"] }] }],
+      ["get", `/api/profiles/${prof}`, undefined],
+      ["post", `/api/profiles/${prof}/propose`, { feedback: "larger text", baseVersion: 1 }],
+      ["post", `/api/profiles/analyze`, { assetId: aliceAsset }],
+      ["get", `/api/projects/${aliceProject}/quality`, undefined],
+      ["get", `/api/projects/${aliceProject}/asset-requests`, undefined],
+    ] as const) {
+      const r = method === "get" ? await bob.get(url) : await bob.post(url, { data });
+      expect(r.status(), `${method} ${url}`).toBe(404);
+      expect(await r.text()).not.toContain("Alice secret");
+    }
+    const bobCollections = await (await bob.get("/api/collections")).json();
+    expect(JSON.stringify(bobCollections)).not.toContain("Alice secret");
+    const bobProfiles = await (await bob.get("/api/profiles")).json();
+    expect(JSON.stringify(bobProfiles.profiles)).not.toContain("Alice secret");
   });
 
   test("A15: private/metadata URLs, disguised and hostile uploads are rejected", async () => {

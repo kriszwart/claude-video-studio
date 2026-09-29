@@ -88,6 +88,27 @@ spectrum and level measurements (this environment has no speakers — "listened"
 | A29 | Unsupported runtime / device loss | ✅ | `m7-graphics.spec.ts` (Redraw-less worker; job waits, nothing blank), device-loss proof |
 | A30 | Reuse and deployment | ✅ | `m7-graphics.spec.ts` → `m7-cache.json`; `scripts/clean-worker-check.sh` |
 
+## Final test run (2026-09-29, committed code)
+
+| Suite | Result |
+| --- | --- |
+| Unit/integration (`pnpm test`, vitest) | 72 passed |
+| Typecheck (all 9 packages) + Redraw runtime against the real package | clean |
+| `m6-screenshot` | 1 passed |
+| `m6-collections` (A19, A20) | 2 passed |
+| `m6-profiles` (A21), `m6-quality` (A22), `m6-fidelity` (A23) | 1 + 1 + 1 passed |
+| `generation` (A08, A09, A13; fake fal) | 5 passed ×3 consecutive runs; one earlier run had A08 fail (its error output was not captured) — watch for flakiness |
+| `reliability` (A06, A07) | 2 passed |
+| `m1-product-launch` (A01–A05, A10) | 6 passed (after fixing the asset-library listing regression) |
+| `m3-ui`, `m3-talking-head` (A11, A17, A18) | 1 + 2 passed |
+| `m4-music-mascot` (A12) | 2 passed |
+| `a16-templates` (A16) | 8 passed (533 s) |
+| `m2-families` (T4, T1, P2 Redraw showreel) | 3 passed |
+| `m7-graphics` (A28, A29, A30) | 2 passed (11.9 min) |
+| `security` (A14 incl. collections/profiles/quality endpoints, A15) vs password-mode production build | 4 passed |
+| `scripts/clean-worker-check.sh` (A25/A30) | fresh clone of commit `5cffc1c`, `pnpm install --frozen-lockfile --offline`, Redraw tarball sha256 verified; Skia proof 1920×1080 export OK (18.4 s); Redraw proof 480×270 export OK (215 s); repeated, out-of-order and post-device-loss frames byte-identical |
+| Collection benchmark | 400 files / 10 h source indexed; see [BENCHMARK.md](BENCHMARK.md) |
+
 ## Blocked live checks (exact reasons)
 
 These integrations are implemented against the providers' official SDK/REST contracts and tested
