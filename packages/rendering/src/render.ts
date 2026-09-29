@@ -136,12 +136,25 @@ async function stageBundledFonts(families: string[], fontsDir: string): Promise<
   return out;
 }
 
+export interface PreparedBundle {
+  bundleDir: string;
+  bundleHash: string;
+  manifest: Record<string, unknown>;
+  width: number;
+  height: number;
+  fps: number;
+  totalFrames: number;
+  mix: MixReport | null;
+  mixFile: string | null;
+  warnings: string[];
+  timingsMs: Record<string, number>;
+}
+
 /**
- * Render one immutable project revision to a verified MP4.
- * The bundle directory is self-contained: no network access is needed at render time.
+ * Stage assets, mix audio and compile an immutable, self-contained bundle for a
+ * revision. No network access is needed at render time.
  */
-export async function renderProject(req: RenderRequest): Promise<RenderResult> {
-  const t0 = Date.now();
+export async function prepareBundle(req: RenderRequest, opts: { withAudio: boolean } = { withAudio: true }): Promise<PreparedBundle> {
   const timings: Record<string, number> = {};
   const mark = (k: string, since: number) => (timings[k] = Date.now() - since);
   const progress = async (stage: RenderStage, fraction: number | null, message: string) => {
@@ -179,12 +192,66 @@ export async function renderProject(req: RenderRequest): Promise<RenderResult> {
   mark("staging", ts);
 
   // 2. Mix audio on the shared timeline.
-  await progress("mixing", null, "Mixing audio");
-  ts = Date.now();
+  let mix: MixReport | null = null;
+  let mixFile: string | null = null;
   const timeline = computeTimeline(doc);
+  if (opts.withAudio) {
+    await progress("mixing", null, "Mixing audio");
+    ts = Date.now();
+    mixFile = join(bundleDir, "audio", "mix.wav");
+    mix = await mixAudio(collectMixInputs(req, timeline), { fps: doc.format.fps, totalFrames: timeline.totalFrames, output: mixFile, signal: req.signal });
+    mark("mixing", ts);
+  }
+
+  // 3. Compile the composition.
+  await progress("compiling", null, "Compiling composition");
+  ts = Date.now();
+  if (req.graphics?.prepare) {
+    const gl = doc.scenes.flatMap((s) => s.layers.filter((l): l is Extract<Layer, { kind: "graphics" }> => l.kind === "graphics" && !l.hidden).map((layer) => ({ sceneId: s.id, layer })));
+    if (gl.length) await req.graphics.prepare(gl, bundleDir);
+  }
+  const compileCtx = {
+    scale: req.scale,
+    assets: staged,
+    fonts: [...uploadedFonts, ...bundledFonts],
+    gsapFile: "vendor/gsap.min.js",
+    graphics: req.graphics?.compile,
+  };
+  // The render bundle carries no <audio>: HyperFrames captures frames and the verified
+  // mix is muxed afterwards (measured: HF's own muxing shifted integrated loudness by
+  // about -1.3 LU on our fixtures). The preview page embeds the same mix for playback.
+  const compiled = compileComposition(doc, compileCtx);
+  await writeFile(join(bundleDir, "index.html"), compiled.html);
+  if (mixFile) {
+    const preview = compileComposition(doc, { ...compileCtx, audioMix: { file: "audio/mix.wav" } });
+    await writeFile(join(bundleDir, "preview.html"), preview.html);
+  }
+  for (const f of compiled.extraFiles) {
+    await mkdir(dirname(join(bundleDir, f.path)), { recursive: true });
+    await linkOrCopy(f.source, join(bundleDir, f.path));
+  }
+  const mixHash = mixFile ? await sha256File(mixFile) : null;
+  const htmlHash = createHash("sha256").update(compiled.html).digest("hex");
+  const manifest = {
+    ...compiled.manifest,
+    htmlHash,
+    mixHash,
+    assetHashes,
+    fontFiles: [...uploadedFonts, ...bundledFonts].map((f) => f.file).sort(),
+    renderer: RENDERER_VERSIONS,
+    graphics: req.graphics?.versions ?? {},
+    quality: req.quality,
+  };
+  const bundleHash = createHash("sha256").update(stableStringify(manifest)).digest("hex");
+  await writeFile(join(bundleDir, "bundle.json"), JSON.stringify({ bundleHash, ...manifest }, null, 2));
+  mark("compiling", ts);
+  return { bundleDir, bundleHash, manifest, width: compiled.width, height: compiled.height, fps: compiled.fps, totalFrames: compiled.totalFrames, mix, mixFile, warnings: compiled.warnings, timingsMs: timings };
+}
+
+function collectMixInputs(req: RenderRequest, timeline: ReturnType<typeof computeTimeline>): MixInput[] {
+  const { doc } = req;
   const media = (id: string) => req.assets.get(id)?.media.durationSec;
-  const resolved = resolveAudio(doc, timeline, media);
-  const mixInputs: MixInput[] = resolved
+  const mixInputs: MixInput[] = resolveAudio(doc, timeline, media)
     .filter((r) => req.assets.has(r.track.assetId))
     .map((r) => ({
       id: r.track.id,
@@ -206,70 +273,26 @@ export async function renderProject(req: RenderRequest): Promise<RenderResult> {
       const a = req.assets.get(layer.assetId);
       if (!a?.media.hasAudio) continue;
       const avail = a.media.durationSec !== undefined ? Math.max(0, (layer.sourceOutSec ?? a.media.durationSec) - layer.sourceInSec) : st.duration / doc.format.fps;
-      mixInputs.push({
-        id: `${scene.id}-${layer.id}`,
-        kind: "source",
-        file: a.path,
-        startFrame: st.start,
-        durationFrames: Math.min(st.duration, Math.floor(avail * doc.format.fps)),
-        sourceInSec: layer.sourceInSec,
-        gainDb: 0,
-        fadeInFrames: 1,
-        fadeOutFrames: 1,
-      });
+      mixInputs.push({ id: `${scene.id}-${layer.id}`, kind: "source", file: a.path, startFrame: st.start, durationFrames: Math.min(st.duration, Math.floor(avail * doc.format.fps)), sourceInSec: layer.sourceInSec, gainDb: 0, fadeInFrames: 1, fadeOutFrames: 1 });
     }
   });
   if (req.extraMix) mixInputs.push(...req.extraMix);
-  const mixFile = join(bundleDir, "audio", "mix.wav");
-  const mix = await mixAudio(mixInputs, { fps: doc.format.fps, totalFrames: timeline.totalFrames, output: mixFile, signal: req.signal });
-  mark("mixing", ts);
+  return mixInputs;
+}
 
-  // 3. Compile the composition.
-  await progress("compiling", null, "Compiling composition");
-  ts = Date.now();
-  if (req.graphics?.prepare) {
-    const gl = doc.scenes.flatMap((s) => s.layers.filter((l): l is Extract<Layer, { kind: "graphics" }> => l.kind === "graphics" && !l.hidden).map((layer) => ({ sceneId: s.id, layer })));
-    if (gl.length) await req.graphics.prepare(gl, bundleDir);
-  }
-  const compileCtx = {
-    scale: req.scale,
-    assets: staged,
-    fonts: [...uploadedFonts, ...bundledFonts],
-    gsapFile: "vendor/gsap.min.js",
-    graphics: req.graphics?.compile,
+/** Render one immutable project revision to a verified MP4. */
+export async function renderProject(req: RenderRequest): Promise<RenderResult> {
+  const t0 = Date.now();
+  const progress = async (stage: RenderStage, fraction: number | null, message: string) => {
+    if (req.signal?.aborted) throw new Error("canceled");
+    await req.onProgress?.(stage, fraction, message);
   };
-  // The render bundle carries no <audio>: HyperFrames captures frames and the verified
-  // mix is muxed afterwards (measured: HF's own muxing shifted integrated loudness by
-  // about -1.3 LU on our fixtures). The preview page embeds the same mix for playback.
-  const compiled = compileComposition(doc, compileCtx);
-  const preview = compileComposition(doc, { ...compileCtx, audioMix: { file: "audio/mix.wav" } });
-  await writeFile(join(bundleDir, "index.html"), compiled.html);
-  await writeFile(join(bundleDir, "preview.html"), preview.html);
-  for (const f of compiled.extraFiles) {
-    await mkdir(dirname(join(bundleDir, f.path)), { recursive: true });
-    await linkOrCopy(f.source, join(bundleDir, f.path));
-  }
-  const mixHash = await sha256File(mixFile);
-  const htmlHash = createHash("sha256").update(compiled.html).digest("hex");
-  const manifest = {
-    ...compiled.manifest,
-    htmlHash,
-    mixHash,
-    assetHashes,
-    fontFiles: [...uploadedFonts, ...bundledFonts].map((f) => f.file).sort(),
-    renderer: RENDERER_VERSIONS,
-    graphics: req.graphics?.versions ?? {},
-    quality: req.quality,
-  };
-  const bundleHash = createHash("sha256").update(stableStringify(manifest)).digest("hex");
-  await writeFile(join(bundleDir, "bundle.json"), JSON.stringify({ bundleHash, ...manifest }, null, 2));
-  mark("compiling", ts);
-
-  // 4. Render frames + encode with HyperFrames.
-  ts = Date.now();
+  const b = await prepareBundle(req, { withAudio: true });
+  const timings = { ...b.timingsMs };
+  let ts = Date.now();
   await progress("rendering", 0, "Capturing frames");
   const videoOnly = join(req.workDir, "video-only.mp4");
-  await renderWithHyperFrames(bundleDir, videoOnly, {
+  await renderWithHyperFrames(b.bundleDir, videoOnly, {
     quality: req.quality,
     workers: req.workers ?? Number(process.env.RENDER_WORKERS ?? 2),
     signal: req.signal,
@@ -277,42 +300,22 @@ export async function renderProject(req: RenderRequest): Promise<RenderResult> {
       await progress(stage === "encoding" ? "encoding" : "rendering", pct === null ? null : pct / 100, msg);
     },
   });
-  mark("render", ts);
+  timings.render = Date.now() - ts;
   ts = Date.now();
   await progress("encoding", null, "Muxing audio");
   await runOk(
     FFMPEG,
-    ["-hide_banner", "-nostdin", "-y", "-i", videoOnly, "-i", mixFile, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", (compiled.totalFrames / compiled.fps).toFixed(6), "-movflags", "+faststart", req.output],
+    ["-hide_banner", "-nostdin", "-y", "-i", videoOnly, "-i", b.mixFile!, "-map", "0:v:0", "-map", "1:a:0", "-c:v", "copy", "-c:a", "aac", "-b:a", "192k", "-ar", "48000", "-t", (b.totalFrames / b.fps).toFixed(6), "-movflags", "+faststart", req.output],
     { signal: req.signal, timeoutMs: 600_000 },
   );
   await rm(videoOnly, { force: true });
-  mark("mux", ts);
-
-  // 5. Verify.
+  timings.mux = Date.now() - ts;
   ts = Date.now();
   await progress("verifying", null, "Verifying output");
-  const verification = await verifyVideo(
-    req.output,
-    { width: compiled.width, height: compiled.height, fps: compiled.fps, totalFrames: compiled.totalFrames, requireAudio: true },
-    req.signal,
-  );
-  mark("verify", ts);
+  const verification = await verifyVideo(req.output, { width: b.width, height: b.height, fps: b.fps, totalFrames: b.totalFrames, requireAudio: true }, req.signal);
+  timings.verify = Date.now() - ts;
   timings.total = Date.now() - t0;
-
-  return {
-    output: req.output,
-    bundleDir,
-    bundleHash,
-    manifest,
-    width: compiled.width,
-    height: compiled.height,
-    fps: compiled.fps,
-    totalFrames: compiled.totalFrames,
-    mix,
-    verification,
-    warnings: compiled.warnings,
-    timingsMs: timings,
-  };
+  return { output: req.output, bundleDir: b.bundleDir, bundleHash: b.bundleHash, manifest: b.manifest, width: b.width, height: b.height, fps: b.fps, totalFrames: b.totalFrames, mix: b.mix!, verification, warnings: b.warnings, timingsMs: timings };
 }
 
 export interface HfRenderOptions {

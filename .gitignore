@@ -14,3 +14,4 @@ playwright-report/
 # Redraw is subscriber-licensed: never commit its source or release tarballs.
 /vendor/redraw*
 **/redraw-*.tgz
+data/

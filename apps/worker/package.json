@@ -1,0 +1,22 @@
+{
+  "name": "@vs/worker",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@vs/compositor": "workspace:*",
+    "@vs/db": "workspace:*",
+    "@vs/domain": "workspace:*",
+    "@vs/providers": "workspace:*",
+    "@vs/rendering": "workspace:*",
+    "@vs/templates": "workspace:*",
+    "bullmq": "6.3.9",
+    "drizzle-orm": "0.45.3",
+    "ioredis": "6.0.0"
+  }
+}
