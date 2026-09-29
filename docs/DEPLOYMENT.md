@@ -74,6 +74,29 @@ Known limits: web and worker share the database credentials (jobs are coordinate
 PostgreSQL). A compromised worker could therefore read other workspaces' rows; keep workers on
 a private network and treat them as trusted infrastructure.
 
+## Worker pools and capability routing
+
+Workers advertise what they can run and consume only the queues they can satisfy:
+`vs-jobs` (everything without graphics layers), `vs-jobs-skia`, `vs-jobs-redraw` and
+`vs-jobs-redraw-skia`. Run CPU workers without `REDRAW_TARBALL` (or with `REDRAW_DISABLED=1`) and
+GPU workers with the Redraw tarball; Redraw renders are routed to the GPU pool automatically. If
+no live worker can run a job, the API reports it and the job waits (it is never rendered blank).
+
+## Event collections
+
+- Browser uploads are chunked and resumable; per-collection limits come from `COLLECTION_MAX_*`.
+- Optional server import: set `COLLECTION_IMPORT_ROOT` to a **read-only** mount. Only owners can
+  browse it; paths are resolved with `realpath` and must stay inside the root; symlinks are not
+  followed. Never point it at a directory containing secrets or other tenants' data.
+- Indexing is explicit (index a subset first); set `STT_PRICE_USD_PER_HOUR` so estimates show a price.
+
+## Website screenshots
+
+Screenshot capture runs a throwaway browser with a dead proxy (no direct network), blocked
+service workers and restricted WebRTC; every request it makes is fetched by the SSRF-guarded
+fetcher (public addresses only, ports 80/443, address pinned against DNS rebinding). Keep workers
+on a network segment without access to internal services anyway (defence in depth).
+
 ## Redraw (private package)
 
 Redraw's license forbids redistribution. Only build the worker image with the tarball in

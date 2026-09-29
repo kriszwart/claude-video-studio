@@ -41,7 +41,9 @@ for (let i = 0; i < N; i++) {
   const name = `rec-${String(i).padStart(4, "0")}`;
   const mp4 = join(dir, `${name}.mp4`);
   if (!existsSync(mp4)) {
-    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=s=320x180:r=15:d=${SEC}`, "-f", "lavfi", "-i", `sine=f=${200 + (i % 12) * 30}:d=${SEC},volume=0.2`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "38", "-g", "150", "-c:a", "aac", "-b:a", "32k", "-shortest", mp4]);
+    // Unique content per recording (otherwise hash-based reuse would, correctly, dedupe them).
+    execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=s=320x180:r=15:d=${SEC},hue=h=${(i * 37) % 360},drawtext=fontfile=/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf:text='SAMPLE rec ${i}':x=10:y=10:fontsize=18:fontcolor=white`, "-f", "lavfi", "-i", `sine=f=${180 + i * 3}:d=${SEC},volume=0.2`, "-c:v", "libx264", "-preset", "ultrafast", "-crf", "38", "-g", "150", "-c:a", "aac", "-b:a", "32k", "-shortest", mp4]);
+    seed = 1000 + i;
     let t = 0.5;
     const cues: string[] = [];
     let k = 1;

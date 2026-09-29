@@ -110,6 +110,10 @@ export async function listAssets(db: DbOrTx, workspaceId: string, opts: { kind?:
   if (opts.kind) conds.push(eq(assets.kind, opts.kind));
   else if (!opts.includeRenders) conds.push(sql`${assets.kind} not in ('render','document')`);
   if (opts.q) conds.push(ilike(assets.originalName, `%${opts.q.replace(/[%_]/g, "")}%`));
+  // The library shows the owner's media: not internal derivatives (storyboard frames, QA and
+  // reference evidence, thumbnails) and not uploads that resolved to an existing identical file.
+  conds.push(sql`coalesce(${assets.provenance}->>'source', '') not in ('keyframe','quality-review','reference-analysis','render-thumbnail')`);
+  conds.push(sql`coalesce(${assets.error}, '') <> 'duplicate'`);
   return db.query.assets.findMany({ where: and(...conds), orderBy: desc(assets.createdAt), limit: opts.limit ?? 200 });
 }
 

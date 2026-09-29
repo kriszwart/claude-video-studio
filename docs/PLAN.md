@@ -46,3 +46,13 @@ ffmpeg-decoded frames over `<video>` elements (the export path already does this
 
 Everything that depends on credentials or network access that this environment does not have is
 listed in STATUS → "Blocked live checks", with the exact command to run once available.
+
+## References consulted
+
+- HyperFrames, GSAP, CanvasKit and the licensed Redraw 1.3.3 package documentation/type
+  definitions (pinned versions above); `@fal-ai/client` 1.10.1 and `@elevenlabs/elevenlabs-js`
+  2.70.0 type definitions for the provider contracts (their hosts are unreachable from here).
+- HyperFrames Student Kit (public repository): MIT-licensed code, brand assets excluded. Read as a
+  reference for transcript cutting, EDL review, captions and a style library. None of its files
+  were copied, and its agent instructions (`SKILL.md`/prompts) are not used as runtime
+  authority — creative profiles are validated product data (FR-17).

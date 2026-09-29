@@ -30,17 +30,28 @@ export function AssetPicker({
   const [err, setErr] = useState<string | null>(null);
   const [rights, setRights] = useState(false);
   const input = useRef<HTMLInputElement>(null);
+  const valueRef = useRef(value);
+  valueRef.current = value;
 
   const load = useCallback(async () => {
     const kinds = kind === "image" ? ["image", "svg"] : [kind];
     const all: UploadedAsset[] = [];
     for (const k of kinds) all.push(...(await api<{ assets: UploadedAsset[] }>(`/api/assets?kind=${k}`)).assets);
+    // Selected assets always show, even when older than the listing page.
+    for (const id of valueRef.current.filter((x) => !all.some((a) => a.id === x))) {
+      const r = await api<{ asset: UploadedAsset }>(`/api/assets/${id}`).catch(() => null);
+      if (r) all.push(r.asset);
+    }
     setAssets(all.filter((a) => a.status === "ready"));
   }, [kind]);
   useEffect(() => {
     void load();
   }, [load]);
 
+  useEffect(() => {
+    if (value.some((id) => !assets.some((a) => a.id === id))) void load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [value.join(",")]);
   const selected = value.map((id) => assets.find((a) => a.id === id)).filter(Boolean) as UploadedAsset[];
   const toggle = (id: string) => {
     if (!multiple) return onChange(value[0] === id ? [] : [id]);

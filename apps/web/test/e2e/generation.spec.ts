@@ -33,10 +33,14 @@ async function generate(request: APIRequestContext, id: string, data: Record<str
   return settle(request, id, j.jobs.map((x: { id: string }) => x.id));
 }
 async function ops(request: APIRequestContext, id: string, list: unknown[]) {
-  const v = await (await request.get(`/api/projects/${id}`)).json();
-  const r = await request.post(`/api/projects/${id}/operations`, { data: { baseRevisionId: v.revision.id, ops: list } });
-  expect(r.status(), await r.text()).toBe(200);
-  return r.json();
+  // Background jobs (music analysis, keyframes) may revise the project first: re-read on 409.
+  for (let attempt = 0; ; attempt++) {
+    const v = await (await request.get(`/api/projects/${id}`)).json();
+    const r = await request.post(`/api/projects/${id}/operations`, { data: { baseRevisionId: v.revision.id, ops: list } });
+    if (r.status() === 409 && attempt < 5) continue;
+    expect(r.status(), await r.text()).toBe(200);
+    return r.json();
+  }
 }
 
 test.describe.serial("generation pipeline (A08, A09, A13) — fake provider", () => {
@@ -54,6 +58,8 @@ test.describe.serial("generation pipeline (A08, A09, A13) — fake provider", ()
     const song = await apiUpload(request, join(FIX, "music-song.m4a"), "audio/mp4");
     const created = await createProject(request, { templateId: "anime-opening", title: "E2E anime opening", inputs: { song, excerptStart: 8, excerptEnd: 38, title: "Skyline Relay", synopsis: "Two couriers race across a floating city to deliver a stolen star map.", characters: ["Aki — swordswoman in a red coat", "Ren — inventor with brass goggles"], direction: "cel-shaded anime, sunset palette" } });
     id = created.project.id;
+    // Generation is an explicit owner choice (FR-15 acquisition policy).
+    await ops(request, id, [{ op: "setAcquisitionPolicy", policy: "generated-allowed" }]);
     const list0 = await shots(request, id);
     expect(list0.shots).toHaveLength(6);
     expect(list0.shots.every((s: { estimate: { kind: string; micros: number } }) => s.estimate.kind === "known" && s.estimate.micros === 250_000)).toBe(true);
