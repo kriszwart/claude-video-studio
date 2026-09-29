@@ -1,7 +1,7 @@
 import { hostname } from "node:os";
 import { Queue, Worker } from "bullmq";
 import { Redis } from "ioredis";
-import { closeDb, dispatchOutbox, getDb, reapExpiredLeases, requeueStranded, schema, syncBuiltinTemplates } from "@vs/db";
+import { closeDb, dispatchOutbox, getDb, queueNameFor, reapExpiredLeases, requeueStranded, schema, syncBuiltinTemplates } from "@vs/db";
 import { BUILTIN_TEMPLATES } from "@vs/templates";
 import { shutdownRenderer } from "@vs/rendering";
 import { sql } from "drizzle-orm";
@@ -38,20 +38,34 @@ const handlers = {
 
 async function main() {
   await syncBuiltinTemplates(getDb(), BUILTIN_TEMPLATES);
-  const queue = new Queue(QUEUE, { connection: newConnection() });
-  const worker = new Worker(
-    QUEUE,
-    async (m) => {
-      await runJob(String(m.data.jobId), { workerId, handlers, log });
-    },
-    { connection: newConnection(), concurrency, lockDuration: 120_000, removeOnComplete: { count: 1000 }, removeOnFail: { count: 1000 } },
+  const caps = await workerCapabilities();
+  // Capability routing (FR-21): jobs whose composition needs graphics backends go to a queue
+  // named after those backends; this worker only consumes queues it can actually run.
+  const backends = (["redraw", "skia"] as const).filter((b) => caps.graphics[b]);
+  const subsets = backends.reduce<string[][]>((acc, b) => [...acc, ...acc.map((x) => [...x, b])], [[]]);
+  const consumed = subsets.map((sub) => queueNameFor(QUEUE, sub));
+  const queues = new Map<string, Queue>();
+  const queueFor = (name: string) => {
+    if (!queues.has(name)) queues.set(name, new Queue(name, { connection: newConnection() }));
+    return queues.get(name)!;
+  };
+  const workers = consumed.map(
+    (name, i) =>
+      new Worker(
+        name,
+        async (m) => {
+          await runJob(String(m.data.jobId), { workerId, handlers, log });
+        },
+        { connection: newConnection(), concurrency: i === 0 ? concurrency : 1, lockDuration: 120_000, removeOnComplete: { count: 1000 }, removeOnFail: { count: 1000 } },
+      ),
   );
-  worker.on("error", (e) => log("queue error", { error: String(e) }));
+  for (const w of workers) w.on("error", (e) => log("queue error", { error: String(e) }));
 
-  const publish = async (job: { id: string; type: string; runAfter: Date }) => {
+  const publish = async (job: { id: string; type: string; runAfter: Date; input: unknown }) => {
     const delay = Math.max(0, job.runAfter.getTime() - Date.now());
+    const requires = ((job.input as { requires?: string[] }).requires ?? []).filter((r) => r === "redraw" || r === "skia");
     // jobId + attempt marker keeps BullMQ deduplication while allowing retries to republish.
-    await queue.add(job.type, { jobId: job.id }, { jobId: `${job.id}-${Date.now()}`, delay, removeOnComplete: true, removeOnFail: true });
+    await queueFor(queueNameFor(QUEUE, requires)).add(job.type, { jobId: job.id }, { jobId: `${job.id}-${Date.now()}`, delay, removeOnComplete: true, removeOnFail: true });
   };
   let stopping = false;
   const loops: NodeJS.Timeout[] = [];
@@ -59,7 +73,6 @@ async function main() {
   loops.push(setInterval(() => void reapExpiredLeases().then((n) => n && log("reaped expired leases", { n })).catch((e) => log("reaper error", { error: String(e) })), 10_000));
   loops.push(setInterval(() => void requeueStranded().then((n) => n && log("requeued stranded jobs", { n })).catch(() => {}), 60_000));
   loops.push(setInterval(() => void runCleanup().catch((e) => log("cleanup error", { error: String(e) })), 60_000));
-  const caps = await workerCapabilities();
   const beat = async () => {
     await getDb()
       .insert(schema.workerCapabilities)
@@ -68,15 +81,17 @@ async function main() {
   };
   await beat();
   loops.push(setInterval(() => void beat().catch(() => {}), 15_000));
-  log("worker started", { queue: QUEUE, concurrency, capabilities: caps });
+  log("worker started", { queues: consumed, concurrency, capabilities: caps });
 
   const shutdown = async (sig: string) => {
     if (stopping) return;
     stopping = true;
     log("shutting down", { sig });
     loops.forEach(clearInterval);
-    await worker.close();
-    await queue.close();
+    // Stop advertising capabilities first, so routing never counts this worker as available.
+    await getDb().delete(schema.workerCapabilities).where(sql`${schema.workerCapabilities.workerId} = ${workerId}`).catch(() => {});
+    await Promise.all(workers.map((w) => w.close()));
+    await Promise.all([...queues.values()].map((q) => q.close()));
     await shutdownRenderer().catch(() => {});
     await closeDb();
     process.exit(0);

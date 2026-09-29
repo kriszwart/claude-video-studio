@@ -222,6 +222,17 @@ export const Transition = z.object({
 });
 export type Transition = z.infer<typeof Transition>;
 
+/** Measured fidelity review of a generated shot against its approved reference (A23). */
+export const ShotReview = z.object({
+  referenceAssetId: Id.optional(),
+  paletteSimilarity: z.number().min(0).max(1).nullable(),
+  flagged: z.boolean(),
+  method: z.string().max(300),
+  /** Owner decision after looking at it side by side. */
+  decision: z.enum(["pending", "approved", "rejected"]).default("pending"),
+});
+export type ShotReview = z.infer<typeof ShotReview>;
+
 export const Scene = z.object({
   id: Id,
   purpose: z.string().max(80),
@@ -250,7 +261,7 @@ export const Scene = z.object({
       referenceAssetIds: z.array(Id).max(6).default([]),
       source: z.enum(["generate", "supplied"]).default("generate"),
       status: z.enum(["pending", "generating", "ready", "accepted", "failed"]).default("pending"),
-      candidates: z.array(z.object({ assetId: Id, generationId: z.string().max(64).optional(), provider: z.string().max(40), createdAt: z.string().max(40) })).max(12).default([]),
+      candidates: z.array(z.object({ assetId: Id, generationId: z.string().max(64).optional(), provider: z.string().max(40), createdAt: z.string().max(40), review: ShotReview.optional() })).max(12).default([]),
       acceptedAssetId: Id.optional(),
       /** True when the pipeline accepted the first result automatically; the owner should review it. */
       autoAccepted: z.boolean().default(false),

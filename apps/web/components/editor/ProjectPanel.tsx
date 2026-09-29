@@ -79,7 +79,7 @@ export function ProjectPanel({ doc, view, apply }: { doc: ProjectDocument; view:
         <div className="grid grid-cols-2 gap-2">
           <label>
             Pacing
-            <select className="input" value={doc.profile.pacing} onChange={(e) => apply([{ op: "applyCreativeProfile", profile: { ...doc.profile, pacing: e.target.value as "calm" } }])}>
+            <select className="input" value={doc.profile.pacing} onChange={(e) => apply([{ op: "applyCreativeProfile", profile: { ...doc.profile, profileId: undefined, version: undefined, pacing: e.target.value as "calm" } }])}>
               <option value="calm">Calm</option>
               <option value="balanced">Balanced</option>
               <option value="fast">Fast</option>
@@ -87,7 +87,7 @@ export function ProjectPanel({ doc, view, apply }: { doc: ProjectDocument; view:
           </label>
           <label>
             Type scale ×{doc.profile.typeScale.toFixed(2)}
-            <input type="range" min={0.7} max={1.6} step={0.05} className="w-full" defaultValue={doc.profile.typeScale} key={doc.profile.typeScale} onMouseUp={(e) => apply([{ op: "applyCreativeProfile", profile: { ...doc.profile, typeScale: Number((e.target as HTMLInputElement).value) } }])} />
+            <input type="range" min={0.7} max={1.6} step={0.05} className="w-full" defaultValue={doc.profile.typeScale} key={doc.profile.typeScale} onMouseUp={(e) => apply([{ op: "applyCreativeProfile", profile: { ...doc.profile, profileId: undefined, version: undefined, typeScale: Number((e.target as HTMLInputElement).value) } }])} />
           </label>
         </div>
         <p className="mt-1 text-faint">Profile: {doc.profile.name}{doc.profile.version ? ` v${doc.profile.version}` : ""}</p>

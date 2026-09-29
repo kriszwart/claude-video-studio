@@ -2,7 +2,7 @@ import type { TemplateDefinitionInput } from "../types";
 
 const shotLayers = (label?: string) => [
   { kind: "video" as const, slot: "media", asset: "", optional: false, fit: "cover" as const, frame: "none" as const, muted: true, animation: "fade" as const },
-  ...(label ? [{ kind: "text" as const, slot: "headline", role: "label" as const, text: label, optional: true, backing: "translucent" as const, animation: "slide" as const, delaySec: 0.3 }] : []),
+  ...(label ? [{ kind: "text" as const, slot: "headline", role: "headline" as const, scale: 0.9, uppercase: true, text: label, optional: true, backing: "translucent" as const, animation: "slide" as const, delaySec: 0.3 }] : []),
 ];
 
 /**
@@ -15,7 +15,7 @@ export const animeOpening: TemplateDefinitionInput = {
   family: "anime-opening",
   name: "Anime Opening",
   description: "A shot-listed opening cut to your song: cold open, character introductions, world montage, rising action, climax and title. Supply your own footage, or generate shots within a budget you set — accepted shots are never lost when another shot fails.",
-  version: 2,
+  version: 3,
   tags: { purpose: ["anime", "series", "trailer"], generatedMedia: "optional" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16"],

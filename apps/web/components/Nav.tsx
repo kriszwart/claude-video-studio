@@ -8,6 +8,7 @@ const ITEMS = [
   { href: "/brand-kits", label: "Brand Kits" },
   { href: "/assets", label: "Assets" },
   { href: "/collections", label: "Collections" },
+  { href: "/profiles", label: "Profiles" },
   { href: "/settings", label: "Settings" },
 ];
 

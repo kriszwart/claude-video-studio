@@ -1,5 +1,5 @@
 import "server-only";
-import { AppError, enqueueJob, getDb, getProject, getProviderSecret, getRevision, schema, type JobType } from "@vs/db";
+import { AppError, enqueueJob, getDb, getProject, getProviderSecret, getRevision, routingStatus, schema, type JobType } from "@vs/db";
 import type { SessionInfo } from "@vs/db";
 import { serializeJob } from "./serialize";
 
@@ -25,5 +25,6 @@ export async function enqueueProjectJob(
     if (r.created) await tx.insert(schema.analyticsEvents).values({ workspaceId: s.workspaceId, name: `${type}_requested`, props: { projectId } });
     return r;
   });
-  return { job: serializeJob(job), created };
+  const requires = ((job.input as { requires?: string[] }).requires ?? []);
+  return { job: serializeJob(job), created, routing: { requires, ...(await routingStatus(db, requires)) } };
 }

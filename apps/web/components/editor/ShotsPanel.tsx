@@ -22,7 +22,7 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
   const load = useCallback(async () => {
     const d = await api<ShotsDTO>(`/api/projects/${projectId}/shots`);
     setData(d);
-    const ids = [...new Set(d.shots.flatMap((s) => [...s.shot.candidates.map((c) => c.assetId), s.shot.acceptedAssetId].filter(Boolean) as string[]))];
+    const ids = [...new Set(d.shots.flatMap((s) => [...s.shot.candidates.map((c) => c.assetId), s.shot.acceptedAssetId, ...s.shot.referenceAssetIds].filter(Boolean) as string[]))];
     const all: Record<string, AssetDTO> = {};
     for (const kind of ["video", "image"]) for (const a of (await api<{ assets: AssetDTO[] }>(`/api/assets?kind=${kind}`)).assets) if (ids.includes(a.id)) all[a.id] = a;
     setAssets(all);
@@ -76,6 +76,13 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
             {s.shot.error && <p className="text-bad">{s.shot.error}</p>}
             {s.budgetMessage && s.shot.status !== "accepted" && <p className="text-warn">{s.budgetMessage}</p>}
             <DebouncedText multiline ariaLabel={`Prompt for shot ${s.index}`} value={s.shot.prompt} maxLength={1500} onCommit={(v) => apply([{ op: "updateShot", sceneId: s.sceneId, patch: { prompt: v } }])} />
+            {s.shot.candidates.length > 0 && s.shot.referenceAssetIds[0] && assets[s.shot.referenceAssetIds[0]]?.previewUrl && (
+              <figure className="w-28" data-testid="shot-reference">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={assets[s.shot.referenceAssetIds[0]]!.previewUrl!} alt="Approved reference" className="aspect-video w-full rounded object-contain bg-panel-2" />
+                <figcaption className="text-[10px] text-faint">Approved reference</figcaption>
+              </figure>
+            )}
             {s.shot.candidates.length > 0 && (
               <div className="flex flex-wrap gap-2">
                 {s.shot.candidates.map((c) => {
@@ -84,9 +91,20 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
                   return (
                     <div key={c.assetId} className={`w-28 rounded border p-1 ${accepted ? "border-accent" : "border-line"}`}>
                       {a?.previewUrl ? a.kind === "video" ? <video src={a.previewUrl} muted loop playsInline className="aspect-video w-full rounded bg-black object-cover" onMouseEnter={(e) => void e.currentTarget.play()} /> : <img src={a.previewUrl} alt="" className="aspect-video w-full rounded object-cover" /> : <div className="aspect-video rounded bg-panel-2" />}
+                      {c.review && (
+                        <p className={`mt-1 text-[10px] ${c.review.decision === "rejected" ? "text-bad" : c.review.flagged ? "text-warn" : "text-faint"}`} title={c.review.method} data-testid="fidelity">
+                          {c.review.decision === "rejected" ? "Rejected" : c.review.decision === "approved" ? "Approved by you" : c.review.flagged ? `Colour mismatch vs reference (${Math.round((c.review.paletteSimilarity ?? 0) * 100)}%) — review` : `Colour matches reference (${Math.round((c.review.paletteSimilarity ?? 0) * 100)}%)`}
+                        </p>
+                      )}
+                      {c.review && c.review.decision === "pending" && (
+                        <div className="flex gap-2 text-[10px]">
+                          <button className="underline" onClick={() => apply([{ op: "reviewShotCandidate", sceneId: s.sceneId, assetId: c.assetId, decision: "approved" }])}>Matches</button>
+                          <button className="underline text-bad" onClick={() => apply([{ op: "reviewShotCandidate", sceneId: s.sceneId, assetId: c.assetId, decision: "rejected" }])}>Reject</button>
+                        </div>
+                      )}
                       <div className="mt-1 flex items-center gap-1">
                         <span className="sample-badge" title="Generated media">Generated</span>
-                        {!accepted && (
+                        {!accepted && c.review?.decision !== "rejected" && (
                           <button className="ml-auto underline" onClick={() => apply([{ op: "acceptShot", sceneId: s.sceneId, assetId: c.assetId, supplied: false }])}>
                             Use
                           </button>

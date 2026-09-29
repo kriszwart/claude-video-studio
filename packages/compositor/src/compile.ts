@@ -455,15 +455,19 @@ html,body{margin:0;padding:0;background:#000;}
   const fitScript = `
 (function(){
   window.__hf = window.__hf || {}; window.__hf.buildReady = window.__hf.buildReady || {};
-  window.__vsReport = { overflow: [], missingFonts: [] };
+  window.__vsReport = { overflow: [], missingFonts: [], shrunk: [] };
   function fitAll(){
     var els = document.querySelectorAll('.fit');
     for (var i=0;i<els.length;i++){
       var el = els[i]; var base = parseFloat(el.getAttribute('data-size')); var s = base; el.style.fontSize = s+'px';
       var guard = 0;
-      while ((el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1) && s > base*0.4 && guard < 60){ s = s*0.95; el.style.fontSize = s+'px'; guard++; }
-      if (el.scrollHeight > el.clientHeight + 1 || el.scrollWidth > el.clientWidth + 1){ el.setAttribute('data-overflow','true'); window.__vsReport.overflow.push(el.parentElement.id); }
+      // Measure the content block itself: bottom-aligned content overflows upward, which the
+      // container's scrollHeight never reports.
+      var over = function(){ var c = el.firstElementChild || el; return c.offsetHeight > el.clientHeight + 1 || c.scrollWidth > el.clientWidth + 1 || el.scrollWidth > el.clientWidth + 1; };
+      while (over() && s > base*0.4 && guard < 60){ s = s*0.95; el.style.fontSize = s+'px'; guard++; }
+      if (over()){ el.setAttribute('data-overflow','true'); window.__vsReport.overflow.push(el.parentElement.id); }
       el.setAttribute('data-fitted', (s/base).toFixed(3));
+      if (s/base < 0.75) window.__vsReport.shrunk.push({ id: el.parentElement.id, ratio: Math.round(s/base*1000)/1000, px: Math.round(s*10)/10 });
     }
   }
   var fams = ${scriptJson([...new Set([cleanFamily(heading.family), cleanFamily(body.family)])])};
@@ -473,7 +477,7 @@ html,body{margin:0;padding:0;background:#000;}
 })();`;
 
   const html = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="generator" content="video-studio-compositor/3">
+<html><head><meta charset="utf-8"><meta name="generator" content="video-studio-compositor/4">
 <style>${css}</style>
 <script src="${ctx.gsapFile}"></script>
 </head><body>
@@ -496,7 +500,7 @@ ${[...scriptSrcs].map((src) => `<script src="${escapeHtml(src)}"></script>`).joi
 </body></html>`;
 
   const manifest = {
-    compiler: "video-studio-compositor/3",
+    compiler: "video-studio-compositor/4",
     width,
     height,
     fps,

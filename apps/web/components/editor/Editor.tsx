@@ -6,6 +6,7 @@ import { api } from "@/lib/client/api";
 import { AssistantPanel } from "./AssistantPanel";
 import { AudioPanel } from "./AudioPanel";
 import { ExportPanel } from "./ExportPanel";
+import { QualityPanel } from "./QualityPanel";
 import { DebouncedText } from "./fields";
 import { Preview } from "./Preview";
 import { ProgramPanel } from "./ProgramPanel";
@@ -101,7 +102,12 @@ export function Editor({ projectId }: { projectId: string }) {
             {tab === "scene" && <SceneInspector doc={doc} scene={scene} apply={p.apply} />}
             {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claudeConfigured={claude} />}
             {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}
-            {tab === "export" && <ExportPanel projectId={projectId} doc={doc} revisionId={p.revisionId} exports={view.exports} jobs={view.jobs} blocking={blocking.length > 0} />}
+            {tab === "export" && (
+              <div className="space-y-6">
+                <QualityPanel projectId={projectId} revisionId={p.revisionId} jobs={view.jobs} blocking={blocking.length > 0} />
+                <ExportPanel projectId={projectId} doc={doc} revisionId={p.revisionId} exports={view.exports} jobs={view.jobs} blocking={blocking.length > 0} />
+              </div>
+            )}
             {tab === "project" && <ProjectPanel doc={doc} view={view} apply={p.apply} />}
           </div>
         </aside>

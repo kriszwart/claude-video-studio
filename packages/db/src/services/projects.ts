@@ -307,7 +307,7 @@ export async function restoreDeletedProject(db: DbOrTx, projectId: string, works
 export { emitJobEvent };
 
 /** Bumped when still capture changes (e.g. video frame injection) so cached keyframes refresh. */
-const KEYFRAME_RENDER_VERSION = 3;
+const KEYFRAME_RENDER_VERSION = 4;
 
 /** Everything that affects how one scene's keyframe looks. */
 export function keyframeHash(doc: ProjectDocument, sceneId: string): string {

@@ -6,3 +6,4 @@ export * from "./render";
 export * from "./stills";
 export * from "./music";
 export * from "./cuts";
+export * from "./fidelity";

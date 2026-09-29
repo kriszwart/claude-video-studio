@@ -6,6 +6,8 @@ import { importUrl } from "./importUrl";
 import { generateMedia, recoverGeneration } from "./generate";
 import { ingestCollectionItem } from "./collection";
 import { buildSizzle } from "./sizzle";
+import { analyzeReference } from "./reference";
+import { qualityReview } from "./quality";
 
 /** Additional handlers registered by later milestones (TTS, transcription, QA, generation…). */
 export const extraHandlers: Record<string, Handler> = {
@@ -18,4 +20,6 @@ export const extraHandlers: Record<string, Handler> = {
   recover_generation: recoverGeneration,
   collection_ingest: ingestCollectionItem,
   build_sizzle: buildSizzle,
+  analyze_reference: analyzeReference,
+  quality_review: qualityReview,
 };

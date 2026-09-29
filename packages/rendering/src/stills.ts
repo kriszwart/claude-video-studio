@@ -21,6 +21,8 @@ export interface StillsRequest {
 export interface PageReport {
   overflow: string[];
   missingFonts: string[];
+  /** Text that had to shrink below 75% of its designed size to fit (layer DOM ids). */
+  shrunk?: { id: string; ratio: number; px?: number }[];
   skia?: unknown;
   redraw?: unknown;
 }

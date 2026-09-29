@@ -17,9 +17,9 @@ import {
   settleSpend,
   webhookToken,
 } from "@vs/db";
-import type { Operation, ProjectDocument, Scene } from "@vs/domain";
+import type { Operation, ProjectDocument, Scene, ShotReview } from "@vs/domain";
 import { estimateFor, FalQueue, FalSettings, falOutputFiles, MediaProviderError } from "@vs/providers";
-import { FFMPEG, runOk } from "@vs/rendering";
+import { FFMPEG, productFidelity, runOk } from "@vs/rendering";
 import { registerFile, resolveAssets, type Handler, type JobContext } from "../context";
 import { safeFetch, UnsafeUrlError } from "../net/safeFetch";
 
@@ -211,12 +211,24 @@ export const generateMedia: Handler = async (ctx) => {
   });
   await settleSpend(db, ctx.job.workspaceId, operationId, model.priceMicros);
   await updateGen(g!.id, { assetId: asset.id });
-  return attach(ctx, sceneId, { ...g!, assetId: asset.id }, asset.id);
+  // Product/character fidelity (A23): measured colour comparison with the approved reference.
+  let review: ShotReview | undefined;
+  const refId = shot.referenceAssetIds[0];
+  if (refId) {
+    await ctx.stage("checking fidelity");
+    const ref = (await resolveAssets(ctx.job.workspaceId, [refId])).get(refId);
+    if (ref) {
+      const dur = shot.kind === "video" ? Number((asset.media as { durationSec?: number }).durationSec ?? 0) || undefined : undefined;
+      const f = await productFidelity(out, ref.path, dur);
+      review = { referenceAssetId: refId, ...f, decision: "pending" };
+    }
+  }
+  return attach(ctx, sceneId, { ...g!, assetId: asset.id }, asset.id, review);
 };
 
-async function attach(ctx: JobContext, sceneId: string, g: GenRow, assetId: string) {
-  await applyWithRetry(ctx, () => [{ op: "addShotCandidate", sceneId, candidate: { assetId, generationId: g.id, provider: "fal", createdAt: new Date().toISOString() }, autoAccept: true }], "generated shot ready");
-  return { sceneId, assetId, generationId: g.id, requestId: g.requestId, operationId: g.operationId };
+async function attach(ctx: JobContext, sceneId: string, g: GenRow, assetId: string, review?: ShotReview) {
+  await applyWithRetry(ctx, () => [{ op: "addShotCandidate", sceneId, candidate: { assetId, generationId: g.id, provider: "fal", createdAt: new Date().toISOString(), ...(review ? { review } : {}) }, autoAccept: true }], review?.flagged ? "generated shot needs fidelity review" : "generated shot ready");
+  return { sceneId, assetId, generationId: g.id, requestId: g.requestId, operationId: g.operationId, fidelity: review ?? null };
 }
 
 async function failGenerated(ctx: JobContext, g: GenRow, operationId: string, sceneId: string, message: string): Promise<never> {

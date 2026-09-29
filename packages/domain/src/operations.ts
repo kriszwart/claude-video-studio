@@ -18,6 +18,7 @@ import {
   Program,
   ProjectDocument,
   Scene,
+  ShotReview,
   TextLayer,
   Transition,
 } from "./document";
@@ -84,7 +85,8 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setMarkers"), markers: z.array(MusicMarker).max(1000) }),
   z.object({ op: z.literal("updateShot"), sceneId: Id, patch: z.object({ prompt: z.string().max(1500), continuity: z.string().max(500), referenceAssetIds: z.array(Id).max(6), characterIds: z.array(Id).max(6), kind: z.enum(["image", "video"]) }).partial() }),
   z.object({ op: z.literal("setShotStatus"), sceneId: Id, status: z.enum(["pending", "generating", "ready", "accepted", "failed"]), error: z.string().max(300).optional(), variant: z.number().int().min(1).optional() }),
-  z.object({ op: z.literal("addShotCandidate"), sceneId: Id, candidate: z.object({ assetId: Id, generationId: z.string().max(64).optional(), provider: z.string().max(40), createdAt: z.string().max(40) }), autoAccept: z.boolean().default(false) }),
+  z.object({ op: z.literal("addShotCandidate"), sceneId: Id, candidate: z.object({ assetId: Id, generationId: z.string().max(64).optional(), provider: z.string().max(40), createdAt: z.string().max(40), review: ShotReview.optional() }), autoAccept: z.boolean().default(false) }),
+  z.object({ op: z.literal("reviewShotCandidate"), sceneId: Id, assetId: Id, decision: z.enum(["approved", "rejected"]) }),
   z.object({ op: z.literal("acceptShot"), sceneId: Id, assetId: Id, supplied: z.boolean().default(false) }),
   z.object({ op: z.literal("varyScene"), sceneId: Id, variant: z.number().int().min(1).max(1_000_000) }),
   z.object({ op: z.literal("setCharacters"), characters: z.array(Character).max(6) }),
@@ -386,6 +388,12 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       return doc;
     case "applyCreativeProfile":
       doc.profile = op.profile;
+      // Transitions follow the profile on unlocked scenes that already have one (cuts stay cuts
+      // unless the profile asks for cuts everywhere). Locked scenes are never touched.
+      doc.scenes.forEach((s, i) => {
+        if (i === 0 || s.locked || s.transitionIn.type === "cut") return;
+        s.transitionIn = op.profile.transition === "cut" ? { type: "cut", durationFrames: 0 } : { type: op.profile.transition, durationFrames: s.transitionIn.durationFrames };
+      });
       return doc;
     case "updateBrief": {
       const merged = { ...doc.brief, ...op.brief };
@@ -462,11 +470,28 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       const s = findScene(doc, op.sceneId);
       if (!s.shot) throw new OperationError("invalid", "This scene is not a footage shot.");
       if (!s.shot.candidates.some((c) => c.assetId === op.candidate.assetId)) s.shot.candidates = [...s.shot.candidates, op.candidate].slice(-12);
-      if (op.autoAccept && !s.shot.acceptedAssetId) {
+      // A candidate flagged by the fidelity check is never auto-accepted: it waits for review.
+      if (op.autoAccept && !s.shot.acceptedAssetId && !op.candidate.review?.flagged) {
         acceptShotMedia(s, op.candidate.assetId);
         s.shot.autoAccepted = true;
       } else if (s.shot.status !== "accepted") s.shot.status = "ready";
       s.shot.error = undefined;
+      changed.add(s.id);
+      return doc;
+    }
+    case "reviewShotCandidate": {
+      if (actor !== "user") throw new OperationError("invalid", "Only the owner reviews generated shots.");
+      const s = findScene(doc, op.sceneId);
+      const c = s.shot?.candidates.find((x) => x.assetId === op.assetId);
+      if (!s.shot || !c) throw new OperationError("invalid", "That asset is not a candidate for this shot.");
+      c.review = { ...(c.review ?? { paletteSimilarity: null, flagged: false, method: "owner review" }), decision: op.decision };
+      // Rejecting the accepted candidate takes it off the timeline; the shot goes back to pending.
+      if (op.decision === "rejected" && s.shot.acceptedAssetId === op.assetId) {
+        s.shot.acceptedAssetId = undefined;
+        s.shot.status = "pending";
+        s.shot.autoAccepted = false;
+        for (const l of s.layers) if ((l.kind === "video" || l.kind === "image") && l.slot === "media" && l.assetId === op.assetId) l.assetId = null;
+      }
       changed.add(s.id);
       return doc;
     }
@@ -475,6 +500,7 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       if (!s.shot) throw new OperationError("invalid", "This scene is not a footage shot.");
       if (s.locked && actor !== "user") throw new OperationError("locked", `Scene “${s.purpose}” is locked.`);
       if (!op.supplied && !s.shot.candidates.some((c) => c.assetId === op.assetId)) throw new OperationError("invalid", "That asset is not a candidate for this shot.");
+      if (!op.supplied && actor !== "user" && s.shot.candidates.find((c) => c.assetId === op.assetId)?.review?.flagged) throw new OperationError("invalid", "This candidate was flagged for product fidelity; only the owner can accept it.");
       if (op.supplied) s.shot.source = "supplied";
       acceptShotMedia(s, op.assetId);
       s.shot.autoAccepted = false;

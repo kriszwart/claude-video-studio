@@ -1,8 +1,8 @@
-import { and, asc, eq, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { and, asc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
 import type { DbOrTx } from "../client";
 import { getDb } from "../client";
 import { newId } from "../ids";
-import { jobEvents, jobs, outbox } from "../schema";
+import { jobEvents, jobs, outbox, projectRevisions, workerCapabilities } from "../schema";
 
 export type JobRow = typeof jobs.$inferSelect;
 export type JobStatus = JobRow["status"];
@@ -56,11 +56,45 @@ export class JobError extends Error {
   }
 }
 
+/** Jobs that compile the composition and therefore need the graphics backends it uses. */
+const GRAPHICS_JOBS = new Set<string>(["preview", "export", "keyframes", "quality_review"]);
+
+/** Graphics backends a revision needs (FR-21 capability routing). */
+export async function graphicsRequirements(db: DbOrTx, revisionId: string): Promise<string[]> {
+  const rev = await db.query.projectRevisions.findFirst({ where: eq(projectRevisions.id, revisionId), columns: { document: true } });
+  const doc = rev?.document as { scenes?: { layers?: { kind: string; backend?: string; hidden?: boolean }[] }[] } | undefined;
+  const set = new Set<string>();
+  for (const s of doc?.scenes ?? []) for (const l of s.layers ?? []) if (l.kind === "graphics" && !l.hidden && l.backend) set.add(l.backend);
+  return [...set].sort();
+}
+
+/** Queue carrying jobs with these requirements; workers subscribe only to queues they can run. */
+export function queueNameFor(base: string, requires: string[]): string {
+  return requires.length ? `${base}-${[...requires].sort().join("-")}` : base;
+}
+
+/** Whether a live worker (heartbeat in the last 2 minutes) offers every required backend. */
+export async function routingStatus(db: DbOrTx, requires: string[]) {
+  if (!requires.length) return { blocked: false as const };
+  const live = await db.query.workerCapabilities.findMany({ where: gt(workerCapabilities.heartbeatAt, new Date(Date.now() - 120_000)) });
+  const ok = live.some((w) => requires.every((r) => (w.capabilities as { graphics?: Record<string, unknown> }).graphics?.[r] === true));
+  if (ok) return { blocked: false as const };
+  const names = requires.map((r) => (r === "redraw" ? "Redraw (WebGPU)" : r === "skia" ? "Skia" : r)).join(" + ");
+  return { blocked: true as const, reason: `No online worker can render ${names} layers. The job waits until a compatible worker is available; you can cancel it, or hide/replace those layers with a reviewed alternative.` };
+}
+
 /** Insert job + outbox row atomically. Duplicate idempotency keys return the original job. */
 export async function enqueueJob(db: DbOrTx, input: EnqueueInput): Promise<{ job: JobRow; created: boolean }> {
   if (input.idempotencyKey) {
     const existing = await db.query.jobs.findFirst({ where: and(eq(jobs.workspaceId, input.workspaceId), eq(jobs.idempotencyKey, input.idempotencyKey)) });
     if (existing) return { job: existing, created: false };
+  }
+  let stage = "queued";
+  if (GRAPHICS_JOBS.has(input.type) && input.revisionId) {
+    const requires = await graphicsRequirements(db, input.revisionId);
+    input = { ...input, input: { ...input.input, requires } };
+    const r = await routingStatus(db, requires);
+    if (r.blocked) stage = "waiting for a compatible worker";
   }
   const id = newId("job");
   const [job] = await db
@@ -76,6 +110,7 @@ export async function enqueueJob(db: DbOrTx, input: EnqueueInput): Promise<{ job
       maxAttempts: input.maxAttempts ?? 3,
       parentJobId: input.parentJobId ?? null,
       runAfter: input.runAfter ?? new Date(),
+      stage,
     })
     .onConflictDoNothing({ target: [jobs.workspaceId, jobs.idempotencyKey] })
     .returning();
@@ -85,7 +120,7 @@ export async function enqueueJob(db: DbOrTx, input: EnqueueInput): Promise<{ job
     return { job: existing!, created: false };
   }
   await db.insert(outbox).values({ jobId: id });
-  await emitJobEvent(db, job, "queued", { stage: "queued" });
+  await emitJobEvent(db, job, "queued", { stage });
   return { job, created: true };
 }
 
