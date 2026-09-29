@@ -12,11 +12,11 @@ export const PROVIDERS = {
 } as const;
 export type ProviderId = keyof typeof PROVIDERS;
 
-export async function setProviderSecret(db: DbOrTx, workspaceId: string, provider: ProviderId, secret: string | null, settings: Record<string, unknown> = {}) {
+export async function setProviderSecret(db: DbOrTx, workspaceId: string, provider: ProviderId, secret: string | null) {
+  // Changing the key keeps model/price settings; the previous live check no longer applies.
   const values = {
     encryptedSecret: secret ? encryptSecret(secret) : null,
     keyHint: secret ? `…${secret.slice(-4)}` : null,
-    settings,
     lastCheck: null,
     updatedAt: sql`now()`,
   };
@@ -54,6 +54,7 @@ export async function providerStatus(db: DbOrTx, workspaceId: string) {
       source,
       keyHint: row?.keyHint ?? null,
       lastCheck: (row?.lastCheck as { ok: boolean; message: string; at: string } | null) ?? null,
+      settings: (row?.settings as Record<string, unknown>) ?? {},
     };
   });
 }
@@ -67,4 +68,17 @@ export async function rotateEncryptionKey(db: DbOrTx, oldKey: string, newKey: st
     await db.update(providerConfigs).set({ encryptedSecret: encryptSecret(plain, newKey) }).where(eq(providerConfigs.id, r.id));
   }
   return rows.length;
+}
+
+/** Non-secret provider settings (e.g. model endpoints and owner-entered prices). */
+export async function setProviderSettings(db: DbOrTx, workspaceId: string, provider: ProviderId, settings: Record<string, unknown>) {
+  await db
+    .insert(providerConfigs)
+    .values({ id: newId("pcf"), workspaceId, provider, settings })
+    .onConflictDoUpdate({ target: [providerConfigs.workspaceId, providerConfigs.provider], set: { settings, updatedAt: sql`now()` } });
+}
+
+export async function getProviderSettings(db: DbOrTx, workspaceId: string, provider: ProviderId): Promise<Record<string, unknown>> {
+  const row = await db.query.providerConfigs.findFirst({ where: and(eq(providerConfigs.workspaceId, workspaceId), eq(providerConfigs.provider, provider)) });
+  return (row?.settings as Record<string, unknown>) ?? {};
 }

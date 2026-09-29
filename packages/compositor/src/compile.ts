@@ -236,6 +236,16 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       }
     }
 
+    // Footage shot without accepted media: an explicit slate, never a fake frame.
+    if (scene.shot && !scene.shot.acceptedAssetId) {
+      const shotNo = doc.scenes.filter((x) => x.shot).findIndex((x) => x.id === scene.id) + 1;
+      const label = scene.shot.status === "failed" ? "generation failed" : scene.shot.status === "generating" ? "generating…" : "awaiting footage";
+      warnings.push(`Shot ${shotNo} (“${scene.purpose}”) has no footage yet (${label}).`);
+      parts.push(
+        `<div class="layer" style="left:0;top:0;width:100%;height:100%;z-index:5;background:repeating-linear-gradient(135deg,#0b0d14 0 ${f3(28 * unit)}px,#11141d ${f3(28 * unit)}px ${f3(56 * unit)}px);display:flex;flex-direction:column;align-items:center;justify-content:center;gap:${f3(14 * unit)}px;font-family:${cssFamily(brand.fonts.body.family)},sans-serif;color:#cbd5e1;text-align:center;padding:0 10%;box-sizing:border-box"><div style="font-size:${f3(64 * unit)}px;font-weight:800;letter-spacing:.08em;color:#f8fafc">SHOT ${shotNo}</div><div style="font-size:${f3(26 * unit)}px;text-transform:uppercase;letter-spacing:.2em;color:#f59e0b">${escapeHtml(label)}</div><div style="font-size:${f3(22 * unit)}px;max-width:80%;opacity:.8">${escapeHtml(scene.shot.prompt.slice(0, 160))}</div></div>`,
+      );
+    }
+
     // Background "ken burns" drift on asset backgrounds.
     if (scene.background.type === "asset" && m.k > 0.2) {
       tweens.push(`tl.fromTo("#${sid}-bgimg",{scale:1},{scale:${f3(1 + 0.06 * m.k)},duration:${dur},ease:"none"},${start});`);

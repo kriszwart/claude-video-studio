@@ -1,0 +1,121 @@
+/**
+ * TEST-ONLY fake of fal's queue API, for deterministic tests of the real adapter, webhook
+ * verification, budgets and recovery. It is not a provider and is never used by the app
+ * unless FAL_QUEUE_BASE_URL points at it. Output media is a synthetic ffmpeg test pattern.
+ *
+ *   FAKE_FAL_PORT=3900 tsx scripts/fake-fal.ts
+ * Behaviour hooks (in the prompt): "[fail]" → the request ends with ERROR.
+ * Control: POST /__control {"duplicateWebhooks":true,"staleAfter":true,"delayMs":1500}
+ * Stats:   GET /__stats
+ */
+import { execFileSync } from "node:child_process";
+import { createHash, generateKeyPairSync, sign } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import http from "node:http";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+const PORT = Number(process.env.FAKE_FAL_PORT ?? 3900);
+const DIR = join(tmpdir(), "fake-fal");
+mkdirSync(DIR, { recursive: true });
+const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+const jwk = publicKey.export({ format: "jwk" }) as { x: string };
+
+type Req = { id: string; endpoint: string; input: Record<string, unknown>; webhook?: string; state: "IN_QUEUE" | "IN_PROGRESS" | "COMPLETED"; error?: string; canceled: boolean; payload?: unknown };
+const reqs = new Map<string, Req>();
+const control = { duplicateWebhooks: false, staleAfter: false, delayMs: 1500, webhooks: true };
+const stats = { submits: 0, statusCalls: 0, resultCalls: 0, cancels: 0, webhooksSent: 0, authFailures: 0 };
+let n = 0;
+
+function media(id: string, kind: "video" | "image") {
+  const file = join(DIR, `${id}.${kind === "video" ? "mp4" : "png"}`);
+  if (!existsSync(file)) {
+    const seed = [...id].reduce((a, c) => a + c.charCodeAt(0), 0);
+    if (kind === "video") execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=size=640x360:rate=30:duration=4,hue=h=${seed % 360}`, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", file]);
+    else execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=size=768x768:rate=1:duration=1,hue=h=${seed % 360}`, "-frames:v", "1", file]);
+  }
+  return file;
+}
+
+async function sendWebhook(r: Req, status: "OK" | "ERROR", payload: unknown, error?: string) {
+  if (!r.webhook || !control.webhooks) return;
+  const body = Buffer.from(JSON.stringify({ status, request_id: r.id, payload, ...(error ? { error } : {}) }));
+  const ts = String(Math.floor(Date.now() / 1000));
+  const msg = Buffer.from([r.id, "user_test", ts, createHash("sha256").update(body).digest("hex")].join("\n"));
+  const headers = { "content-type": "application/json", "x-fal-webhook-request-id": r.id, "x-fal-webhook-user-id": "user_test", "x-fal-webhook-timestamp": ts, "x-fal-webhook-signature": sign(null, msg, privateKey).toString("hex") };
+  stats.webhooksSent++;
+  await fetch(r.webhook, { method: "POST", headers, body }).catch(() => undefined);
+}
+
+function finish(r: Req) {
+  const kind = /image/.test(r.endpoint) ? "image" : "video";
+  const fail = String(r.input.prompt ?? "").includes("[fail]");
+  r.state = "COMPLETED";
+  if (fail) {
+    r.error = "Simulated provider failure";
+    void sendWebhook(r, "ERROR", null, r.error);
+    return;
+  }
+  const url = `http://127.0.0.1:${PORT}/files/${r.id}.${kind === "video" ? "mp4" : "png"}`;
+  r.payload = kind === "video" ? { video: { url, content_type: "video/mp4" } } : { images: [{ url, content_type: "image/png", width: 768, height: 768 }] };
+  void (async () => {
+    await sendWebhook(r, "OK", r.payload);
+    if (control.duplicateWebhooks) await sendWebhook(r, "OK", r.payload);
+    // A stale, out-of-order failure event for the same request must not undo the result.
+    if (control.staleAfter) await sendWebhook(r, "ERROR", null, "stale event");
+  })();
+}
+
+const json = (res: http.ServerResponse, code: number, body: unknown) => res.writeHead(code, { "content-type": "application/json" }).end(JSON.stringify(body));
+
+http
+  .createServer(async (req, res) => {
+    const u = new URL(req.url ?? "/", `http://127.0.0.1:${PORT}`);
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    const bodyText = Buffer.concat(chunks).toString("utf8");
+    if (u.pathname === "/.well-known/jwks.json") return json(res, 200, { keys: [{ kty: "OKP", crv: "Ed25519", x: jwk.x, kid: "test" }] });
+    if (u.pathname === "/__stats") return json(res, 200, { ...stats, requests: [...reqs.values()].map((r) => ({ id: r.id, endpoint: r.endpoint, state: r.state, canceled: r.canceled, error: r.error ?? null })) });
+    if (u.pathname === "/__control") {
+      Object.assign(control, JSON.parse(bodyText || "{}"));
+      return json(res, 200, control);
+    }
+    if (u.pathname.startsWith("/files/")) {
+      const m = /^\/files\/(req_\d+)\.(mp4|png)$/.exec(u.pathname);
+      if (!m) return json(res, 404, {});
+      const f = media(m[1]!, m[2] === "mp4" ? "video" : "image");
+      return res.writeHead(200, { "content-type": m[2] === "mp4" ? "video/mp4" : "image/png" }).end(readFileSync(f));
+    }
+    if (req.headers.authorization !== "Key test-fal-key-123") {
+      stats.authFailures++;
+      return json(res, 401, { detail: "Unauthorized" });
+    }
+    const rm = /^\/([^/]+\/[^/]+)\/requests\/([^/]+)(\/status|\/cancel)?$/.exec(u.pathname);
+    if (rm) {
+      const r = reqs.get(rm[2]!);
+      if (!r) return json(res, 404, { detail: "Request not found" });
+      if (rm[3] === "/status") {
+        stats.statusCalls++;
+        return json(res, 200, { status: r.state, request_id: r.id, ...(r.error ? { error: r.error } : {}) });
+      }
+      if (rm[3] === "/cancel") {
+        stats.cancels++;
+        r.canceled = true;
+        return json(res, 200, { status: r.state === "COMPLETED" ? "ALREADY_COMPLETED" : "CANCELLATION_REQUESTED" });
+      }
+      stats.resultCalls++;
+      if (r.state !== "COMPLETED") return json(res, 400, { detail: "Request is still in progress" });
+      return r.error ? json(res, 422, { detail: r.error }) : json(res, 200, r.payload);
+    }
+    if (req.method === "POST") {
+      stats.submits++;
+      const id = `req_${++n}`;
+      const r: Req = { id, endpoint: u.pathname.slice(1), input: JSON.parse(bodyText || "{}"), webhook: u.searchParams.get("fal_webhook") ?? undefined, state: "IN_QUEUE", canceled: false };
+      reqs.set(id, r);
+      setTimeout(() => (r.state = "IN_PROGRESS"), control.delayMs / 3);
+      setTimeout(() => finish(r), control.delayMs);
+      return json(res, 200, { request_id: id, status: "IN_QUEUE", status_url: `http://127.0.0.1:${PORT}/${r.endpoint}/requests/${id}/status`, response_url: `http://127.0.0.1:${PORT}/${r.endpoint}/requests/${id}` });
+    }
+    json(res, 404, { detail: "not found" });
+  })
+  .listen(PORT, "127.0.0.1", () => console.log(`fake fal (TEST ONLY) on :${PORT}`));

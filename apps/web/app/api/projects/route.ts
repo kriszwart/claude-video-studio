@@ -87,7 +87,8 @@ export const POST = route(async (req) => {
     }
     // Music videos: analyse the song, then build section scenes and markers from it.
     if (template.musicVideo) {
-      transcribeJob = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "analyze_music", input: { build: "music-video", density: "downbeats" }, idempotencyKey: idem ? `analyze:${idem}` : null })).job;
+      const input = template.family === "music-video" ? { build: "music-video", density: "downbeats" } : { density: "downbeats", fit: ["downbeat", "section"] };
+      transcribeJob = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "analyze_music", input, idempotencyKey: idem ? `analyze:${idem}` : null })).job;
     }
     await tx.insert(schema.analyticsEvents).values({ workspaceId: s.workspaceId, name: "project_created", props: { family: template.family, template: template.id, plan: input.plan } });
     return { project: created.project, job, transcribeJob };

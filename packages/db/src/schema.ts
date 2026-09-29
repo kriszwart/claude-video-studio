@@ -327,6 +327,35 @@ export const providerConfigs = pgTable(
   (t) => [uniqueIndex("provider_ws").on(t.workspaceId, t.provider)],
 );
 
+/**
+ * One billable provider request (image/video generation). The provider request id is
+ * persisted the moment it is known; an unknown outcome is recorded as "uncertain" and is
+ * never blindly resubmitted (§12).
+ */
+export const generationRequests = pgTable(
+  "generation_requests",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    projectId: text("project_id"),
+    jobId: text("job_id"),
+    /** Stable logical key (project:shot:variant); one row per billable attempt. */
+    operationId: text("operation_id").notNull(),
+    provider: text("provider").notNull(),
+    endpoint: text("endpoint").notNull(),
+    capability: text("capability", { enum: ["image", "video"] }).notNull(),
+    requestId: text("request_id"),
+    state: text("state", { enum: ["submitting", "submitted", "succeeded", "failed", "canceled", "uncertain"] }).notNull(),
+    input: jsonb("input").notNull(),
+    output: jsonb("output"),
+    assetId: text("asset_id"),
+    error: jsonb("error"),
+    createdAt: createdAt(),
+    updatedAt: ts("updated_at").notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("generation_operation").on(t.workspaceId, t.operationId), index("generation_request").on(t.provider, t.requestId)],
+);
+
 export const providerEvents = pgTable(
   "provider_events",
   {

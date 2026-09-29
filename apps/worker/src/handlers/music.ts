@@ -94,8 +94,9 @@ export const analyzeMusic: Handler = async (ctx) => {
         throw e;
       }
     }
+    const fit = Array.isArray(ctx.job.input.fit) ? (ctx.job.input.fit as ("section" | "downbeat" | "beat")[]) : [];
     try {
-      const r = await db.transaction((tx) => applyProjectOperations(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId: revision.id, ops: [{ op: "setMarkers", markers }], actor: "system", author: "system", action: `music analysis: ${analysis.bpm} BPM, ${analysis.sections.length} sections (unverified)` }));
+      const r = await db.transaction((tx) => applyProjectOperations(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId: revision.id, ops: [{ op: "setMarkers", markers }, ...(fit.length ? [{ op: "fitScenesToMarkers" as const, kinds: fit }] : [])], actor: "system", author: "system", action: `music analysis: ${analysis.bpm} BPM, ${analysis.sections.length} sections (unverified)` }));
       return { ...summary, revisionId: r.revision.id, markers: markers.length };
     } catch (e) {
       if (e instanceof AppError && e.status === 409 && attempt === 0) continue;

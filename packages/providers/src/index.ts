@@ -8,3 +8,5 @@ export * from "./tts/elevenlabs";
 export * from "./transcription/types";
 export * from "./transcription/elevenlabs";
 export * from "./transcription/whisper-cpp";
+export * from "./media/fal";
+export * from "./media/settings";

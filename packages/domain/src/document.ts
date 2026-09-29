@@ -240,6 +240,24 @@ export const Scene = z.object({
   keyframeOffset: Frames.optional(),
   /** Program (talking-head) scenes cover a source-time range; duration follows the EDL. */
   sourceRange: z.object({ startSec: z.number().min(0), endSec: z.number().min(0) }).optional(),
+  /** Generated/supplied footage shot (T7, P6). Accepted media fills the scene's media layer. */
+  shot: z
+    .object({
+      kind: z.enum(["image", "video"]).default("video"),
+      prompt: z.string().max(1500),
+      continuity: z.string().max(500).default(""),
+      characterIds: z.array(Id).max(6).default([]),
+      referenceAssetIds: z.array(Id).max(6).default([]),
+      source: z.enum(["generate", "supplied"]).default("generate"),
+      status: z.enum(["pending", "generating", "ready", "accepted", "failed"]).default("pending"),
+      candidates: z.array(z.object({ assetId: Id, generationId: z.string().max(64).optional(), provider: z.string().max(40), createdAt: z.string().max(40) })).max(12).default([]),
+      acceptedAssetId: Id.optional(),
+      /** True when the pipeline accepted the first result automatically; the owner should review it. */
+      autoAccepted: z.boolean().default(false),
+      variant: z.number().int().min(1).default(1),
+      error: z.string().max(300).optional(),
+    })
+    .optional(),
   status: z
     .object({ state: z.enum(["ready", "needs_input", "generating", "failed"]).default("ready"), message: z.string().max(300).default("") })
     .default({ state: "ready", message: "" }),

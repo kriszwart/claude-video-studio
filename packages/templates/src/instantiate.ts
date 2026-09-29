@@ -95,6 +95,8 @@ export function missingRequiredInputs(def: TemplateDefinition, inputs: InputValu
  */
 export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOptions): ProjectDocument {
   const inputs: InputValues = { ...Object.fromEntries(def.inputs.filter((f) => f.default !== undefined).map((f) => [f.id, f.default as InputValue])), ...opts.inputs };
+  // Derived binding for shot templates: character names without their descriptions.
+  if (def.shots?.charactersInput) inputs.characterNames = listOf(inputs[def.shots.charactersInput]).map((r) => r.split(/\s+[—–-]\s+/)[0]!.trim());
   const aspect = opts.aspect ?? def.defaultAspect;
   const fps = 30;
   const brand = opts.brand;
@@ -117,7 +119,7 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
 
   const scenes: Scene[] = [];
   for (const recipe of def.scenes) {
-    if (recipe.when && !hasValue(inputs[recipe.when])) continue;
+    if (recipe.when && !whenHolds(recipe.when, inputs)) continue;
     const items = recipe.repeatFor ? listOf(inputs[recipe.repeatFor]) : [undefined];
     items.forEach((item, idx) => {
       const extra: Record<string, string> = item !== undefined ? { item, index: String(idx + 1), index0: String(idx), count: String(items.length) } : {};
@@ -125,6 +127,19 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
     });
   }
   if (scenes.length === 0) throw new Error(`Template ${def.id} produced no scenes for these inputs.`);
+  // Character introduction shots reference their persistent character.
+  scenes.filter((s) => s.shot && s.recipeSlot === "character").forEach((s, i) => (s.shot!.characterIds = [`char-${i + 1}`]));
+  // Supplied footage fills shots in order; the rest stay pending for generation (or later supply).
+  const supplyInput = def.scenes.find((r) => r.shot?.suppliedFrom)?.shot?.suppliedFrom;
+  const supplied = supplyInput ? listOf(inputs[supplyInput]) : [];
+  let si = 0;
+  for (const s of scenes) {
+    if (!s.shot || si >= supplied.length) continue;
+    const assetId = supplied[si++]!;
+    s.shot = { ...s.shot, source: "supplied", status: "accepted", acceptedAssetId: assetId };
+    const media = s.layers.find((l) => (l.kind === "video" || l.kind === "image") && l.slot === "media");
+    if (media && (media.kind === "video" || media.kind === "image")) media.assetId = assetId;
+  }
   scenes[0]!.transitionIn = { type: "cut", durationFrames: 0 };
 
   const profile = CreativeProfileSnapshot.parse({ ...def.profile, ...opts.profile });
@@ -188,7 +203,7 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
     seed: opts.seed ?? 1,
     characters: (() => {
       const c = characterFromInputs(def, inputs, brand);
-      return c ? [c] : [];
+      return c ? [c] : charactersFromShotInputs(def, inputs, brand);
     })(),
   });
 
@@ -243,9 +258,16 @@ function withMusicExcerpt(def: TemplateDefinition, doc: ProjectDocument, inputs:
   if (outSec - inSec > def.duration.maxSec) throw new Error(`The excerpt can be at most ${def.duration.maxSec} s long.`);
   const track = doc.audio.find((t) => t.kind === "music" && t.assetId === song)!;
   const frames = Math.round((outSec - inSec) * 30);
+  const multi = doc.scenes.length > 1;
+  const fitted = multi ? fitDuration(doc, outSec - inSec) : doc;
+  if (multi) {
+    // fitDuration works in seconds; make the frame total exact so the song is never cut.
+    const total = fitted.scenes.reduce((a, s, i) => a + s.durationFrames - (i ? (s.transitionIn.type === "cut" ? 0 : s.transitionIn.durationFrames) : 0), 0);
+    fitted.scenes.at(-1)!.durationFrames += frames - total;
+  }
   return ProjectDocument.parse({
-    ...doc,
-    scenes: [{ ...doc.scenes[0]!, durationFrames: frames }],
+    ...fitted,
+    scenes: multi ? fitted.scenes : [{ ...doc.scenes[0]!, durationFrames: frames }],
     audio: doc.audio.map((t) => (t.id === track.id ? { ...t, sourceInSec: inSec, sourceOutSec: outSec, gainDb: 0, fadeOutFrames: outSec < dur - 0.05 ? 30 : 0, duck: { enabled: false, amountDb: -12 } } : t)),
     musicLock: { enabled: true, trackId: track.id },
   });
@@ -279,6 +301,22 @@ function buildScene(
     motionIntensity: recipe.motion,
     layers,
     script: { narration: bind(recipe.narration, inputs, brand, extra) },
+    ...(recipe.shot
+      ? {
+          shot: {
+            kind: recipe.shot.kind,
+            prompt: bind(recipe.shot.prompt, inputs, brand, extra).slice(0, 1500),
+            continuity: bind(recipe.shot.continuity, inputs, brand, extra).slice(0, 500),
+            characterIds: [],
+            referenceAssetIds: recipe.shot.reference ? [bind(recipe.shot.reference, inputs, brand, extra)].filter(Boolean) : [],
+            source: "generate" as const,
+            status: "pending" as const,
+            candidates: [],
+            autoAccepted: false,
+            variant: 1,
+          },
+        }
+      : {}),
     notes: "",
     status: { state: layers.some((l) => (l.kind === "image" || l.kind === "video") && !l.assetId) ? "needs_input" : "ready", message: "" },
   };
@@ -403,4 +441,32 @@ function str(v: InputValue | undefined): string {
 }
 function clamp(n: number, lo: number, hi: number) {
   return Math.min(hi, Math.max(lo, n));
+}
+
+/** `when` conditions: "input" (has a value), "input=value", alternatives joined with "|". */
+function whenHolds(cond: string, inputs: InputValues): boolean {
+  return cond.split("|").some((c) => {
+    const [k, v] = c.split("=");
+    return v === undefined ? hasValue(inputs[k!.trim()]) : String(inputs[k!.trim()] ?? "") === v.trim();
+  });
+}
+
+/** T7: persistent character references from "Name — description" rows and reference images. */
+export function charactersFromShotInputs(def: TemplateDefinition, inputs: InputValues, brand: BrandSnapshot): Character[] {
+  if (!def.shots?.charactersInput) return [];
+  const rows = listOf(inputs[def.shots.charactersInput]);
+  const images = def.shots.characterImagesInput ? listOf(inputs[def.shots.characterImagesInput]) : [];
+  const accent = /^#[0-9a-f]{6}$/i.test(brand.colors.accent) ? brand.colors.accent : "#f59e0b";
+  return rows.slice(0, 6).map((row, i) => {
+    const [name, ...rest] = row.split(/\s+[—–-]\s+/);
+    return Character.parse({
+      id: `char-${i + 1}`,
+      name: (name ?? `Character ${i + 1}`).slice(0, 60),
+      mode: images[i] ? "image" : "vector",
+      referenceAssetIds: images[i] ? [images[i]] : [],
+      palette: { body: "#94a3b8", belly: "#e2e8f0", accent, eye: "#1f2937" },
+      notes: rest.join(" — ").slice(0, 400),
+      locked: true,
+    });
+  });
 }

@@ -179,3 +179,14 @@ export function verifyAssetSignature(assetId: string, workspaceId: string, exp: 
   const given = Buffer.from(sig, "base64url");
   return given.length === expected.length && timingSafeEqual(given, expected);
 }
+
+/** Per-request webhook token: only the provider we gave this URL to can call it back. */
+export function webhookToken(provider: string, generationId: string): string {
+  return createHmac("sha256", appSecret()).update(`webhook.${provider}.${generationId}`).digest("base64url");
+}
+
+export function verifyWebhookToken(provider: string, generationId: string, token: string): boolean {
+  const a = Buffer.from(webhookToken(provider, generationId));
+  const b = Buffer.from(token);
+  return a.length === b.length && timingSafeEqual(a, b);
+}

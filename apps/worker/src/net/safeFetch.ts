@@ -62,6 +62,8 @@ export interface SafeFetchOptions {
   resolve?: (host: string) => Promise<string[]>;
   /** Test seam: treat these exact addresses as public (e.g. a local fixture server). */
   trustAddresses?: string[];
+  /** Test seam: extra ports allowed (only together with trusted addresses). */
+  allowPorts?: number[];
 }
 
 export interface SafeFetchResult {
@@ -83,7 +85,7 @@ async function validate(raw: string, o: SafeFetchOptions): Promise<{ url: URL; a
   if (url.protocol !== "http:" && url.protocol !== "https:") throw new UnsafeUrlError("invalid_url", "Only http and https links can be imported.");
   if (url.username || url.password) throw new UnsafeUrlError("invalid_url", "Links with embedded credentials are not accepted.");
   const port = url.port ? Number(url.port) : url.protocol === "https:" ? 443 : 80;
-  if (port !== 80 && port !== 443) throw new UnsafeUrlError("blocked_port", "Only standard web ports (80/443) are allowed.");
+  if (port !== 80 && port !== 443 && !(o.allowPorts ?? []).includes(port)) throw new UnsafeUrlError("blocked_port", "Only standard web ports (80/443) are allowed.");
   const host = url.hostname.replace(/^\[|\]$/g, "");
   // WHATWG URL parsing already normalises decimal/hex/octal IPv4 forms (e.g. 2130706433).
   const addrs = net.isIP(host) ? [host] : await (o.resolve ?? (async (h: string) => (await dnsLookup(h, { all: true, verbatim: true })).map((x) => x.address)))(host).catch(() => []);

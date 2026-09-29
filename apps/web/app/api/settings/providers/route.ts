@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { getDb, getProviderSecret, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, type ProviderId } from "@vs/db";
-import { checkClaude } from "@vs/providers";
+import { AppError, getDb, getProviderSecret, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
+import { checkClaude, FalSettings } from "@vs/providers";
 import { requireOwner } from "@/lib/server/auth";
 import { body, json, route } from "@/lib/server/http";
 
@@ -30,4 +30,14 @@ export const POST = route(async (req) => {
   else result = { ok: false, message: "A live check for this provider is not implemented; its integration is unverified." };
   await recordProviderCheck(getDb(), s.workspaceId, b.provider, { ...result, at: new Date().toISOString() });
   return json({ check: result, providers: await providerStatus(getDb(), s.workspaceId) });
+});
+
+/** Non-secret settings, e.g. fal model endpoints and owner-entered prices. */
+export const PATCH = route(async (req) => {
+  const s = await requireOwner();
+  const b = await body(req, z.object({ provider: Provider, settings: z.record(z.string(), z.unknown()) }));
+  if (b.provider !== "fal") throw new AppError(422, "invalid_input", "This provider has no configurable settings.");
+  const parsed = FalSettings.parse(b.settings);
+  await setProviderSettings(getDb(), s.workspaceId, b.provider, parsed);
+  return json({ providers: await providerStatus(getDb(), s.workspaceId) });
 });

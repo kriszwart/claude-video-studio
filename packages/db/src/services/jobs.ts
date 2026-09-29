@@ -19,6 +19,8 @@ export const JOB_TYPES = [
   "transcribe",
   "propose_cuts",
   "generate_image",
+  "generate_media",
+  "recover_generation",
   "generate_video",
   "quality_review",
   "analyze_music",

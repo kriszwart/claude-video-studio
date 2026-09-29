@@ -82,6 +82,10 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setCaptionCues"), cues: z.array(CaptionCue).max(2000) }),
   z.object({ op: z.literal("updateCaptionCue"), cueId: Id, text: z.string().max(300).optional(), startFrame: z.number().int().min(0).optional(), endFrame: z.number().int().positive().optional() }),
   z.object({ op: z.literal("setMarkers"), markers: z.array(MusicMarker).max(1000) }),
+  z.object({ op: z.literal("updateShot"), sceneId: Id, patch: z.object({ prompt: z.string().max(1500), continuity: z.string().max(500), referenceAssetIds: z.array(Id).max(6), characterIds: z.array(Id).max(6), kind: z.enum(["image", "video"]) }).partial() }),
+  z.object({ op: z.literal("setShotStatus"), sceneId: Id, status: z.enum(["pending", "generating", "ready", "accepted", "failed"]), error: z.string().max(300).optional(), variant: z.number().int().min(1).optional() }),
+  z.object({ op: z.literal("addShotCandidate"), sceneId: Id, candidate: z.object({ assetId: Id, generationId: z.string().max(64).optional(), provider: z.string().max(40), createdAt: z.string().max(40) }), autoAccept: z.boolean().default(false) }),
+  z.object({ op: z.literal("acceptShot"), sceneId: Id, assetId: Id, supplied: z.boolean().default(false) }),
   z.object({ op: z.literal("varyScene"), sceneId: Id, variant: z.number().int().min(1).max(1_000_000) }),
   z.object({ op: z.literal("setCharacters"), characters: z.array(Character).max(6) }),
   z.object({ op: z.literal("updateCharacter"), characterId: Id, patch: Character.omit({ id: true }).partial() }),
@@ -435,6 +439,48 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
     case "setMarkers":
       doc.markers = op.markers;
       return doc;
+    case "updateShot": {
+      const s = findScene(doc, op.sceneId);
+      if (!s.shot) throw new OperationError("invalid", "This scene is not a footage shot.");
+      if (s.locked && actor !== "user") throw new OperationError("locked", `Scene “${s.purpose}” is locked.`);
+      Object.assign(s.shot, stripUndefined(op.patch));
+      changed.add(s.id);
+      return doc;
+    }
+    case "setShotStatus": {
+      const s = findScene(doc, op.sceneId);
+      if (!s.shot) throw new OperationError("invalid", "This scene is not a footage shot.");
+      // An accepted shot is never downgraded by pipeline status updates (A13).
+      if (s.shot.status === "accepted" && actor !== "user") return doc;
+      s.shot.status = op.status;
+      s.shot.error = op.error;
+      if (op.variant) s.shot.variant = op.variant;
+      changed.add(s.id);
+      return doc;
+    }
+    case "addShotCandidate": {
+      const s = findScene(doc, op.sceneId);
+      if (!s.shot) throw new OperationError("invalid", "This scene is not a footage shot.");
+      if (!s.shot.candidates.some((c) => c.assetId === op.candidate.assetId)) s.shot.candidates = [...s.shot.candidates, op.candidate].slice(-12);
+      if (op.autoAccept && !s.shot.acceptedAssetId) {
+        acceptShotMedia(s, op.candidate.assetId);
+        s.shot.autoAccepted = true;
+      } else if (s.shot.status !== "accepted") s.shot.status = "ready";
+      s.shot.error = undefined;
+      changed.add(s.id);
+      return doc;
+    }
+    case "acceptShot": {
+      const s = findScene(doc, op.sceneId);
+      if (!s.shot) throw new OperationError("invalid", "This scene is not a footage shot.");
+      if (s.locked && actor !== "user") throw new OperationError("locked", `Scene “${s.purpose}” is locked.`);
+      if (!op.supplied && !s.shot.candidates.some((c) => c.assetId === op.assetId)) throw new OperationError("invalid", "That asset is not a candidate for this shot.");
+      if (op.supplied) s.shot.source = "supplied";
+      acceptShotMedia(s, op.assetId);
+      s.shot.autoAccepted = false;
+      changed.add(s.id);
+      return doc;
+    }
     case "varyScene": {
       const s = findScene(doc, op.sceneId);
       if (s.locked) throw new OperationError("locked", `Scene “${s.purpose}” is locked.`);
@@ -734,4 +780,13 @@ export function fitScenesToMarkers(input: ProjectDocument, kinds: ("section" | "
     }
   }
   return { doc, fitted, conflicts };
+}
+
+/** Point the shot scene's media layer at the accepted asset. */
+function acceptShotMedia(s: Scene, assetId: string) {
+  s.shot!.acceptedAssetId = assetId;
+  s.shot!.status = "accepted";
+  s.shot!.error = undefined;
+  const media = s.layers.find((l) => (l.kind === "video" || l.kind === "image") && l.slot === "media");
+  if (media && (media.kind === "video" || media.kind === "image")) media.assetId = assetId;
 }

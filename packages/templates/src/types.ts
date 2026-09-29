@@ -119,6 +119,17 @@ export const SceneRecipe = z.object({
   repeatFor: z.string().optional(),
   narration: z.string().max(1200).default(""),
   layers: z.array(LayerRecipe).max(24),
+  /** Footage shot (T7/P6): generated from the prompt or filled with supplied footage. */
+  shot: z
+    .object({
+      kind: z.enum(["image", "video"]).default("video"),
+      prompt: z.string().max(1500),
+      continuity: z.string().max(500).default(""),
+      reference: z.string().max(200).optional(),
+      /** Input holding supplied footage, consumed in shot order. */
+      suppliedFrom: z.string().optional(),
+    })
+    .optional(),
 });
 export type SceneRecipe = z.infer<typeof SceneRecipe>;
 
@@ -169,6 +180,8 @@ export const TemplateDefinition = z.object({
     .optional(),
   /** Mascot story (T2): which inputs define the persistent character reference. */
   character: z.object({ nameInput: z.string(), imageInput: z.string().optional(), speciesInput: z.string().optional(), colorInput: z.string().optional() }).optional(),
+  /** Shots engine (T7/P6): character reference input and default shot notes. */
+  shots: z.object({ charactersInput: z.string().optional(), characterImagesInput: z.string().optional() }).optional(),
   /** Music-video engine (T6): which inputs hold the song and the selected excerpt. */
   musicVideo: z.object({ songInput: z.string(), inInput: z.string(), outInput: z.string(), lyricsInput: z.string().optional(), motifInput: z.string().optional() }).optional(),
   /** Present on templates saved from projects. */
