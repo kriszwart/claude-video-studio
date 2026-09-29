@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { applyProjectOperations, enqueueJob, getDb, getProject } from "@vs/db";
+import { AppError, applyProjectOperations, enqueueJob, getDb, getProject } from "@vs/db";
 import { requireSession } from "@/lib/server/auth";
 import { body, idempotencyKey, json, route } from "@/lib/server/http";
 import { serializeJob } from "@/lib/server/serialize";
@@ -16,6 +16,7 @@ export const POST = route<{ id: string }>(async (req, { id }) => {
   const b = await body(req, z.object({ sceneIds: z.array(z.string().max(64)).max(60).optional(), regenerate: z.boolean().default(false) }));
   const db = getDb();
   const { project, revision, doc } = await getProject(db, id, s.workspaceId);
+  if (doc.acquisitionPolicy !== "generated-allowed") throw new AppError(409, "generation_not_allowed", "This project's asset policy doesn't allow generated media.", "Supply your own footage, or allow generated media (within the budget) in the Shots panel.");
   const targets = doc.scenes.filter((sc) => sc.shot && sc.shot.source === "generate" && (!b.sceneIds || b.sceneIds.includes(sc.id)) && (b.regenerate ? !!b.sceneIds : sc.shot.status !== "accepted" && sc.shot.status !== "generating"));
   const jobs = await db.transaction(async (tx) => {
     let base = revision.id;

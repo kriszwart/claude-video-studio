@@ -74,6 +74,18 @@ http
     const chunks: Buffer[] = [];
     for await (const c of req) chunks.push(c as Buffer);
     const bodyText = Buffer.concat(chunks).toString("utf8");
+    // TEST fixture web page for screenshot capture: one local image plus attempts to reach
+    // internal addresses, which the capture worker must refuse.
+    if (u.pathname === "/__page") {
+      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      return res.end(`<!doctype html><html><head><title>Fixture launch page</title><style>body{margin:0;font:600 40px sans-serif;background:#0f172a;color:#fff}main{padding:60px}h1{color:#fbbf24}</style></head><body><main><h1>Tidewave — sample page</h1><p>SAMPLE fixture served by the test-only fake server.</p><img src="/__img.png" width="320" height="180" alt=""><img src="http://169.254.169.254/latest/meta-data/" alt=""><img src="http://127.0.0.1:5432/" alt=""><script>fetch("http://10.0.0.1/internal").catch(()=>{});</script></main></body></html>`);
+    }
+    if (u.pathname === "/__img.png") {
+      const f = join(tmpdir(), "fake-fal-page.png");
+      if (!existsSync(f)) execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=1:duration=1", "-frames:v", "1", f]);
+      res.writeHead(200, { "content-type": "image/png" });
+      return res.end(readFileSync(f));
+    }
     if (u.pathname === "/.well-known/jwks.json") return json(res, 200, { keys: [{ kty: "OKP", crv: "Ed25519", x: jwk.x, kid: "test" }] });
     if (u.pathname === "/__stats") return json(res, 200, { ...stats, requests: [...reqs.values()].map((r) => ({ id: r.id, endpoint: r.endpoint, state: r.state, canceled: r.canceled, error: r.error ?? null })) });
     if (u.pathname === "/__control") {

@@ -9,7 +9,8 @@ import { graphicsCompilerFor, needsWebGpu } from "../graphics";
 
 /** A scene's look without its identifiers (ids don't change pixels; template reuse gets new ids). */
 function normalizedScene(scene: Scene) {
-  const { id: _id, ...rest } = scene;
+  // Identifiers and editorial metadata (purpose, recipe slot, notes, status, lock) don't change pixels.
+  const { id: _id, purpose: _p, recipeSlot: _r, notes: _n, status: _s, locked: _l, script: _sc, ...rest } = scene;
   return { ...rest, layers: scene.layers.map(({ id: _l, ...l }) => l) };
 }
 

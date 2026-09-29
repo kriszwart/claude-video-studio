@@ -13,6 +13,8 @@ declare const CanvasKitInit: (opts: { locateFile: (f: string) => string }) => Pr
 
 export interface SkiaLayerSpec {
   id: string;
+  /** Frame pixels per 1080p pixel (min side / 1080); px parameters are defined at 1080p. */
+  unit?: number;
   component: string;
   version: number;
   params: Record<string, number | string | boolean>;
@@ -76,7 +78,8 @@ function pathDiagram(ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number)
   const stroke = hex(ck, String(p.color ?? "#1f2937"));
   const accent = hex(ck, String(p.accent ?? "#f59e0b"));
   const ink = String(p.ink ?? p.color ?? "#1f2937");
-  const sw = Number(p.strokeWidth ?? 6);
+  const u = Number(L.spec.unit ?? 1); // px at 1080p → px at this render size
+  const sw = Number(p.strokeWidth ?? 6) * u;
   const vertical = p.direction === "column" || L.spec.height > L.spec.width * 1.2;
   const W0 = L.spec.width;
   const H0 = L.spec.height;
@@ -86,7 +89,7 @@ function pathDiagram(ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number)
   const bw = vertical ? W0 * 0.8 : (W0 - gap * (n - 1)) / n - sw;
   const bh = vertical ? (H0 - gap * (n - 1)) / n - sw : Math.min(H0 * 0.6, bw * 0.75);
   const r = rng(L.spec.seed);
-  const wobble = Number(p.wobble ?? 0.6);
+  const wobble = Number(p.wobble ?? 0.6) * u;
   const paint = new ck.Paint();
   paint.setAntiAlias(true);
   paint.setStyle(ck.PaintStyle.Stroke);
@@ -203,7 +206,7 @@ function maskReveal(ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number) 
   const cy = dy + dh * fy;
   const maxR = Math.hypot(Math.max(cx, W0 - cx), Math.max(cy, H0 - cy));
   const radius = Math.min(W0, H0) * 0.22 + (maxR - Math.min(W0, H0) * 0.22) * k;
-  const corner = Number(p.corner ?? 28) * k;
+  const corner = Number(p.corner ?? 28) * Number(L.spec.unit ?? 1) * k;
   c.save();
   const rr = ck.RRectXY(ck.LTRBRect(cx - radius, cy - radius, cx + radius, cy + radius), radius * (1 - k) + corner, radius * (1 - k) + corner);
   c.clipRRect(k >= 1 ? ck.RRectXY(ck.LTRBRect(dx, dy, dx + dw, dy + dh), corner, corner) : rr, ck.ClipOp.Intersect, true);
@@ -220,7 +223,7 @@ function maskReveal(ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number) 
     const ring = new ck.Paint();
     ring.setAntiAlias(true);
     ring.setStyle(ck.PaintStyle.Stroke);
-    ring.setStrokeWidth(4);
+    ring.setStrokeWidth(4 * Number(L.spec.unit ?? 1));
     ring.setColor(hex(ck, String(p.ringColor ?? "#ffffff"), 0.7 * (1 - k)));
     c.drawRRect(rr, ring);
     ring.delete();
@@ -324,8 +327,8 @@ function sketch(ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number) {
     const drawT = ease(clamp01(local / 0.7));
     // Two slightly offset passes give a marker-on-whiteboard line.
     for (let pass = 0; pass < 2; pass++) {
-      const dx = (r() - 0.5) * 2.4;
-      const dy = (r() - 0.5) * 2.4;
+      const dx = (r() - 0.5) * 2.4 * Number(L.spec.unit ?? 1);
+      const dy = (r() - 0.5) * 2.4 * Number(L.spec.unit ?? 1);
       const tr = trim(path, drawT);
       if (!tr) continue;
       c.save();

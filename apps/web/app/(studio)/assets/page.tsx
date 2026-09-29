@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, uploadFile } from "@/lib/client/api";
+import { api, ApiError, uploadFile, waitForJob } from "@/lib/client/api";
 
 interface A {
   id: string;
@@ -66,6 +66,29 @@ export default function Assets() {
           }}
         />
       </div>
+      <form
+        className="mb-3 flex flex-wrap items-center gap-2"
+        onSubmit={async (e) => {
+          e.preventDefault();
+          const url = String(new FormData(e.currentTarget).get("shot") ?? "").trim();
+          if (!url) return;
+          setUploads((u) => ({ ...u, [url]: "capturing…" }));
+          try {
+            const r = await api<{ job: { id: string } }>("/api/assets/screenshot", { method: "POST", idempotent: true, json: { url } });
+            const done = await waitForJob(r.job.id, (j) => setUploads((u) => ({ ...u, [url]: j.stage })));
+            if (done.status !== "succeeded") throw new ApiError(422, done.error?.code ?? "failed", done.error?.message ?? "Capture failed.");
+            const blocked = (done.result as { blocked?: unknown[] }).blocked?.length ?? 0;
+            setUploads((u) => ({ ...u, [url]: `captured${blocked ? ` (${blocked} request(s) to non-public addresses were blocked)` : ""}` }));
+            await load();
+          } catch (x) {
+            setUploads((u) => ({ ...u, [url]: `failed: ${x instanceof ApiError ? x.message : String(x)}` }));
+          }
+        }}
+      >
+        <input name="shot" type="url" className="input w-80" placeholder="https://… public page to capture" aria-label="Capture a public web page" />
+        <button className="btn">Capture screenshot</button>
+        <span className="text-xs text-faint">Public pages only; the capture keeps the address and date. Public availability is not a usage right.</span>
+      </form>
       <p className="mb-4 text-xs text-faint">Limits: 500 MB per file, 10 minutes per source recording. Files are checked by their contents, not their extension. Identical files are stored once.</p>
       {Object.keys(uploads).length > 0 && (
         <ul className="card mb-4 p-3 text-xs" aria-live="polite">

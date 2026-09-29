@@ -63,11 +63,6 @@ test.describe.serial("M7: Redraw + Skia in the shared pipeline", () => {
     ];
     await ops(request, id, [
       { op: "replaceScenes", scenes },
-      { op: "setCaptions", captions: { enabled: true } },
-      { op: "setCaptionCues", cues: [
-        { id: "cue_m7_a", text: "Your whole week, at a glance.", anchor: { type: "scene", sceneId: "scn_m7media0001", offsetFrames: 0 }, startFrame: 12, endFrame: 80, timing: "manual" },
-        { id: "cue_m7_b", text: "Designed to go everywhere.", anchor: { type: "scene", sceneId: "scn_m7prod0002", offsetFrames: 0 }, startFrame: 20, endFrame: 85, timing: "manual" },
-      ] },
     ]);
 
     // A30: first keyframes render both scenes; a repeat reuses both; a Skia parameter edit re-renders only its scene.
@@ -88,8 +83,22 @@ test.describe.serial("M7: Redraw + Skia in the shared pipeline", () => {
     const tplBody = await tpl.json();
     const reuse = await createProject(request, { templateId: tplBody.templateId, title: "M7 from template", inputs: {} });
     const k4 = await keyframes(request, reuse.project.id);
-    writeFileSync(join(ART, "m7-cache.json"), JSON.stringify({ first: k1.result, repeat: k2.result, afterParamEdit: k3.result, fromTemplate: k4.result }, null, 2));
-    expect(Number(k4.result!.reused)).toBeGreaterThanOrEqual(1);
+    writeFileSync(join(ART, "m7-cache.json"), JSON.stringify({ first: k1.result, repeat: k2.result, afterParamEdit: k3.result, fromTemplate: k4.result }, (k, v) => (k === "report" ? undefined : v), 2));
+    expect(k4.result).toMatchObject({ rendered: 0, reused: 2 });
+
+    // Captions for the mixed export (project content; not part of the template above).
+    await ops(request, id, [
+      { op: "setCaptions", captions: { enabled: true } },
+      { op: "setCaptionCues", cues: [
+        { id: "cue_m7_a", text: "Your whole week, at a glance.", anchor: { type: "scene", sceneId: "scn_m7media0001", offsetFrames: 0 }, startFrame: 12, endFrame: 80, timing: "manual" },
+        { id: "cue_m7_b", text: "Designed to go everywhere.", anchor: { type: "scene", sceneId: "scn_m7prod0002", offsetFrames: 0 }, startFrame: 20, endFrame: 85, timing: "manual" },
+      ] },
+    ]);
+
+    // Captions are part of each scene's look: both keyframes are re-rendered (cache key includes them).
+    const k5 = await keyframes(request, id);
+    expect(k5.result).toMatchObject({ rendered: 2, reused: 0 });
+    const kf5 = k5.result!.keyframes as { sceneId: string; cached: boolean; assetId: string; timeSec: number }[];
 
     // A28: export the mixed composition; compare editor keyframes with export frames at the same times.
     const { job, view } = await renderAndWait(request, id, "exports");
@@ -99,7 +108,7 @@ test.describe.serial("M7: Redraw + Skia in the shared pipeline", () => {
     expect(probe.streams.map((s: { codec_name: string }) => s.codec_name)).toEqual(["h264", "aac"]);
     expect(exp.checks.filter((c: { severity: string; ok: boolean }) => c.severity === "hard").every((c: { ok: boolean }) => c.ok)).toBe(true);
     const comparisons: { sceneId: string; timeSec: number; psnrDb: number }[] = [];
-    for (const k of kf3) {
+    for (const k of kf5) {
       const asset = (await (await request.get(`/api/assets/${k.assetId}`)).json()).asset;
       const kfFile = join(ART, `m7-keyframe-${k.sceneId}.jpg`);
       writeFileSync(kfFile, await (await request.get(asset.url)).body());

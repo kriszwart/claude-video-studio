@@ -29,7 +29,7 @@ edited in the normal inspector.
   `3cb516849efe04076d04b1db4eb4399376a817e860706b502838a7afd757474f`, obtained from the
   authorised `wcandillon/redraw` release artifacts. It is not committed (license forbids
   redistribution); `REDRAW_TARBALL` + `REDRAW_SHA256` point at it and the build bundles it
-  with `typegpu@0.12.6` (its only runtime dependency) via esbuild. `scripts/typecheck-redraw.sh`
+  with `typegpu@0.12.6` (its only runtime dependency) via esbuild. `packages/graphics/scripts/typecheck-redraw.sh`
   typechecks our runtime against the real package.
 - Rendering: each layer draws into an `rgba8unorm` storage texture; `copyTextureToBuffer` +
   `mapAsync` is the frame's ready barrier (canvas swap chains lose the device under
@@ -63,9 +63,34 @@ visually identical. Reports: `artifacts/graphics/{skia,redraw}/report.json` (not
 Product use: P2 (Redraw ribbon/rings) and P4 (Skia sketches/diagrams) render in end-to-end
 exports (`m2-families`, `m3-talking-head` A18).
 
-## Capability routing
+## Capability routing (FR-21, A29)
 
-Workers report which backends they can run (`worker_capabilities`). The template gallery
-shows a template as needing a backend when no live worker offers it. A render whose document
-contains a backend the worker can't run fails with `graphics_unavailable` and a recovery
-message — never a blank or silently degraded frame.
+- Every worker reports what it can run (`worker_capabilities`: Skia/Redraw availability,
+  versions, Redraw checksum, WebGPU adapter) and removes its row on shutdown.
+- When a preview/export/keyframes/quality job is enqueued, the revision's graphics backends are
+  recorded on the job (`input.requires`) and the job is published to a backend-specific queue
+  (`vs-jobs`, `vs-jobs-skia`, `vs-jobs-redraw`, `vs-jobs-redraw-skia`). A worker subscribes only
+  to the queues whose requirements it satisfies, so a Redraw layer is never rendered by a worker
+  without Redraw.
+- If no live worker offers the backend, the API says so (`routing.blocked` with a reason), the
+  job waits with the stage "waiting for a compatible worker", and it runs as soon as a capable
+  worker comes online. Nothing is published blank; the project is unchanged.
+- Defence in depth: a worker that somehow receives a job it can't run fails it with
+  `graphics_unavailable` and a recovery message. Skia is not used as an automatic substitute for
+  Redraw; switching a layer's backend is an explicit edit (a new revision).
+
+## Render cache (A30)
+
+Storyboard frames are cached per scene in `graphics_cache`, keyed by a hash of everything that
+affects the pixels: the scene content without identifiers or editorial metadata, the format,
+brand, profile, characters, program state (talking-head), the scene's captions, the content
+hashes of its assets, the capture scale, and the renderer + graphics build versions (HyperFrames,
+GSAP, compositor, CanvasKit, Redraw version/checksum). Editing one layer's parameters
+re-renders only that scene; a project created from a saved template reuses frames for scenes
+that come out identical; any renderer or graphics build change invalidates everything.
+
+## Clean-worker reproduction (A30)
+
+`scripts/clean-worker-check.sh` clones the committed tree (so no `vendor/`), installs exactly the
+lockfile, supplies the licensed Redraw tarball from `REDRAW_TARBALL` (checksum-verified, never
+committed), and runs both capability proofs. Results are recorded in STATUS.md.

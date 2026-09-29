@@ -100,6 +100,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
     componentVersion: z.number().int().positive(),
     params: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).default({}),
     optional: z.boolean().default(true),
+    seed: z.number().int().default(1),
     box: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
   }),
 ]);

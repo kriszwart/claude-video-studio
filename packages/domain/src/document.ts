@@ -467,6 +467,11 @@ export const ProjectDocument = z.object({
   program: Program.optional(),
   beats: z.array(EditorialBeat).max(200).default([]),
   characters: z.array(Character).max(6).default([]),
+  /**
+   * Asset acquisition policy (FR-15), chosen by the owner: only existing uploads/brand assets,
+   * also public references (URL import, website screenshots), or generated media within budget.
+   */
+  acquisitionPolicy: z.enum(["existing-only", "existing-plus-public", "generated-allowed"]).default("existing-plus-public"),
   /** Seed for any procedural variation; part of the render bundle hash. */
   seed: z.number().int().default(1),
 });

@@ -122,7 +122,7 @@ export const brandShowreel: TemplateDefinitionInput = {
   preset: "P2",
   name: "Brand / Channel Showreel",
   description: "One colour motif carried from an opening circle through a thumbnail wall and a hero milestone to your logo. Uses only supplied facts; generated assets off by default.",
-  version: 2,
+  version: 3,
   tags: { purpose: ["brand", "channel", "showreel"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],

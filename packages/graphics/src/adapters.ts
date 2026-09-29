@@ -83,7 +83,7 @@ export async function createGraphicsCompiler(backends: Set<"skia" | "redraw">, c
       const unit = Math.min(info.width, info.height) / 1080;
       const params = { ...Object.fromEntries(def.params.map((p) => [p.name, p.default])), ...layer.params };
       if (typeof params.size === "number") params.size = params.size * unit;
-      const spec = { id: layer.id, backend: layer.backend, component: def.id, version: def.version, params, startSec: info.sceneStartSec, durationSec: info.sceneDurationSec, width: w, height: h, seed: layer.seed, assetUrls, fontUrl };
+      const spec = { id: layer.id, backend: layer.backend, component: def.id, version: def.version, params, unit, startSec: info.sceneStartSec, durationSec: info.sceneDurationSec, width: w, height: h, seed: layer.seed, assetUrls, fontUrl };
       return {
         html: `<canvas id="gfx-${layer.id}" width="${w}" height="${h}" style="width:100%;height:100%;display:block"></canvas>`,
         script: specScript(spec),

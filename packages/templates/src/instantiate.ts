@@ -204,6 +204,9 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
     captions: { enabled: def.audio.captions },
     musicLock: { enabled: def.audio.musicLocked && !!musicAsset, trackId: audio[0]?.id },
     seed: opts.seed ?? 1,
+    // Templates that exist to generate footage start with generation allowed (still budget-gated);
+    // everything else starts from existing and public assets only.
+    acquisitionPolicy: def.tags.generatedMedia === "required" ? "generated-allowed" : "existing-plus-public",
     characters: (() => {
       const c = characterFromInputs(def, inputs, brand);
       return c ? [c] : charactersFromShotInputs(def, inputs, brand);
@@ -408,7 +411,7 @@ function buildLayer(
     case "character":
       return { id, kind: "character", slot: lr.slot, characterId: MAIN_CHARACTER_ID, pose: lr.pose, accessory: lr.accessory, facing: lr.facing, scale: lr.scale, hidden: false, animation: { in: lr.animation, delayFrames: secondsToFrames(lr.delaySec, fps) } };
     case "graphics":
-      return { id, kind: "graphics", slot: lr.slot, backend: lr.backend, component: lr.component, componentVersion: lr.componentVersion, params: lr.params, seed: 1, hidden: false, ...(lr.box ? { box: lr.box } : {}) };
+      return { id, kind: "graphics", slot: lr.slot, backend: lr.backend, component: lr.component, componentVersion: lr.componentVersion, params: lr.params, seed: lr.seed, hidden: false, ...(lr.box ? { box: lr.box } : {}) };
   }
 }
 

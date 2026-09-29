@@ -21,6 +21,11 @@ test("A23: generated product shot is checked against the approved photo, flagged
   const id = created.project.id;
   const before = (await (await request.get(`/api/projects/${id}`)).json()).doc;
   const catalogIn = (d: { scenes: { recipeSlot: string; layers: { kind: string; assetId?: string }[] }[] }) => d.scenes.filter((s) => s.recipeSlot !== "lifestyle").flatMap((s) => s.layers.filter((l) => l.kind === "image").map((l) => l.assetId));
+  // P6 starts uploads-only; generation is an explicit owner choice (FR-15 acquisition policy).
+  const blocked = await request.post(`/api/projects/${id}/shots/generate`, { data: {} });
+  expect(blocked.status()).toBe(409);
+  const pv = await (await request.get(`/api/projects/${id}`)).json();
+  expect((await request.post(`/api/projects/${id}/operations`, { data: { baseRevisionId: pv.revision.id, ops: [{ op: "setAcquisitionPolicy", policy: "generated-allowed" }] } })).status()).toBe(200);
   await request.put(`/api/projects/${id}/budget`, { data: { projectCeilingMicros: 1_000_000, operationCeilingMicros: 500_000, unknownPriceRequestsAuthorized: 0 } });
   const g = await request.post(`/api/projects/${id}/shots/generate`, { data: {} });
   expect(g.status(), await g.text()).toBe(202);

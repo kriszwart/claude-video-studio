@@ -113,6 +113,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setBeatAnchor"), beatId: Id, anchor: z.object({ x: Unit, y: Unit }).nullable(), lock: z.boolean().default(true) }),
   z.object({ op: z.literal("mapBeatToTranscriptOccurrence"), beatId: Id, occurrence: z.number().int().min(1), sourceStartSec: z.number().min(0), sourceEndSec: z.number().min(0) }),
   z.object({ op: z.literal("setSeed"), seed: z.number().int() }),
+  z.object({ op: z.literal("setAcquisitionPolicy"), policy: z.enum(["existing-only", "existing-plus-public", "generated-allowed"]) }),
 ]);
 export type Operation = z.infer<typeof Operation>;
 
@@ -479,6 +480,10 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       changed.add(s.id);
       return doc;
     }
+    case "setAcquisitionPolicy":
+      if (actor !== "user") throw new OperationError("invalid", "Only the owner changes what may be sourced or generated.");
+      doc.acquisitionPolicy = op.policy;
+      return doc;
     case "reviewShotCandidate": {
       if (actor !== "user") throw new OperationError("invalid", "Only the owner reviews generated shots.");
       const s = findScene(doc, op.sceneId);

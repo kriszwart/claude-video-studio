@@ -47,6 +47,14 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
     <div className="space-y-4 text-xs">
       <section className="card space-y-2 p-2.5" aria-labelledby="budget-h">
         <h3 id="budget-h" className="text-sm font-medium">Generation budget</h3>
+        <label className="flex items-center gap-2">
+          Asset policy
+          <select className="input w-auto py-1 text-xs" aria-label="Asset policy" value={doc.acquisitionPolicy} onChange={(e) => void apply([{ op: "setAcquisitionPolicy", policy: e.target.value as ProjectDocument["acquisitionPolicy"] }])}>
+            <option value="existing-only">Existing assets only</option>
+            <option value="existing-plus-public">Existing + public references</option>
+            <option value="generated-allowed">Generated media allowed (within budget)</option>
+          </select>
+        </label>
         {!data.providerConfigured && <p className="text-warn">fal is not configured. Supply your own footage for each shot, or add a fal key and model in Settings.</p>}
         {data.providerConfigured && !data.modelsConfigured.video && <p className="text-warn">No fal video model is configured (Settings → Providers).</p>}
         <BudgetForm projectId={projectId} budget={data.budget} onSaved={load} />

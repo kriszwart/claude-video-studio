@@ -82,6 +82,7 @@ export const generateMedia: Handler = async (ctx) => {
   const { doc } = await getProject(db, ctx.job.projectId!, ctx.job.workspaceId);
   const scene = doc.scenes.find((s) => s.id === sceneId);
   if (!scene?.shot) throw new JobError("invalid_input", "That scene is not a footage shot.", false);
+  if (doc.acquisitionPolicy !== "generated-allowed") throw new JobError("generation_not_allowed", "This project's asset policy doesn't allow generated media.", false, "Allow generated media in the Shots panel, or supply your own footage.");
   const shot = scene.shot;
   const variant = Number(ctx.job.input.variant ?? shot.variant);
   const operationId = `${ctx.job.projectId}:${sceneId}:v${variant}`;

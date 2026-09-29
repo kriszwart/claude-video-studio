@@ -13,7 +13,11 @@ exactly as you left them, and can be saved as reusable templates.
 | Area | Status |
 | --- | --- |
 | Seven template families: motion reel (T1), mascot story (T2), product launch (T3), vertical short (T4), talking head (T5), music video (T6), anime opening (T7) | Implemented, each with a real export test |
-| Six presets: P1 presenter intro, P2 brand showreel, P4 whiteboard, P5 course lesson, P6 product spec ad (P3 event sizzle: see status) | See [docs/STATUS.md](docs/STATUS.md) |
+| Six presets: P1 presenter intro, P2 brand showreel, P3 event sizzle, P4 whiteboard, P5 course lesson, P6 product spec ad | Each exported and reviewed (see [docs/STATUS.md](docs/STATUS.md)) |
+| Event collections: resumable folder upload or read-only server import, hash reuse, indexing plan with estimate, theme/free-text quote search, P3 sizzle from verbatim quotes with measured clean cuts | A19, A20; [docs/BENCHMARK.md](docs/BENCHMARK.md) |
+| Creative profiles from a reference clip (measured vs interpreted traits, evidence frames), feedback → explicit versioned diff, pinned per project | A21 |
+| Bounded render–review–repair with a stored quality report; product-fidelity check for generated shots; website screenshots through the SSRF guard | A22, A23, FR-15 |
+| Capability routing to workers that can run Redraw/Skia; per-scene render cache | A29, A30 |
 | Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
 | Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
 | Music analysis (tempo/beats/downbeats/sections), markers, cuts fitted to music, accents | A12 |
@@ -29,7 +33,8 @@ The authoritative, per-requirement checklist with evidence and every blocked liv
 ```
 apps/web        Next.js 16 app: UI + REST API (thin; all rules live in packages)
 apps/worker     Job runner (BullMQ + Postgres leases): ingest, render, TTS, transcription,
-                music analysis, generation, cleanup
+                music analysis, generation, collections, sizzle, reference analysis,
+                quality review, screenshots, cleanup
 packages/domain       Project document schema, timeline maths, typed operations, budgets,
                       transcript/EDL/beat logic (pure, unit-tested)
 packages/templates    Template definitions (T1–T7, presets), instantiation, program/music builders
@@ -115,6 +120,9 @@ download, probe and inspect the exported MP4s (frames under `artifacts/e2e/`):
 | `reliability` | A06 missing credentials, A07 worker SIGKILL mid-export |
 | `security` | A14, A15 against a password-mode production build (`E2E_PROD_URL`) |
 | `a16-templates` | A16: final 1080p export of every core template + P6, fully decoded |
+| `m6-collections` | A20 interrupted/limited/hash-reused ingest; A19 quote search → P3 sizzle, clean cuts, verbatim captions, export envelope match |
+| `m6-profiles`, `m6-quality`, `m6-fidelity`, `m6-screenshot` | A21, A22, A23, FR-15 screenshot isolation |
+| `m7-graphics` | A28 mixed HTML/video/Skia/Redraw export vs editor frames; A30 per-scene cache and template reuse; A29 routing with a Redraw-less worker |
 
 `generation` needs `npx tsx scripts/fake-fal.ts` and the fixture wiring in `.env` described in
 `.env.example`; `security` needs `next build` + `next start` in password mode and two users
@@ -127,3 +135,5 @@ created with `tsx scripts/create-user.ts`.
 - [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — production setup, isolation, backups, restore
 - [docs/GRAPHICS.md](docs/GRAPHICS.md) — Skia and Redraw integration, capability proofs
 - [docs/review/A16.md](docs/review/A16.md) — reviewed export of every template
+- [docs/BENCHMARK.md](docs/BENCHMARK.md) — large-library collection benchmark
+- `scripts/clean-worker-check.sh` — reproduce a worker (dependencies + Redraw + Skia proofs) from a clean clone

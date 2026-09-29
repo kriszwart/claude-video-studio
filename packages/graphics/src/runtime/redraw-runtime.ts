@@ -9,6 +9,8 @@ import { BlendMode, Circle, createLibrary, Feather, fitPath, GradientAlongPath, 
 
 interface Spec {
   id: string;
+  /** Frame pixels per 1080p pixel (min side / 1080); px parameters are defined at 1080p. */
+  unit?: number;
   backend: string;
   component: string;
   version: number;
@@ -82,10 +84,12 @@ function glowBacking(L: Layer, t: number) {
   const { width: W0, height: H0 } = L.spec;
   const feather = Number(p.feather ?? 32) * (Math.min(W0, H0) / 400);
   const k = ease(clamp01(t / 0.5));
-  const inset = feather + 4;
+  // Pixel sizes are defined at 1080p and scaled with the frame, so previews match exports.
+  const u = Number(L.spec.unit ?? 1);
+  const inset = feather + 4 * u;
   const hw = ((W0 - inset * 2) / 2) * (0.85 + 0.15 * k);
   const hh = (H0 - inset * 2) / 2;
-  const geo = new RoundedRect([W0 / 2, H0 / 2], [hw, hh], Math.min(hh, 28));
+  const geo = new RoundedRect([W0 / 2, H0 / 2], [hw, hh], Math.min(hh, 28 * u));
   const glow = new Paint().setColor(String(p.glowColor ?? "#8b8fff")).setFeather(Feather.outer(feather));
   L.rc.draw(geo, glow);
   const panel = new Paint().setColor(String(p.color ?? "#111827"));
