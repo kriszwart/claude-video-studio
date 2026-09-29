@@ -4,7 +4,16 @@
   "private": true,
   "type": "module",
   "main": "src/index.ts",
-  "exports": { ".": "./src/index.ts" },
-  "scripts": { "typecheck": "tsc -p ." },
-  "dependencies": { "@vs/domain": "workspace:*", "@vs/compositor": "workspace:*", "zod": "4.6.5" }
+  "exports": {
+    ".": "./src/index.ts",
+    "./profiles": "./src/profiles.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p ."
+  },
+  "dependencies": {
+    "@vs/domain": "workspace:*",
+    "@vs/compositor": "workspace:*",
+    "zod": "4.6.5"
+  }
 }

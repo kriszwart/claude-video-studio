@@ -8,6 +8,7 @@ import {
   Captions,
   CreativeProfileSnapshot,
   EditorialBeat,
+  type EdlEntry,
   Id,
   Layer,
   LayerBox,
@@ -20,6 +21,7 @@ import {
 } from "./document";
 import { AspectRatio, SafeAreaPresetIdSchema } from "./format";
 import { validateTimeline } from "./timeline";
+import { syncProgramScenes } from "./program";
 
 const Unit = z.number().min(0).max(1);
 
@@ -82,6 +84,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("proposeCuts"), cuts: Program.shape.proposedCuts.unwrap() }),
   z.object({ op: z.literal("acceptCuts"), cutIds: z.array(Id).min(1) }),
   z.object({ op: z.literal("rejectCuts"), cutIds: z.array(Id).min(1) }),
+  z.object({ op: z.literal("restoreSourceRange"), sourceInSec: z.number().min(0), sourceOutSec: z.number().positive() }),
   z.object({ op: z.literal("setBeats"), beats: z.array(EditorialBeat).max(200) }),
   z.object({ op: z.literal("updateBeat"), beatId: Id, patch: EditorialBeat.omit({ id: true }).partial() }),
   z.object({ op: z.literal("setBeatAnchor"), beatId: Id, anchor: z.object({ x: Unit, y: Unit }).nullable(), lock: z.boolean().default(true) }),
@@ -419,7 +422,7 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       return doc;
     case "setProgram":
       doc.program = op.program;
-      return doc;
+      return syncProgramScenes(doc);
     case "proposeCuts":
       requireProgram(doc).proposedCuts = op.cuts;
       return doc;
@@ -428,7 +431,12 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       const accepted = p.proposedCuts.filter((c) => op.cutIds.includes(c.id));
       p.edl = subtractRanges(p.edl, accepted);
       p.proposedCuts = p.proposedCuts.filter((c) => !op.cutIds.includes(c.id));
-      return doc;
+      return syncProgramScenes(doc);
+    }
+    case "restoreSourceRange": {
+      const p = requireProgram(doc);
+      p.edl = restoreRange(p.edl, op.sourceInSec, op.sourceOutSec, p.sourceAssetId);
+      return syncProgramScenes(doc);
     }
     case "rejectCuts": {
       const p = requireProgram(doc);
@@ -506,6 +514,18 @@ export function subtractRanges<T extends { id: string; sourceInSec: number; sour
     out = next.filter((k) => k.sourceOutSec - k.sourceInSec > 0.02);
   }
   return out;
+}
+
+/** Re-add a previously cut source range to the EDL (undoing a cut), merging neighbours. */
+export function restoreRange(edl: EdlEntry[], inSec: number, outSec: number, assetId: string): EdlEntry[] {
+  const all = [...edl.filter((e) => e.review === "accepted"), { id: `r${Math.round(inSec * 1000)}`, sourceAssetId: assetId, sourceInSec: inSec, sourceOutSec: outSec, reason: "restored", review: "accepted" as const }].sort((a, b) => a.sourceInSec - b.sourceInSec);
+  const merged: EdlEntry[] = [];
+  for (const e of all) {
+    const last = merged.at(-1);
+    if (last && e.sourceInSec <= last.sourceOutSec + 1e-3) last.sourceOutSec = Math.max(last.sourceOutSec, e.sourceOutSec);
+    else merged.push({ ...e });
+  }
+  return merged;
 }
 
 function stripUndefined<T extends object>(o: T): Partial<T> {

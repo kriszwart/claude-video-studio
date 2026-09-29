@@ -1,4 +1,5 @@
 import type { AudioAnchor, AudioTrack, CaptionCue, ProjectDocument, Scene } from "./document";
+import { mapSourceRange } from "./program";
 
 export interface SceneTiming {
   sceneId: string;
@@ -92,6 +93,12 @@ export interface ResolvedCue {
 export function resolveCaptions(doc: ProjectDocument, timeline: Timeline): ResolvedCue[] {
   const cues: ResolvedCue[] = [];
   for (const cue of doc.captions.cues) {
+    if (cue.anchor.type === "source") {
+      // Source-timed cue: map through the EDL; cues whose speech was cut disappear.
+      const r = mapSourceRange(doc, cue.anchor.startSec, cue.anchor.endSec);
+      if (r && r.end > r.start) cues.push({ cue, start: r.start, end: Math.min(r.end, timeline.totalFrames) });
+      continue;
+    }
     const base = resolveAnchor(cue.anchor, timeline);
     if (base === null) continue;
     const start = base + cue.startFrame;

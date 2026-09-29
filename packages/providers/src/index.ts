@@ -4,3 +4,4 @@ export * from "./claude/planner";
 export * from "./claude/editor";
 export * from "./tts/types";
 export * from "./tts/local";
+export * from "./tts/elevenlabs";

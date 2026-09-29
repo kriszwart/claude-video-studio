@@ -1,5 +1,6 @@
 import { access } from "node:fs/promises";
 import { graphicsCapabilities } from "@vs/graphics";
+import { LocalTts } from "@vs/providers";
 import { resolveChromePath, RENDERER_VERSIONS, run } from "@vs/rendering";
 
 /** Record what this worker can actually do (FR-21): a client preview working proves nothing here. */
@@ -11,7 +12,7 @@ export async function workerCapabilities() {
     renderer: RENDERER_VERSIONS,
     chrome: chrome ?? null,
     ffmpeg: { available: !!ffmpeg, libx264: !!ffmpeg?.stdout.includes("libx264"), aac: !!ffmpeg?.stdout.includes(" aac ") },
-    tts: { pico: await has("/usr/bin/pico2wave"), espeak: await has("/usr/bin/espeak-ng") },
+    tts: { pico: await has("/usr/bin/pico2wave"), espeak: await has("/usr/bin/espeak-ng"), voices: await new LocalTts().voices() },
     transcription: { pocketsphinx: await has("/usr/bin/pocketsphinx_continuous") },
     graphics: await (async () => {
       const g = await graphicsCapabilities();

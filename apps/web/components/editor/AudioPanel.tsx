@@ -1,13 +1,16 @@
 "use client";
+import { useEffect, useState } from "react";
 import type { AudioTrack, Operation, ProjectDocument } from "@vs/domain";
 import { AssetPicker } from "@/components/AssetPicker";
+import { api, ApiError } from "@/lib/client/api";
 import { NumberField } from "./fields";
 import { newClientId } from "./ids";
 
-export function AudioPanel({ doc, apply }: { doc: ProjectDocument; apply: (ops: Operation[]) => Promise<boolean> }) {
+export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string; doc: ProjectDocument; apply: (ops: Operation[]) => Promise<boolean>; jobs: { type: string; status: string; stage: string; progress: number | null; result: Record<string, unknown> | null; error: { message: string } | null }[] }) {
   const music = doc.audio.filter((t) => t.kind === "music");
   return (
     <div className="space-y-4">
+      <NarrationControls projectId={projectId} doc={doc} jobs={jobs} />
       <p className="text-xs text-dim">The mix targets −16 LUFS integrated and −1 dBTP; each render records the measured result. Music ducks under narration and source speech.</p>
       {doc.audio.length === 0 && <p className="text-sm text-faint">No audio tracks. Add music below.</p>}
       <ul className="space-y-2">
@@ -71,5 +74,70 @@ function TrackEditor({ t, doc, apply }: { t: AudioTrack; doc: ProjectDocument; a
         )}
       </div>
     </li>
+  );
+}
+
+function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: ProjectDocument; jobs: { type: string; status: string; stage: string; progress: number | null; result: Record<string, unknown> | null; error: { message: string } | null }[] }) {
+  const [voices, setVoices] = useState<{ id: string; label: string }[]>([]);
+  const [voice, setVoice] = useState("");
+  const [rate, setRate] = useState(1);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    api<{ voices: { id: string; label: string }[] }>("/api/voices").then((r) => {
+      setVoices(r.voices);
+      setVoice((v) => v || r.voices[0]?.id || "");
+    });
+  }, []);
+  const scripted = doc.scenes.filter((s) => s.script.narration.trim());
+  const voiced = new Set(doc.audio.filter((t) => t.kind === "voiceover" && t.anchor.type === "scene").map((t) => (t.anchor as { sceneId: string }).sceneId));
+  const running = jobs.find((j) => j.type === "tts" && ["queued", "running"].includes(j.status));
+  const last = jobs.find((j) => j.type === "tts" && ["succeeded", "failed"].includes(j.status));
+  return (
+    <section className="card space-y-2 p-2.5 text-xs">
+      <h4 className="font-medium">Narration</h4>
+      <p className="text-faint">{scripted.length} scene(s) have a script; {scripted.filter((s) => voiced.has(s.id)).length} have narration audio. Edited scripts are re-synthesised; unchanged ones are reused.</p>
+      {voices.length === 0 ? (
+        <p className="text-warn">No voices available: no worker with local TTS is online and no hosted TTS provider is configured.</p>
+      ) : (
+        <div className="flex flex-wrap items-end gap-2">
+          <label>
+            <span className="label">Voice</span>
+            <select className="input" value={voice} onChange={(e) => setVoice(e.target.value)}>
+              {voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+            </select>
+          </label>
+          <label>
+            <span className="label">Rate ×{rate.toFixed(2)}</span>
+            <input type="range" min={0.8} max={1.25} step={0.05} value={rate} onChange={(e) => setRate(Number(e.target.value))} />
+          </label>
+          <button
+            className="btn btn-primary text-xs"
+            disabled={!!running || !scripted.length}
+            onClick={async () => {
+              setErr(null);
+              try {
+                await api(`/api/projects/${projectId}/narration`, { method: "POST", idempotent: true, json: { voiceId: voice, rate, fit: "extend" } });
+              } catch (e) {
+                setErr(e instanceof ApiError ? e.message : String(e));
+              }
+            }}
+          >
+            {running ? `Narrating… ${running.stage}` : "Generate narration + captions"}
+          </button>
+        </div>
+      )}
+      <p className="text-faint">Local voices run on your worker (compute, no provider bill) and sound synthetic. Captions are timed to the measured narration per phrase, not per word.</p>
+      {last?.status === "failed" && <p className="text-bad">{last.error?.message}</p>}
+      {last?.status === "succeeded" && Array.isArray(last.result?.scenes) && (
+        <ul className="text-faint">
+          {(last.result!.scenes as { sceneId: string; durationSec: number; reused: boolean; extendedBySec?: number; warning?: string }[]).map((r) => (
+            <li key={r.sceneId}>
+              {doc.scenes.find((s) => s.id === r.sceneId)?.purpose ?? r.sceneId}: {r.durationSec.toFixed(1)}s {r.reused ? "(reused)" : ""} {r.extendedBySec ? `· scene extended by ${r.extendedBySec.toFixed(1)}s` : ""} {r.warning ? <span className="text-warn">{r.warning}</span> : null}
+            </li>
+          ))}
+        </ul>
+      )}
+      {err && <p role="alert" className="text-bad">{err}</p>}
+    </section>
   );
 }

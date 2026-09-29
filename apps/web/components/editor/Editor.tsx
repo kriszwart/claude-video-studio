@@ -96,7 +96,7 @@ export function Editor({ projectId }: { projectId: string }) {
           <div className="min-h-0 flex-1 overflow-y-auto p-3" role="tabpanel">
             {tab === "scene" && <SceneInspector doc={doc} scene={scene} apply={p.apply} />}
             {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claudeConfigured={claude} />}
-            {tab === "audio" && <AudioPanel doc={doc} apply={p.apply} />}
+            {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}
             {tab === "export" && <ExportPanel projectId={projectId} doc={doc} revisionId={p.revisionId} exports={view.exports} jobs={view.jobs} blocking={blocking.length > 0} />}
             {tab === "project" && <ProjectPanel doc={doc} view={view} apply={p.apply} />}
           </div>

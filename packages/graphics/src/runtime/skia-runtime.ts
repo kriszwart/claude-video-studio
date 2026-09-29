@@ -306,8 +306,9 @@ function drawAll(time: number) {
   if (!CK) return;
   for (const L of layers) {
     const t = time - L.spec.startSec;
-    const inRange = t >= -1e-6 && t <= L.spec.durationSec + 1e-6;
-    const tt = inRange ? Math.max(0, t) : t < 0 ? 0 : L.spec.durationSec;
+    // Off-screen (the layer's scene clip is hidden): nothing to draw.
+    if (t < -1e-6 || t > L.spec.durationSec + 1e-6) continue;
+    const tt = Math.max(0, Math.min(t, L.spec.durationSec));
     if (L.lastT === tt) continue; // idempotent re-seek
     try {
       const c = L.surface.getCanvas();

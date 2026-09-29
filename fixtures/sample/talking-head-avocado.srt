@@ -1,0 +1,35 @@
+1
+00:00:00,500 --> 00:00:02,360
+Hi, I'm Sam.
+
+2
+00:00:02,760 --> 00:00:06,212
+Today I will show you how to make avocado toast.
+
+3
+00:00:06,512 --> 00:00:08,124
+Um, um.
+
+4
+00:00:09,724 --> 00:00:13,548
+Today I will show you how to make the best avocado toast.
+
+5
+00:00:14,148 --> 00:00:18,392
+I plan every recipe in Tool A, and I edit the video in Tool B.
+
+6
+00:00:18,892 --> 00:00:22,824
+First, toast two slices of sourdough until golden.
+
+7
+00:00:25,024 --> 00:00:29,504
+Second, mash one ripe avocado with lemon juice and salt.
+
+8
+00:00:30,004 --> 00:00:33,608
+Third, spread it on the toast and add chili flakes.
+
+9
+00:00:34,108 --> 00:00:37,408
+That's it. Breakfast in five minutes.

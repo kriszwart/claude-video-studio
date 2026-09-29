@@ -131,6 +131,8 @@ export const TemplateDefinition = z.object({
   audio: z
     .object({
       musicInput: z.string().optional(),
+      /** Uploaded full narration input (replaces per-scene synthesis). */
+      narrationInput: z.string().optional(),
       musicGainDb: z.number().default(-8),
       duckDb: z.number().default(-12),
       narration: z.enum(["none", "optional", "required"]).default("optional"),

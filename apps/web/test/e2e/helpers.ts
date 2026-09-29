@@ -39,3 +39,33 @@ export async function uploadVia(page: Page, container: ReturnType<Page["locator"
   await container.getByLabel(/I have the rights/).check();
   await container.locator('input[type="file"]').setInputFiles(files);
 }
+
+/** Upload a fixture through the public API (authorise → PUT → finalize → wait for ingest). */
+export async function apiUpload(request: APIRequestContext, file: string, mime: string): Promise<string> {
+  const { readFileSync } = await import("node:fs");
+  const bytes = readFileSync(file);
+  const a = await (await request.post("/api/assets/uploads", { data: { filename: file.split("/").pop(), mime, bytes: bytes.length, rightsAcknowledged: true } })).json();
+  const put = await request.put(a.uploadUrl, { data: bytes, headers: { "content-type": "application/octet-stream" } });
+  expect(put.status()).toBe(200);
+  const fin = await (await request.post(`/api/assets/${a.asset.id}/finalize`)).json();
+  for (let i = 0; i < 120; i++) {
+    const j = (await (await request.get(`/api/jobs/${fin.job.id}`)).json()).job;
+    if (j.status === "succeeded") return String(j.result.assetId);
+    if (j.status === "failed") throw new Error(j.error.message);
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  throw new Error("upload ingest timed out");
+}
+
+export async function createProject(request: APIRequestContext, data: Record<string, unknown>) {
+  const r = await request.post("/api/projects", { data });
+  expect(r.status(), await r.text()).toBe(201);
+  return (await r.json()) as { project: { id: string }; doc: { scenes: { id: string; durationFrames: number; purpose: string }[] } };
+}
+
+export async function renderAndWait(request: APIRequestContext, projectId: string, kind: "preview" | "exports") {
+  const t0 = Date.now();
+  const r = await request.post(`/api/projects/${projectId}/${kind}`, { data: {} });
+  expect(r.status()).toBe(202);
+  return waitForJobs(request, projectId, kind === "exports" ? "export" : "preview", t0, 40 * 60_000);
+}

@@ -17,6 +17,7 @@ import { DEFAULT_BRAND } from "@vs/templates";
 import { createGraphicsCompiler, defaultParams, findComponent } from "../src";
 
 const backend = (process.argv[2] ?? "skia") as "skia" | "redraw";
+const scale = Number(process.argv[3] ?? 1);
 const out = join(import.meta.dirname, "..", "..", "..", "artifacts", "graphics", backend);
 mkdirSync(out, { recursive: true });
 const fx = join(import.meta.dirname, "..", "..", "..", "fixtures", "sample");
@@ -64,10 +65,8 @@ const doc = ProjectDocument.parse({
       durationFrames: 150,
       layout: "presenter-full",
       background: { type: "gradient", from: "#0b1020", to: "#1d2b64", angle: 135 },
-      layers: [
-        { id: "title", kind: "text", slot: "headline", role: "headline", text: backend === "skia" ? "Skia · CanvasKit" : "Redraw · WebGPU", box: backend === "skia" ? { x: 0.04, y: 0.05, w: 0.5, h: 0.18 } : { x: 0.07, y: 0.22, w: 0.41, h: 0.16 } },
-        ...layers,
-      ],
+      // Graphics first, then the title, so labels sit above backing panels.
+      layers: [...layers, { id: "title", kind: "text", slot: "headline", role: "headline", text: backend === "skia" ? "Skia · CanvasKit" : "Redraw · WebGPU", box: backend === "skia" ? { x: 0.04, y: 0.05, w: 0.5, h: 0.18 } : { x: 0.07, y: 0.22, w: 0.41, h: 0.16 } }],
     },
   ],
   audio: [{ id: "m", kind: "music", assetId: "music", anchor: { type: "absolute", startFrame: 0 }, fadeOutFrames: 20 }],
@@ -76,7 +75,7 @@ const doc = ProjectDocument.parse({
 const cacheDir = join(process.env.DATA_DIR ?? "/tmp", "graphics-cache");
 const t0 = Date.now();
 const graphics = await createGraphicsCompiler(new Set([backend]), cacheDir);
-const res = await renderProject({ doc, assets, workDir: join(out, "work"), output: join(out, "export.mp4"), scale: 1, quality: "standard", graphics, webgpu: backend === "redraw" });
+const res = await renderProject({ doc, assets, workDir: join(out, "work"), output: join(out, "export.mp4"), scale, quality: "standard", graphics, webgpu: backend === "redraw" });
 const renderMs = Date.now() - t0;
 console.log("export checks:", res.verification.checks.map((c) => `${c.ok ? "✓" : "✗"} ${c.name}`).join(" "));
 
@@ -133,6 +132,8 @@ for (const [i, t] of [[1, 0.7], [2, 2.0], [0, 3.5]] as const) {
 void psnr;
 const report = {
   backend,
+  scale,
+  resolution: `${res.width}x${res.height}`,
   versions: graphics.versions,
   renderMs,
   bundleHash: res.bundleHash,

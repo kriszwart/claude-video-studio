@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { BrandSnapshot, validateTimeline, type Operation, type ProjectDocument } from "@vs/domain";
+import { PROFILE_PRESETS } from "@vs/templates/profiles";
 import { api } from "@/lib/client/api";
 import type { ProjectViewDTO } from "./types";
 
@@ -60,6 +61,20 @@ export function ProjectPanel({ doc, view, apply }: { doc: ProjectDocument; view:
       </section>
       <section>
         <h4 className="label">Creative profile (editing taste)</h4>
+        <select
+          className="input mb-2"
+          aria-label="Apply a profile preset"
+          value=""
+          onChange={(e) => {
+            const p = PROFILE_PRESETS[e.target.value];
+            if (p) void apply([{ op: "applyCreativeProfile", profile: p }]);
+          }}
+        >
+          <option value="">Apply a preset treatment…</option>
+          {Object.entries(PROFILE_PRESETS).map(([k, p]) => (
+            <option key={k} value={k}>{p.name}</option>
+          ))}
+        </select>
         <div className="grid grid-cols-2 gap-2">
           <label>
             Pacing

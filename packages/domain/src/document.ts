@@ -223,6 +223,8 @@ export const Scene = z.object({
   notes: z.string().max(1000).default(""),
   /** Frame offset (scene-local) used for the storyboard keyframe. */
   keyframeOffset: Frames.optional(),
+  /** Program (talking-head) scenes cover a source-time range; duration follows the EDL. */
+  sourceRange: z.object({ startSec: z.number().min(0), endSec: z.number().min(0) }).optional(),
   status: z
     .object({ state: z.enum(["ready", "needs_input", "generating", "failed"]).default("ready"), message: z.string().max(300).default("") })
     .default({ state: "ready", message: "" }),
@@ -252,10 +254,18 @@ export const AudioTrack = z.object({
 });
 export type AudioTrack = z.infer<typeof AudioTrack>;
 
+/** Caption anchors: scene/absolute (frames), or source-media time mapped through the EDL. */
+export const CueAnchor = z.discriminatedUnion("type", [
+  z.object({ type: z.literal("absolute"), startFrame: Frames }),
+  z.object({ type: z.literal("scene"), sceneId: Id, offsetFrames: Frames.default(0) }),
+  z.object({ type: z.literal("source"), assetId: Id, startSec: z.number().min(0), endSec: z.number().min(0) }),
+]);
+export type CueAnchor = z.infer<typeof CueAnchor>;
+
 export const CaptionCue = z.object({
   id: Id,
   text: z.string().max(300),
-  anchor: AudioAnchor,
+  anchor: CueAnchor,
   /** Relative to the anchor. */
   startFrame: Frames,
   endFrame: PositiveFrames,

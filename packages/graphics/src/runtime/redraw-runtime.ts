@@ -5,7 +5,7 @@
  * recorded as a pure function of time, submitted, copied to a buffer and awaited with
  * mapAsync — the resolved promise is the ready barrier — then painted into a 2D canvas.
  */
-import { BlendMode, Circle, createLibrary, Feather, fitPath, GradientAlongPath, Paint, RadialGradient, RoundedRect, SineTaper, type Canvas as RCanvas } from "redraw";
+import { BlendMode, Circle, createLibrary, Feather, fitPath, GradientAlongPath, Paint, RadialGradient, RoundedRect, SineTaper, SingleStrokeBrush, type Canvas as RCanvas } from "redraw";
 
 interface Spec {
   id: string;
@@ -66,12 +66,14 @@ function ribbon(L: Layer, t: number) {
   if (k <= 0) return;
   const seg = k >= 1 ? path : path.segment(0, Math.max(0.001, k));
   const glowSigma = Number(p.glow ?? 24) * unit;
+  // SingleStrokeBrush evaluates the width law and the along-path gradient over the drawn
+  // path (Paint.setStroke(binding) does not), matching Redraw's own plugin-free examples.
   if (glowSigma > 0) {
-    const glow = new Paint().addShader(grad).setStroke(taper).setFeather(Feather.glow(glowSigma));
+    const glow = new SingleStrokeBrush(taper).addShader(grad).setFeather(Feather.glow(glowSigma));
     glow.blendMode = BlendMode.Screen;
     L.rc.drawPath(seg, glow);
   }
-  L.rc.drawPath(seg, new Paint().addShader(grad).setStroke(taper));
+  L.rc.drawPath(seg, new SingleStrokeBrush(taper).addShader(grad));
 }
 
 /** glow-backing v1: rounded panel with a feathered glow (does not sample content behind it). */
@@ -195,7 +197,9 @@ async function drawAll(time: number) {
   }
   for (const L of layers) {
     const t = time - L.spec.startSec;
-    const tt = t < 0 ? 0 : Math.min(t, L.spec.durationSec);
+    // Off-screen (the layer's scene clip is hidden): skip the GPU work entirely.
+    if (t < -1e-6 || t > L.spec.durationSec + 1e-6) continue;
+    const tt = Math.max(0, Math.min(t, L.spec.durationSec));
     if (L.lastT === tt) continue;
     await renderLayer(L, tt);
     L.lastT = tt;

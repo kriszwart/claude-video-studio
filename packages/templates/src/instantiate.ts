@@ -27,7 +27,7 @@ export interface InstantiateOptions {
   seed?: number;
 }
 
-const BINDING = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\.([a-zA-Z_]+))?(?:\[(\d+)\])?\s*\}\}/g;
+const BINDING = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\.([a-zA-Z_]+))?(?:\[(\d+|i)\])?\s*\}\}/g;
 
 /** Resolve "{{x}}" bindings. Pure string substitution — nothing is evaluated. */
 export function bind(template: string, inputs: InputValues, brand: BrandSnapshot, extra: Record<string, string> = {}): string {
@@ -37,7 +37,9 @@ export function bind(template: string, inputs: InputValues, brand: BrandSnapshot
       if (name in extra) return extra[name] ?? "";
       const v = inputs[name];
       if (v === undefined || v === null) return "";
-      if (Array.isArray(v)) return idx !== undefined ? (v[Number(idx)] ?? "") : v.join(", ");
+      // "[i]" indexes by the current repeat index (repeatFor scenes).
+      const n = idx === "i" ? Number(extra.index0 ?? 0) : idx !== undefined ? Number(idx) : undefined;
+      if (Array.isArray(v)) return n !== undefined ? (v[n] ?? "") : v.join(", ");
       return String(v);
     })
     .replace(/[ \t]+/g, " ")
@@ -86,7 +88,7 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
     if (recipe.when && !hasValue(inputs[recipe.when])) continue;
     const items = recipe.repeatFor ? listOf(inputs[recipe.repeatFor]) : [undefined];
     items.forEach((item, idx) => {
-      const extra: Record<string, string> = item !== undefined ? { item, index: String(idx + 1) } : {};
+      const extra: Record<string, string> = item !== undefined ? { item, index: String(idx + 1), index0: String(idx), count: String(items.length) } : {};
       scenes.push(buildScene(recipe, inputs, brand, extra, factIdFor, opts.newId, fps, recipe.repeatFor ? idx : undefined));
     });
   }
@@ -97,6 +99,21 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
   const audio: AudioTrack[] = [];
   const musicInput = def.audio.musicInput;
   const musicAsset = musicInput ? firstString(inputs[musicInput]) : undefined;
+  const narrationAsset = def.audio.narrationInput ? firstString(inputs[def.audio.narrationInput]) : undefined;
+  if (narrationAsset) {
+    audio.push({
+      id: opts.newId("trk"),
+      kind: "voiceover",
+      assetId: narrationAsset,
+      anchor: { type: "absolute", startFrame: 0 },
+      sourceInSec: 0,
+      sourceOutSec: null,
+      gainDb: 0,
+      fadeInFrames: 0,
+      fadeOutFrames: 6,
+      duck: { enabled: false, amountDb: -12 },
+    });
+  }
   if (musicAsset) {
     audio.push({
       id: opts.newId("trk"),

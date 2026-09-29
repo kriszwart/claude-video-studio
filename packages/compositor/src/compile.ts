@@ -1,5 +1,7 @@
 import {
   computeTimeline,
+  programSegments,
+  sourceToOutput,
   dimensionsFor,
   resolveCaptions,
   SAFE_AREA_PRESETS,
@@ -194,6 +196,32 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
     const parts: string[] = [];
     parts.push(backgroundHtml(scene.background, brand, ctx, sid, start, dur, warnings));
 
+    // Talking-head program: kept source segments inside this scene, in the presenter slot.
+    if (doc.program) {
+      const src = ctx.assets.get(doc.program.sourceAssetId);
+      const pslot = resolveSlot(scene.layout, doc.format.aspect, "presenter");
+      if (!src) warnings.push("The source recording is missing; the presenter is omitted.");
+      else if (pslot && doc.program.presenterFraming !== "hidden") {
+        const pbox = boxFor(pslot);
+        const rounded = scene.layout === "presenter-inset" || doc.profile.framing === "rounded-inset";
+        const radius = rounded ? `border-radius:${f3(Math.min(pbox.width, pbox.height) * 0.08)}px;` : "";
+        const shadow = rounded ? "box-shadow:0 12px 40px rgba(0,0,0,.45);" : "";
+        let segIndex = 0;
+        for (const seg of programSegments(doc)) {
+          const a = Math.max(seg.outStart, t.start);
+          const b = Math.min(seg.outStart + seg.frames, t.end);
+          if (b <= a) continue;
+          const srcIn = seg.entry.sourceInSec + (a - seg.outStart) / fps;
+          const vid = `pg-${scene.id}-${segIndex++}`;
+          // Jump-cut punch-in on alternate segments for fast (social) pacing.
+          const punch = profile.pacing === "fast" && segIndex % 2 === 0 ? 1.12 : 1;
+          parts.push(
+            `<div class="layer media presenter" style="left:${f3(pbox.left)}px;top:${f3(pbox.top)}px;width:${f3(pbox.width)}px;height:${f3(pbox.height)}px;z-index:${(pslot.z ?? 1) * 10};${radius}${shadow}"><video id="${vid}" src="${src.file}" muted playsinline data-start="${sec(a)}" data-duration="${sec(b - a)}" data-media-start="${f3(srcIn)}" style="width:100%;height:100%;object-fit:cover;object-position:50% 35%;transform:scale(${punch});transform-origin:50% 40%;"></video></div>`,
+          );
+        }
+      }
+    }
+
     // Background "ken burns" drift on asset backgrounds.
     if (scene.background.type === "asset" && m.k > 0.2) {
       tweens.push(`tl.fromTo("#${sid}-bgimg",{scale:1},{scale:${f3(1 + 0.06 * m.k)},duration:${dur},ease:"none"},${start});`);
@@ -281,6 +309,36 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
     }
   });
 
+  // Editorial beats (FR-14): overlays placed at their mapped output time.
+  const beatHtml: string[] = [];
+  if (doc.program) {
+    doc.beats.forEach((beat, i) => {
+      if (beat.cue.sourceStartSec === undefined) return;
+      const at = sourceToOutput(doc, beat.cue.sourceStartSec, { snap: "next" });
+      if (at === null || at >= timeline.totalFrames) return;
+      const len = Math.min(beat.durationFrames, timeline.totalFrames - at);
+      const w = beat.visualAction === "emphasis" ? 0.8 : 0.34;
+      const h = beat.visualAction === "emphasis" ? 0.14 : beat.visualAction === "label" ? 0.12 : 0.28;
+      const ax = beat.anchor?.x ?? (i % 2 === 0 ? 0.22 : 0.78);
+      const ay = beat.anchor?.y ?? (beat.visualAction === "emphasis" ? 0.7 : 0.3);
+      const bx = Math.max(0, Math.min(1 - w, ax - w / 2));
+      const by = Math.max(0, Math.min(1 - h, ay - h / 2));
+      const box = boxFor({ x: bx, y: by, w, h });
+      const bid = `beat-${i}`;
+      const size = (beat.visualAction === "emphasis" ? 64 : 40) * unit * profile.typeScale;
+      const back = beat.backing === "solid" ? resolveColor(brand, "brand.surface", "#111111") : hexWithAlpha(resolveColor(brand, "brand.surface", "#111111"), 0.86);
+      let inner = "";
+      if ((beat.visualAction === "logo" || beat.visualAction === "image" || beat.visualAction === "b-roll") && beat.assetId && ctx.assets.get(beat.assetId)) {
+        const a = ctx.assets.get(beat.assetId)!;
+        inner = `<div style="width:100%;height:100%;background:${back};border-radius:${f3(18 * unit)}px;padding:${f3(12 * unit)}px;box-sizing:border-box;display:flex;align-items:center;justify-content:center;gap:${f3(12 * unit)}px"><img src="${a.file}" alt="" style="max-height:100%;max-width:${beat.text ? "40%" : "100%"};object-fit:contain">${beat.text ? `<span style="font-size:${f3(size)}px;font-weight:700;color:${resolveColor(brand, "brand.text", "#fff")}">${escapeHtml(beat.text)}</span>` : ""}</div>`;
+      } else {
+        inner = `<div class="fit" data-size="${f3(size)}" style="font-size:${f3(size)}px;font-family:${cssFamily(brand.fonts.heading.family)},sans-serif;font-weight:${brand.fonts.heading.weight};color:${resolveColor(brand, "brand.text", "#ffffff")};justify-content:center;text-align:center;"><div><span style="background:${back};padding:.12em .45em;border-radius:.25em;-webkit-box-decoration-break:clone;box-decoration-break:clone;">${escapeHtml(beat.text || beat.cue.phrase)}</span></div></div>`;
+      }
+      beatHtml.push(`<div id="${bid}" class="clip beat" data-start="${sec(at)}" data-duration="${sec(len)}" style="z-index:800;pointer-events:none;"><div class="layer" id="${bid}-in" style="${boxCss(box)}">${inner}</div></div>`);
+      tweens.push(`tl.fromTo("#${bid}-in",{opacity:0,y:${f3(20 * unit)}},{opacity:1,y:0,duration:0.35,ease:"power2.out"},${sec(at)});`);
+    });
+  }
+
   // Captions (burned in) — absolute clips above all scenes.
   const captionHtml: string[] = [];
   if (doc.captions.enabled && doc.captions.burnIn) {
@@ -354,6 +412,7 @@ html,body{margin:0;padding:0;background:#000;}
 </head><body>
 <div id="root" data-composition-id="main" data-start="0" data-width="${width}" data-height="${height}" data-duration="${f3(durationSec)}">
 ${sceneHtml.join("\n")}
+${beatHtml.join("\n")}
 ${captionHtml.join("\n")}
 ${audioHtml}
 </div>
