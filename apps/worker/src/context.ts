@@ -65,6 +65,11 @@ export function referencedAssetIds(doc: ProjectDocument): string[] {
   for (const f of [doc.brand.fonts.heading, doc.brand.fonts.body]) if (f.assetId) ids.add(f.assetId);
   if (doc.program) ids.add(doc.program.sourceAssetId);
   for (const b of doc.beats) if (b.assetId) ids.add(b.assetId);
+  for (const c of doc.characters) {
+    if (c.mode !== "image") continue;
+    for (const r of c.referenceAssetIds) ids.add(r);
+    for (const r of Object.values(c.poseAssets)) ids.add(r);
+  }
   return [...ids];
 }
 

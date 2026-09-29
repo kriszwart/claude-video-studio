@@ -26,6 +26,9 @@ export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; sc
           </h3>
           <p className="text-xs text-faint">Recipe step: {scene.recipeSlot}</p>
         </div>
+        <button className="btn btn-ghost shrink-0 px-2 py-1 text-xs" disabled={locked} title="Re-roll background, props and pose (code-generated; text, media and the character's identity are kept)" onClick={() => op({ op: "varyScene", sceneId: scene.id, variant: Math.floor(Date.now() % 1_000_000) + 1 })}>
+          New variation
+        </button>
         <label className="flex shrink-0 items-center gap-1.5 text-xs">
           <input type="checkbox" checked={locked} onChange={(e) => op({ op: "setSceneLock", sceneId: scene.id, locked: e.target.checked })} />
           Locked
@@ -226,6 +229,36 @@ function LayerEditor({ layer, scene, doc, apply, colors }: { layer: Layer; scene
           <p className="text-[11px] text-faint">Decorative {layer.shape}.</p>
         </>
       );
+    case "character": {
+      const ch = doc.characters.find((c) => c.id === layer.characterId);
+      const sel = (label: string, key: "pose" | "accessory" | "facing", options: string[]) => (
+        <div>
+          <label className="label">{label}</label>
+          <select className="input" value={layer[key]} onChange={(e) => apply([{ op: "setCharacterPose", ...base, [key]: e.target.value } as Operation])}>
+            {options.map((o) => (
+              <option key={o}>{o}</option>
+            ))}
+          </select>
+        </div>
+      );
+      return (
+        <>
+          {header}
+          <p className="text-[11px] text-dim">
+            {ch ? `${ch.name} — ${ch.mode === "image" ? "your cutout" : `vector ${ch.species}`}${ch.locked ? " (reference locked)" : ""}` : "Missing character"}
+          </p>
+          <div className="grid grid-cols-2 gap-2">
+            {sel("Pose", "pose", ["idle", "wave", "jump", "think", "celebrate", "point", "walk"])}
+            {sel("Costume", "accessory", ["none", "hat", "cape", "glasses", "crown", "helmet"])}
+            {sel("Facing", "facing", ["right", "left"])}
+            <div>
+              <label className="label">Size</label>
+              <NumberField value={layer.scale} step={0.05} min={0.2} max={3} onCommit={(v) => apply([{ op: "setCharacterPose", ...base, scale: v }])} />
+            </div>
+          </div>
+        </>
+      );
+    }
     case "graphics":
       return (
         <>

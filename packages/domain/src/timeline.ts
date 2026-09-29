@@ -201,6 +201,16 @@ export function validateTimeline(
       issues.push({ severity: "error", code: "unknown_asset", message: `Audio asset ${t.assetId} is not available.`, trackId: t.id });
     }
   }
+  // Music lock: the selected excerpt must not be cut short (or padded with silence) silently.
+  if (doc.musicLock.enabled) {
+    const t = doc.audio.find((x) => x.id === doc.musicLock.trackId);
+    if (t && t.sourceOutSec !== null) {
+      const start = resolveAnchor(t.anchor, timeline) ?? 0;
+      const need = start + Math.round((t.sourceOutSec - t.sourceInSec) * doc.format.fps);
+      if (need > timeline.totalFrames + 1) issues.push({ severity: "warning", code: "music_truncated", message: `The timeline ends ${((need - timeline.totalFrames) / doc.format.fps).toFixed(1)} s before the selected music excerpt. Extend the scenes or choose a shorter excerpt.`, trackId: t.id });
+      if (need < timeline.totalFrames - 1) issues.push({ severity: "warning", code: "music_short", message: `The video runs ${((timeline.totalFrames - need) / doc.format.fps).toFixed(1)} s past the selected music excerpt.`, trackId: t.id });
+    }
+  }
   for (const r of resolveCaptions(doc, timeline)) {
     if (r.cue.text.length > 90) {
       issues.push({ severity: "warning", code: "caption_long", message: `Caption "${r.cue.text.slice(0, 30)}…" is long and may wrap beyond two lines.` });

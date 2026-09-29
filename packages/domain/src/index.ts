@@ -8,3 +8,4 @@ export * from "./budget";
 export * from "./captions";
 export * from "./program";
 export * from "./transcript";
+export * from "./variation";

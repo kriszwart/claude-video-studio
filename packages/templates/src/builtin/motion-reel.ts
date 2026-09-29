@@ -122,7 +122,7 @@ export const brandShowreel: TemplateDefinitionInput = {
   preset: "P2",
   name: "Brand / Channel Showreel",
   description: "One colour motif carried from an opening circle through a thumbnail wall and a hero milestone to your logo. Uses only supplied facts; generated assets off by default.",
-  version: 1,
+  version: 2,
   tags: { purpose: ["brand", "channel", "showreel"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -200,7 +200,7 @@ export const brandShowreel: TemplateDefinitionInput = {
       background: { type: "color", color: "brand.background" },
       motion: 0.6,
       layers: [
-        { kind: "graphics", slot: "decor", backend: "redraw", component: "ribbon", componentVersion: 1, params: { path: "swoosh", width: 30, drawSec: 1.2, glow: 16 } },
+        { kind: "graphics", slot: "decor", backend: "redraw", component: "ribbon", componentVersion: 1, params: { path: "swoosh", width: 30, drawSec: 1.2, glow: 16 }, box: { x: 0.08, y: 0.74, w: 0.84, h: 0.22 } },
         { kind: "image", slot: "media", asset: "{{logo}}", optional: true, fit: "contain", animation: "pop", delaySec: 0.3 },
         { kind: "text", slot: "headline", role: "headline", text: "{{channelName}}", animation: "rise", delaySec: 0.4 },
         { kind: "text", slot: "cta", role: "cta", text: "{{cta}}", optional: true, animation: "pop", delaySec: 0.7 },

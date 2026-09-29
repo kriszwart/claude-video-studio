@@ -14,6 +14,7 @@ export function ProjectPanel({ doc, view, apply }: { doc: ProjectDocument; view:
   const kitNow = kits.find((k) => k.id === doc.brand.brandKitId);
   return (
     <div className="space-y-4 text-xs">
+      {doc.characters.length > 0 && <Characters doc={doc} apply={apply} />}
       <section>
         <h4 className="label">Aspect ratio</h4>
         <div className="flex gap-1" role="radiogroup" aria-label="Aspect ratio">
@@ -124,5 +125,45 @@ export function ProjectPanel({ doc, view, apply }: { doc: ProjectDocument; view:
         </ol>
       </section>
     </div>
+  );
+}
+
+/** Persistent character references (T2): locked by default so edits never replace them silently. */
+function Characters({ doc, apply }: { doc: ProjectDocument; apply: (ops: Operation[]) => Promise<boolean> }) {
+  return (
+    <section aria-labelledby="chars-h" className="space-y-2">
+      <h4 id="chars-h" className="label">Characters</h4>
+      {doc.characters.map((c) => (
+        <div key={c.id} className="card space-y-2 p-2" data-testid={`character-${c.id}`}>
+          <div className="flex items-center gap-2">
+            <strong>{c.name}</strong>
+            <span className="text-faint">{c.mode === "image" ? `${c.referenceAssetIds.length} reference image(s)` : `vector ${c.species}`}</span>
+            <label className="ml-auto flex items-center gap-1">
+              <input type="checkbox" checked={c.locked} onChange={(e) => apply([{ op: "updateCharacter", characterId: c.id, patch: { locked: e.target.checked } }])} />
+              Reference locked
+            </label>
+          </div>
+          <fieldset disabled={c.locked} className="grid grid-cols-4 gap-2 disabled:opacity-60">
+            {(["body", "belly", "accent", "eye"] as const).map((k) => (
+              <label key={k} className="flex flex-col gap-1">
+                <span className="text-faint capitalize">{k}</span>
+                <input type="color" aria-label={`${c.name} ${k} colour`} value={c.palette[k]} onChange={(e) => apply([{ op: "updateCharacter", characterId: c.id, patch: { palette: { ...c.palette, [k]: e.target.value } } }])} />
+              </label>
+            ))}
+            {c.mode === "vector" && (
+              <label className="col-span-2 flex flex-col gap-1">
+                <span className="text-faint">Shape</span>
+                <select className="input" value={c.species} onChange={(e) => apply([{ op: "updateCharacter", characterId: c.id, patch: { species: e.target.value as typeof c.species } }])}>
+                  {["blob", "cat", "bear", "bird", "robot"].map((s) => (
+                    <option key={s}>{s}</option>
+                  ))}
+                </select>
+              </label>
+            )}
+          </fieldset>
+          <p className="text-faint">The same reference is used in every scene. Scene variations change settings, props and poses — never the character itself.</p>
+        </div>
+      ))}
+    </section>
   );
 }

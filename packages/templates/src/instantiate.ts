@@ -4,6 +4,7 @@ import {
   DOCUMENT_SCHEMA_VERSION,
   ProjectDocument,
   secondsToFrames,
+  Character,
   syncProgramScenes,
   type AspectRatio,
   type AudioTrack,
@@ -11,6 +12,7 @@ import {
   type Layer,
   type Scene,
 } from "@vs/domain";
+import { escalateEras } from "./mascot";
 import type { LayerRecipe, SceneRecipe, TemplateDefinition } from "./types";
 
 export type InputValue = string | number | boolean | string[];
@@ -28,6 +30,33 @@ export interface InstantiateOptions {
   seed?: number;
   /** Program engine: probed duration of the source recording. */
   sourceDurationSec?: number;
+}
+
+export const MAIN_CHARACTER_ID = "char-main";
+
+/** Lighten (t > 0) or darken (t < 0) a hex colour. */
+export function shade(hex: string, t: number): string {
+  if (!/^#[0-9a-f]{6}$/i.test(hex)) return "#cccccc";
+  return `#${[1, 3, 5].map((i) => { const v = parseInt(hex.slice(i, i + 2), 16); return Math.round(t > 0 ? v + (255 - v) * t : v * (1 + t)).toString(16).padStart(2, "0"); }).join("")}`;
+}
+
+/** The persistent character reference built from template inputs (T2). */
+export function characterFromInputs(def: TemplateDefinition, inputs: InputValues, brand: BrandSnapshot): Character | null {
+  const cfg = def.character;
+  if (!cfg) return null;
+  const color = String(inputs[cfg.colorInput ?? ""] ?? "").trim();
+  const body = /^#[0-9a-f]{6}$/i.test(color) ? color : /^#[0-9a-f]{6}$/i.test(brand.colors.primary) ? brand.colors.primary : "#6366f1";
+  const image = firstString(inputs[cfg.imageInput ?? ""]);
+  const species = String(inputs[cfg.speciesInput ?? ""] ?? "blob");
+  return Character.parse({
+    id: MAIN_CHARACTER_ID,
+    name: String(inputs[cfg.nameInput] ?? "Mascot").slice(0, 60) || "Mascot",
+    mode: image ? "image" : "vector",
+    referenceAssetIds: image ? [image] : [],
+    palette: { body, belly: shade(body, 0.55), accent: /^#[0-9a-f]{6}$/i.test(brand.colors.accent) ? brand.colors.accent : "#f59e0b", eye: "#1f2937" },
+    species: ["blob", "cat", "bear", "bird", "robot"].includes(species) ? species : "blob",
+    locked: true,
+  });
 }
 
 const BINDING = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\.([a-zA-Z_]+))?(?:\[(\d+|i)\])?\s*\}\}/g;
@@ -157,9 +186,15 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
     captions: { enabled: def.audio.captions },
     musicLock: { enabled: def.audio.musicLocked && !!musicAsset, trackId: audio[0]?.id },
     seed: opts.seed ?? 1,
+    characters: (() => {
+      const c = characterFromInputs(def, inputs, brand);
+      return c ? [c] : [];
+    })(),
   });
 
   if (def.engine === "program") return withProgram(def, doc, inputs, opts);
+  if (def.musicVideo) return withMusicExcerpt(def, doc, inputs, opts);
+  if (def.character) escalateEras(doc);
 
   const target = opts.durationSec ?? (typeof inputs.durationSec === "number" ? inputs.durationSec : Number(inputs.durationSec) || undefined);
   return target ? fitDuration(doc, clamp(target, def.duration.minSec, def.duration.maxSec)) : doc;
@@ -190,6 +225,30 @@ function withProgram(def: TemplateDefinition, doc: ProjectDocument, inputs: Inpu
     },
   });
   return syncProgramScenes(next);
+}
+
+/**
+ * Music video: the selected excerpt defines the length. The song is trimmed to the excerpt
+ * (the owner's selection) and locked; scenes are rebuilt from analysed sections later.
+ */
+function withMusicExcerpt(def: TemplateDefinition, doc: ProjectDocument, inputs: InputValues, opts: InstantiateOptions): ProjectDocument {
+  const cfg = def.musicVideo!;
+  const song = firstString(inputs[cfg.songInput]);
+  if (!song) throw new Error("A song is required.");
+  const dur = opts.sourceDurationSec ?? 0;
+  const inSec = Math.max(0, Number(inputs[cfg.inInput] ?? 0) || 0);
+  let outSec = Number(inputs[cfg.outInput] ?? 0) || (dur ? Math.min(dur, inSec + def.duration.defaultSec) : inSec + def.duration.defaultSec);
+  if (dur) outSec = Math.min(outSec, dur);
+  if (outSec - inSec < def.duration.minSec) throw new Error(`The excerpt must be at least ${def.duration.minSec} s long.`);
+  if (outSec - inSec > def.duration.maxSec) throw new Error(`The excerpt can be at most ${def.duration.maxSec} s long.`);
+  const track = doc.audio.find((t) => t.kind === "music" && t.assetId === song)!;
+  const frames = Math.round((outSec - inSec) * 30);
+  return ProjectDocument.parse({
+    ...doc,
+    scenes: [{ ...doc.scenes[0]!, durationFrames: frames }],
+    audio: doc.audio.map((t) => (t.id === track.id ? { ...t, sourceInSec: inSec, sourceOutSec: outSec, gainDb: 0, fadeOutFrames: outSec < dur - 0.05 ? 30 : 0, duck: { enabled: false, amountDb: -12 } } : t)),
+    musicLock: { enabled: true, trackId: track.id },
+  });
 }
 
 function buildScene(
@@ -301,8 +360,10 @@ function buildLayer(
         hidden: false,
         animation: { in: lr.animation, delayFrames: secondsToFrames(lr.delaySec, fps), loop: lr.loop },
       };
+    case "character":
+      return { id, kind: "character", slot: lr.slot, characterId: MAIN_CHARACTER_ID, pose: lr.pose, accessory: lr.accessory, facing: lr.facing, scale: lr.scale, hidden: false, animation: { in: lr.animation, delayFrames: secondsToFrames(lr.delaySec, fps) } };
     case "graphics":
-      return { id, kind: "graphics", slot: lr.slot, backend: lr.backend, component: lr.component, componentVersion: lr.componentVersion, params: lr.params, seed: 1, hidden: false };
+      return { id, kind: "graphics", slot: lr.slot, backend: lr.backend, component: lr.component, componentVersion: lr.componentVersion, params: lr.params, seed: 1, hidden: false, ...(lr.box ? { box: lr.box } : {}) };
   }
 }
 

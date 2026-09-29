@@ -61,8 +61,13 @@ export const POST = route(async (req) => {
     brand = BrandSnapshot.parse({ ...(kit.data as object), brandKitId: kit.id, brandKitVersion: kit.version });
   }
   if (typeof input.inputs.logo === "string" && input.inputs.logo && !brand.logoAssetId) brand = { ...brand, logoAssetId: input.inputs.logo };
-  const sourceId = template.program ? String(input.inputs[template.program.sourceInput] ?? "") : "";
-  const doc = instantiateTemplate(template, { title: input.title, aspect: input.aspect, brand, inputs: input.inputs, durationSec: input.durationSec, newId, sourceDurationSec: assetDurations.get(sourceId) });
+  const sourceId = template.program ? String(input.inputs[template.program.sourceInput] ?? "") : template.musicVideo ? String(input.inputs[template.musicVideo.songInput] ?? "") : "";
+  let doc: ReturnType<typeof instantiateTemplate>;
+  try {
+    doc = instantiateTemplate(template, { title: input.title, aspect: input.aspect, brand, inputs: input.inputs, durationSec: input.durationSec, newId, sourceDurationSec: assetDurations.get(sourceId) });
+  } catch (e) {
+    throw new AppError(422, "invalid_input", e instanceof Error ? e.message : String(e));
+  }
   const budget: BudgetPolicy = { ...DEFAULT_BUDGET, ...input.budget };
   const result = await db.transaction(async (tx) => {
     const created = await createProject(tx, { workspaceId: s.workspaceId, doc, templateId: template.id, templateVersion: template.version, family: template.family, budget, action: "created from template" });
@@ -79,6 +84,10 @@ export const POST = route(async (req) => {
     if (template.program) {
       const sub = template.program.transcriptInput ? String(input.inputs[template.program.transcriptInput] ?? "") : "";
       transcribeJob = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "transcribe", input: { assetId: sourceId, subtitleAssetId: sub || undefined, provider: "auto" }, idempotencyKey: idem ? `transcribe:${idem}` : null })).job;
+    }
+    // Music videos: analyse the song, then build section scenes and markers from it.
+    if (template.musicVideo) {
+      transcribeJob = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "analyze_music", input: { build: "music-video", density: "downbeats" }, idempotencyKey: idem ? `analyze:${idem}` : null })).job;
     }
     await tx.insert(schema.analyticsEvents).values({ workspaceId: s.workspaceId, name: "project_created", props: { family: template.family, template: template.id, plan: input.plan } });
     return { project: created.project, job, transcribeJob };

@@ -1,3 +1,4 @@
+import { characterSvg, characterTweens } from "./character";
 import {
   computeTimeline,
   programSegments,
@@ -149,6 +150,8 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
   const { width, height } = dimensionsFor(doc.format.aspect, ctx.scale);
   const fps = doc.format.fps;
   const timeline = computeTimeline(doc);
+  // Absolute seconds of music accents (markers of the chosen kind), when enabled.
+  const accentTimes = doc.musicAccents.enabled ? doc.markers.filter((mk) => mk.kind === doc.musicAccents.on || (doc.musicAccents.on === "downbeat" && mk.kind === "section")).map((mk) => mk.frame / doc.format.fps).sort((a, b) => a - b) : [];
   const durationSec = timeline.totalFrames / fps;
   const unit = Math.min(width, height) / 1080;
   const brand = doc.brand;
@@ -234,7 +237,10 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       const lid = `l-${scene.id}-${layer.id}`;
       const slot = resolveSlot(scene.layout, doc.format.aspect, layer.slot);
       if (!slot && !layer.box) warnings.push(`Layout "${scene.layout}" has no slot "${layer.slot}" for ${doc.format.aspect}; using a default box.`);
-      const box = boxFor(slot, layer.box);
+      // A half-filled media grid centres its single row instead of leaving the lower half empty.
+      const gridFilled = scene.layout === "media-grid" ? scene.layers.filter((x) => (x.kind === "image" || x.kind === "video") && x.assetId && !x.hidden).length : 6;
+      const centred = scene.layout === "media-grid" && gridFilled <= 3 && slot && !layer.box && /^media\d?$/.test(layer.slot) ? { ...slot, y: 0.3 } : slot;
+      const box = boxFor(centred, layer.box);
       const z = (slot?.z ?? 2) * 10 + li;
       const delay = f3(start + ("animation" in layer ? layer.animation.delayFrames / fps : 0));
       switch (layer.kind) {
@@ -263,8 +269,25 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
         case "shape":
           parts.push(shapeHtml(layer, lid, box, z, brand, unit));
           tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m));
-          tweens.push(...shapeLoop(layer, lid, start, dur, m.k));
+          tweens.push(...shapeLoop(layer, lid, start, dur, m.k, accentTimes.filter((a) => a >= start - 1e-6 && a < start + dur), doc.musicAccents.strength));
           break;
+        case "character": {
+          const ch = doc.characters.find((c) => c.id === layer.characterId);
+          if (!ch) {
+            warnings.push(`Scene "${scene.purpose}" references a character that no longer exists.`);
+            break;
+          }
+          const cutout = ch.mode === "image" ? ctx.assets.get(ch.poseAssets[layer.pose] ?? ch.referenceAssetIds[0] ?? "") : undefined;
+          const vector = !cutout;
+          if (ch.mode === "image" && !cutout) warnings.push(`${ch.name}: no reference image is available; the vector version is shown.`);
+          // Scale around the feet so the character stays grounded in its slot.
+          const flip = layer.facing === "left" ? "scaleX(-1)" : "";
+          const inner = vector ? characterSvg(ch, lid, layer.accessory) : `<img id="${lid}-img" src="${cutout!.file}" alt="${escapeHtml(ch.name)}" style="width:100%;height:100%;object-fit:contain;object-position:50% 100%">`;
+          parts.push(`<div class="layer character" id="${lid}" style="${boxCss(box)}z-index:${z};"><div style="position:absolute;inset:0;transform:${flip} scale(${f3(layer.scale)});transform-origin:50% 100%">${inner}</div></div>`);
+          tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m));
+          tweens.push(...characterTweens(layer, ch, lid, start, dur, m.k, vector));
+          break;
+        }
         case "graphics": {
           if (!ctx.graphics) throw new GraphicsUnavailableError(`No ${layer.backend} graphics backend is configured for this render.`);
           const frag = ctx.graphics(layer, { sceneStartSec: start, sceneDurationSec: dur, width, height, box, brand, fonts: ctx.fonts, assetFile: (id) => ctx.assets.get(id)?.file });
@@ -350,6 +373,17 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       beatHtml.push(`<div id="${bid}" class="clip beat" data-start="${sec(at)}" data-duration="${sec(len)}" style="z-index:800;pointer-events:none;"><div class="layer" id="${bid}-in" style="${boxCss(box)}">${inner}</div></div>`);
       tweens.push(`tl.fromTo("#${bid}-in",{opacity:0,y:${f3(20 * unit)}},{opacity:1,y:0,duration:0.35,ease:"power2.out"},${sec(at)});`);
     });
+  }
+
+  // Section flashes: a brief full-frame lift on each section marker (music accents).
+  if (doc.musicAccents.enabled && doc.musicAccents.sectionFlash) {
+    doc.markers
+      .filter((mk) => mk.kind === "section" && mk.frame > 0 && mk.frame < timeline.totalFrames)
+      .forEach((mk, i) => {
+        const at = mk.frame / fps;
+        beatHtml.push(`<div id="flash-${i}" class="clip" data-start="${f3(at)}" data-duration="${f3(Math.min(0.5, timeline.totalFrames / fps - at))}" style="z-index:700;pointer-events:none;"><div id="flash-${i}-in" class="layer" style="left:0;top:0;width:100%;height:100%;background:#ffffff;opacity:0"></div></div>`);
+        tweens.push(`tl.fromTo("#flash-${i}-in",{opacity:${f3(0.45 * doc.musicAccents.strength)}},{opacity:0,duration:0.45,ease:"power2.out"},${f3(at)});`);
+      });
   }
 
   // Captions (burned in) — absolute clips above all scenes.
@@ -604,7 +638,19 @@ function shapeHtml(layer: ShapeLayer, lid: string, box: Box, z: number, brand: B
   }
 }
 
-function shapeLoop(layer: ShapeLayer, lid: string, start: number, dur: number, k: number): string[] {
+function shapeLoop(layer: ShapeLayer, lid: string, start: number, dur: number, k: number, accents: number[] = [], strength = 0.6): string[] {
+  // Music accents (markers): bars hit on each marker and decay; other shapes flash brighter.
+  if (accents.length) {
+    const out: string[] = [];
+    accents.forEach((t, i) => {
+      const gap = (accents[i + 1] ?? t + 0.5) - t;
+      const d = f3(Math.max(0.08, Math.min(0.45, gap * 0.8)));
+      if (layer.shape === "bars") out.push(`tl.fromTo("#${lid} .bar",{scaleY:1},{scaleY:${f3(1 - 0.65 * strength)},duration:${d},ease:"power2.out",stagger:{each:0.012,from:"center"},immediateRender:false},${f3(t)});`);
+      else out.push(`tl.fromTo("#${lid}",{filter:"brightness(${f3(1 + 1.2 * strength)})"},{filter:"brightness(1)",duration:${d},ease:"power2.out",immediateRender:false},${f3(t)});`);
+    });
+    if (layer.shape === "bars" || layer.animation.loop === "none") return out;
+    return [...out, ...shapeLoop({ ...layer, shape: layer.shape }, lid, start, dur, k)];
+  }
   const loop = layer.animation.loop;
   if (loop === "none" && layer.shape !== "bars" && layer.shape !== "line") return [];
   if (layer.shape === "line") return [`tl.fromTo("#${lid} .shape-inner",{scaleX:0},{scaleX:1,duration:${f3(Math.min(dur * 0.6, 1.2))},ease:"power2.out"},${start});`];

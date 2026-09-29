@@ -11,7 +11,12 @@ export async function waitForJobs(request: APIRequestContext, projectId: string,
   const t0 = Date.now();
   while (Date.now() - t0 < timeoutMs) {
     const r = await request.get(`/api/projects/${projectId}`);
-    const v = await r.json();
+    // Tolerate transient dev-server responses (e.g. an HTML error page during a hot reload).
+    const v = r.ok() ? await r.json().catch(() => null) : null;
+    if (!v) {
+      await new Promise((res) => setTimeout(res, 2000));
+      continue;
+    }
     const j = v.jobs.find((x: { type: string; createdAt: string }) => x.type === type && new Date(x.createdAt).getTime() >= since - 2000);
     if (j && ["succeeded", "failed", "canceled"].includes(j.status)) return { job: j, view: v };
     await new Promise((res) => setTimeout(res, 1000));

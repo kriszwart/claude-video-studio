@@ -94,3 +94,17 @@ describe("compileComposition", () => {
     expect(doc.brief.approvedFacts.map((f) => f.text)).toEqual(["One", "Two", "Three"]);
   });
 });
+
+describe("character layers", () => {
+  it("draws the persistent vector character and animates its pose", async () => {
+    const { instantiateTemplate, getBuiltinTemplate, DEFAULT_BRAND } = await import("@vs/templates");
+    const { compileComposition } = await import("../src");
+    let n = 0;
+    const doc = instantiateTemplate(getBuiltinTemplate("mascot-story")!, { title: "Pip", brand: DEFAULT_BRAND, inputs: { characterName: "Pip", species: "cat", theme: "t", eras: ["a", "b"], transformation: "x" }, newId: (p: string) => `${p}${++n}` });
+    const out = compileComposition(doc, { scale: 0.5, assets: new Map(), fonts: [], gsapFile: "gsap.min.js" } as never);
+    expect((out.html.match(/class="layer character"/g) ?? []).length).toBe(doc.scenes.length - 1);
+    expect(out.html).toContain("-arm-r");
+    expect(out.html).toMatch(/svgOrigin/);
+    expect(out.warnings.filter((w: string) => /character/.test(w))).toEqual([]);
+  });
+});

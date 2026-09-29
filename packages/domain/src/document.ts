@@ -14,6 +14,7 @@ export const ColorRef = z
   .string()
   .regex(/^(#[0-9a-fA-F]{6}([0-9a-fA-F]{2})?|brand\.(primary|secondary|accent|background|surface|text|muted))$/, "invalid color");
 export type ColorRef = z.infer<typeof ColorRef>;
+export const HexColor = z.string().regex(/^#[0-9a-fA-F]{6}$/, "invalid hex color");
 
 const Frames = z.number().int().nonnegative();
 const PositiveFrames = z.number().int().positive();
@@ -190,7 +191,21 @@ export const GraphicsLayer = LayerBase.extend({
 });
 export type GraphicsLayer = z.infer<typeof GraphicsLayer>;
 
-export const Layer = z.discriminatedUnion("kind", [TextLayer, ImageLayer, VideoLayer, ShapeLayer, GraphicsLayer]);
+/** A placement of a project character (T2). The character's look lives in doc.characters. */
+export const CharacterLayer = LayerBase.extend({
+  kind: z.literal("character"),
+  characterId: Id,
+  pose: z.enum(["idle", "wave", "jump", "think", "celebrate", "point", "walk"]).default("idle"),
+  facing: z.enum(["left", "right"]).default("right"),
+  /** Relative size multiplier inside the slot. */
+  scale: z.number().min(0.2).max(3).default(1),
+  /** Optional costume/era accent colour for this scene (the character stays recognisable). */
+  accessory: z.enum(["none", "hat", "cape", "glasses", "crown", "helmet"]).default("none"),
+  animation: z.object({ in: EntranceAnimation.default("pop"), delayFrames: Frames.default(0) }).default({ in: "pop", delayFrames: 0 }),
+});
+export type CharacterLayer = z.infer<typeof CharacterLayer>;
+
+export const Layer = z.discriminatedUnion("kind", [TextLayer, ImageLayer, VideoLayer, ShapeLayer, GraphicsLayer, CharacterLayer]);
 export type Layer = z.infer<typeof Layer>;
 
 export const Background = z.discriminatedUnion("type", [
@@ -357,6 +372,27 @@ export const EditorialBeat = z.object({
 });
 export type EditorialBeat = z.infer<typeof EditorialBeat>;
 
+/**
+ * Persistent character reference (T2): identity, palette, proportions and chosen poses.
+ * Vector characters are drawn procedurally from these values; image characters use the
+ * owner's cutouts. Generated identity is never assumed — references are what we reuse.
+ */
+export const Character = z.object({
+  id: Id,
+  name: z.string().max(60),
+  mode: z.enum(["vector", "image"]).default("vector"),
+  /** Owner-supplied reference images (and per-pose cutouts). */
+  referenceAssetIds: z.array(Id).max(12).default([]),
+  poseAssets: z.record(z.string().max(20), Id).default({}),
+  palette: z.object({ body: HexColor, belly: HexColor, accent: HexColor, eye: HexColor }),
+  proportions: z.object({ head: z.number().min(0.6).max(1.6).default(1), body: z.number().min(0.6).max(1.6).default(1), ears: z.number().min(0).max(2).default(1) }).default({ head: 1, body: 1, ears: 1 }),
+  species: z.enum(["blob", "cat", "bear", "bird", "robot"]).default("blob"),
+  /** Locked references can't be changed by the assistant or scene regeneration. */
+  locked: z.boolean().default(true),
+  notes: z.string().max(400).default(""),
+});
+export type Character = z.infer<typeof Character>;
+
 export const ProjectDocument = z.object({
   schemaVersion: z.literal(DOCUMENT_SCHEMA_VERSION),
   title: z.string().min(1).max(160),
@@ -370,8 +406,13 @@ export const ProjectDocument = z.object({
   captions: Captions.default({ enabled: false, burnIn: true, style: "boxed", position: "bottom", cues: [] }),
   markers: z.array(MusicMarker).max(1000).default([]),
   musicLock: z.object({ enabled: z.boolean(), trackId: Id.optional() }).default({ enabled: false }),
+  /** Visual accents on music markers: shapes hit on the chosen marker kind, sections flash. */
+  musicAccents: z
+    .object({ enabled: z.boolean().default(false), on: z.enum(["downbeat", "beat", "section"]).default("downbeat"), sectionFlash: z.boolean().default(true), strength: Unit.default(0.6) })
+    .default({ enabled: false, on: "downbeat", sectionFlash: true, strength: 0.6 }),
   program: Program.optional(),
   beats: z.array(EditorialBeat).max(200).default([]),
+  characters: z.array(Character).max(6).default([]),
   /** Seed for any procedural variation; part of the render bundle hash. */
   seed: z.number().int().default(1),
 });

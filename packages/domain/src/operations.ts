@@ -8,6 +8,8 @@ import {
   Captions,
   CreativeProfileSnapshot,
   EditorialBeat,
+  Character,
+  CharacterLayer,
   type EdlEntry,
   Id,
   Layer,
@@ -21,6 +23,7 @@ import {
 } from "./document";
 import { AspectRatio, SafeAreaPresetIdSchema } from "./format";
 import { computeTimeline, validateTimeline } from "./timeline";
+import { varyScene } from "./variation";
 import { syncProgramScenes } from "./program";
 
 const Unit = z.number().min(0).max(1);
@@ -79,6 +82,16 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setCaptionCues"), cues: z.array(CaptionCue).max(2000) }),
   z.object({ op: z.literal("updateCaptionCue"), cueId: Id, text: z.string().max(300).optional(), startFrame: z.number().int().min(0).optional(), endFrame: z.number().int().positive().optional() }),
   z.object({ op: z.literal("setMarkers"), markers: z.array(MusicMarker).max(1000) }),
+  z.object({ op: z.literal("varyScene"), sceneId: Id, variant: z.number().int().min(1).max(1_000_000) }),
+  z.object({ op: z.literal("setCharacters"), characters: z.array(Character).max(6) }),
+  z.object({ op: z.literal("updateCharacter"), characterId: Id, patch: Character.omit({ id: true }).partial() }),
+  z.object({ op: z.literal("setCharacterPose"), sceneId: Id, layerId: Id, pose: CharacterLayer.shape.pose.unwrap().optional(), accessory: CharacterLayer.shape.accessory.unwrap().optional(), facing: CharacterLayer.shape.facing.unwrap().optional(), scale: z.number().min(0.2).max(3).optional() }),
+  z.object({ op: z.literal("setMusicAccents"), accents: z.object({ enabled: z.boolean(), on: z.enum(["downbeat", "beat", "section"]), sectionFlash: z.boolean(), strength: z.number().min(0).max(1) }).partial() }),
+  z.object({ op: z.literal("addMarker"), marker: MusicMarker }),
+  z.object({ op: z.literal("moveMarker"), markerId: Id, frame: z.number().int().min(0) }),
+  z.object({ op: z.literal("removeMarker"), markerId: Id }),
+  z.object({ op: z.literal("verifyMarkers"), markerIds: z.array(Id).max(1000) }),
+  z.object({ op: z.literal("fitScenesToMarkers"), kinds: z.array(z.enum(["section", "downbeat", "beat"])).min(1) }),
   z.object({ op: z.literal("setMusicLock"), enabled: z.boolean(), trackId: Id.optional() }),
   z.object({ op: z.literal("setProgram"), program: Program }),
   z.object({ op: z.literal("proposeCuts"), cuts: Program.shape.proposedCuts.unwrap() }),
@@ -422,6 +435,72 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
     case "setMarkers":
       doc.markers = op.markers;
       return doc;
+    case "varyScene": {
+      const s = findScene(doc, op.sceneId);
+      if (s.locked) throw new OperationError("locked", `Scene “${s.purpose}” is locked.`);
+      const v = varyScene(doc, op.sceneId, op.variant);
+      doc.scenes = doc.scenes.map((x) => (x.id === s.id ? v : x));
+      changed.add(s.id);
+      return doc;
+    }
+    case "setCharacters": {
+      for (const c of doc.characters.filter((x) => x.locked)) {
+        const n = op.characters.find((x) => x.id === c.id);
+        if (actor !== "user" && (!n || JSON.stringify(n) !== JSON.stringify(c))) throw new OperationError("locked", `Character “${c.name}” is locked.`);
+      }
+      doc.characters = op.characters;
+      return doc;
+    }
+    case "updateCharacter": {
+      const c = doc.characters.find((x) => x.id === op.characterId);
+      if (!c) throw new OperationError("not_found", "Character not found.");
+      const unlocking = op.patch.locked === false;
+      if (c.locked && (actor !== "user" || (!unlocking && Object.keys(op.patch).some((k) => k !== "locked" && k !== "notes")))) {
+        throw new OperationError("locked", `Character “${c.name}” is locked; unlock its references before changing them.`);
+      }
+      Object.assign(c, stripUndefined(op.patch));
+      for (const s of doc.scenes) if (s.layers.some((l) => l.kind === "character" && l.characterId === c.id)) changed.add(s.id);
+      return doc;
+    }
+    case "setCharacterPose": {
+      const s = findScene(doc, op.sceneId);
+      const l = findLayer(s, op.layerId);
+      if (l.kind !== "character") throw new OperationError("invalid", "That layer is not a character.");
+      if (s.locked && actor !== "user") throw new OperationError("locked", "This scene is locked.");
+      Object.assign(l, stripUndefined({ pose: op.pose, accessory: op.accessory, facing: op.facing, scale: op.scale }));
+      changed.add(s.id);
+      return doc;
+    }
+    case "setMusicAccents":
+      doc.musicAccents = { ...doc.musicAccents, ...stripUndefined(op.accents) };
+      return doc;
+    case "addMarker":
+      doc.markers = [...doc.markers.filter((m) => m.id !== op.marker.id), { ...op.marker, verified: actor === "user" ? true : op.marker.verified }].sort((a, b) => a.frame - b.frame);
+      return doc;
+    case "moveMarker": {
+      const m = doc.markers.find((x) => x.id === op.markerId);
+      if (!m) throw new OperationError("not_found", "Marker not found.");
+      m.frame = op.frame;
+      // Moving a marker is an owner decision: it becomes verified.
+      if (actor === "user") m.verified = true;
+      doc.markers.sort((a, b) => a.frame - b.frame);
+      return doc;
+    }
+    case "removeMarker":
+      doc.markers = doc.markers.filter((m) => m.id !== op.markerId);
+      return doc;
+    case "verifyMarkers":
+      for (const m of doc.markers) if (op.markerIds.includes(m.id)) m.verified = true;
+      return doc;
+    case "fitScenesToMarkers": {
+      const r = fitScenesToMarkers(doc, op.kinds);
+      if (r.conflicts.length && r.fitted === 0) throw new OperationError("conflict", r.conflicts.join(" "));
+      for (const s of doc.scenes) {
+        const n = r.doc.scenes.find((x) => x.id === s.id)!;
+        if (n.durationFrames !== s.durationFrames) changed.add(s.id);
+      }
+      return r.doc;
+    }
     case "setMusicLock":
       doc.musicLock = { enabled: op.enabled, trackId: op.trackId };
       return doc;
@@ -604,4 +683,55 @@ function referencedAssetIdsOf(doc: ProjectDocument): string[] {
   for (const v of Object.values(doc.brief.inputs)) for (const x of Array.isArray(v) ? v : [v]) if (typeof x === "string" && /^ast_/.test(x)) ids.push(x);
   if (doc.brand.logoAssetId) ids.push(doc.brand.logoAssetId);
   return ids;
+}
+
+/**
+ * Snap scene cuts to music markers (music lock). Each cut after the first scene moves to
+ * the nearest marker of the chosen kinds that leaves both neighbours at least half a
+ * second long; locked scenes keep their length and are reported when that blocks a fit.
+ * The music itself is never moved or shortened.
+ */
+export function fitScenesToMarkers(input: ProjectDocument, kinds: ("section" | "downbeat" | "beat")[]): { doc: ProjectDocument; fitted: number; conflicts: string[] } {
+  const doc = structuredClone(input);
+  const fps = doc.format.fps;
+  const minLen = Math.round(fps / 2);
+  const marks = [...new Set(doc.markers.filter((m) => kinds.includes(m.kind)).map((m) => m.frame))].sort((a, b) => a - b);
+  const conflicts: string[] = [];
+  let fitted = 0;
+  if (!marks.length) return { doc, fitted, conflicts: ["There are no markers of the selected kind; analyse the music or add markers first."] };
+  let prevStart = 0;
+  for (let i = 1; i < doc.scenes.length; i++) {
+    const scene = doc.scenes[i]!;
+    const prev = doc.scenes[i - 1]!;
+    const cur = computeTimeline(doc).scenes[i]!;
+    // The visible cut is where the incoming scene starts (overlap included).
+    const target = marks.filter((m) => m - prevStart >= minLen + cur.overlapIn).reduce<number | null>((best, m) => (best === null || Math.abs(m - cur.start) < Math.abs(best - cur.start) ? m : best), null);
+    if (target === null || target === cur.start) {
+      prevStart = cur.start;
+      continue;
+    }
+    if (prev.locked) {
+      conflicts.push(`“${prev.purpose}” is locked, so the cut into “${scene.purpose}” can't move to ${(target / fps).toFixed(2)} s.`);
+      prevStart = cur.start;
+      continue;
+    }
+    prev.durationFrames = Math.max(minLen, prev.durationFrames + (target - cur.start));
+    fitted++;
+    prevStart = computeTimeline(doc).scenes[i]!.start;
+  }
+  // Music lock: the last scene ends exactly where the selected excerpt ends.
+  const track = doc.musicLock.enabled ? doc.audio.find((t) => t.id === doc.musicLock.trackId) : undefined;
+  if (track && track.sourceOutSec !== null && track.anchor.type === "absolute") {
+    const end = track.anchor.startFrame + Math.round((track.sourceOutSec - track.sourceInSec) * fps);
+    const last = doc.scenes.at(-1)!;
+    const now = computeTimeline(doc).totalFrames;
+    if (end !== now) {
+      if (last.locked) conflicts.push(`“${last.purpose}” is locked, so the video can't end with the music at ${(end / fps).toFixed(2)} s.`);
+      else if (last.durationFrames + (end - now) >= minLen) {
+        last.durationFrames += end - now;
+        fitted++;
+      }
+    }
+  }
+  return { doc, fitted, conflicts };
 }

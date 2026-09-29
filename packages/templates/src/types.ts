@@ -83,6 +83,16 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
     box: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
   }),
   z.object({
+    kind: z.literal("character"),
+    slot: z.string(),
+    pose: z.enum(["idle", "wave", "jump", "think", "celebrate", "point", "walk"]).default("idle"),
+    accessory: z.enum(["none", "hat", "cape", "glasses", "crown", "helmet"]).default("none"),
+    facing: z.enum(["left", "right"]).default("right"),
+    scale: z.number().min(0.2).max(3).default(1),
+    animation: EntranceAnimation.default("pop"),
+    delaySec: z.number().min(0).default(0),
+  }),
+  z.object({
     kind: z.literal("graphics"),
     slot: z.string(),
     backend: z.enum(["redraw", "skia"]),
@@ -90,6 +100,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
     componentVersion: z.number().int().positive(),
     params: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).default({}),
     optional: z.boolean().default(true),
+    box: z.object({ x: z.number(), y: z.number(), w: z.number(), h: z.number() }).optional(),
   }),
 ]);
 export type LayerRecipe = z.infer<typeof LayerRecipe>;
@@ -156,6 +167,10 @@ export const TemplateDefinition = z.object({
       presenterFraming: z.enum(["full", "split-right", "split-left", "rounded-inset", "hidden"]).default("full"),
     })
     .optional(),
+  /** Mascot story (T2): which inputs define the persistent character reference. */
+  character: z.object({ nameInput: z.string(), imageInput: z.string().optional(), speciesInput: z.string().optional(), colorInput: z.string().optional() }).optional(),
+  /** Music-video engine (T6): which inputs hold the song and the selected excerpt. */
+  musicVideo: z.object({ songInput: z.string(), inInput: z.string(), outInput: z.string(), lyricsInput: z.string().optional(), motifInput: z.string().optional() }).optional(),
   /** Present on templates saved from projects. */
   derivedFrom: z.object({ projectId: z.string(), revisionId: z.string() }).optional(),
 });
