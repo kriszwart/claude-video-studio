@@ -1,0 +1,15 @@
+1
+00:00:00,600 --> 00:00:04,556
+Good morning everyone, and welcome to Harbor Summit.
+
+2
+00:00:05,256 --> 00:00:08,540
+We have three hundred builders in this room today.
+
+3
+00:00:09,140 --> 00:00:11,004
+Let's make it a big one!
+
+4
+00:00:11,904 --> 00:00:16,492
+Please find your seats, the first session starts in five minutes.

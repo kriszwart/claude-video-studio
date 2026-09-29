@@ -12,3 +12,5 @@ export * from "./services/templates";
 export * from "./services/providers";
 export * from "./services/transcripts";
 export * from "./services/ledger";
+export * from "./services/collections";
+export * from "./services/quotes";

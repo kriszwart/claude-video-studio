@@ -1,7 +1,9 @@
 "use client";
 import { LAYOUTS } from "@vs/compositor";
 import { secondsToFrames, type Background, type Layer, type Operation, type ProjectDocument, type Scene } from "@vs/domain";
+import { useEffect, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
+import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
 
 const TRANSITIONS = ["cut", "fade", "slide", "wipe", "zoom"] as const;
@@ -39,6 +41,8 @@ export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; sc
           ? "This scene is locked: the assistant, the planner and bulk edits can't change its content, and you need to unlock it to edit. Its start time can still move when earlier scenes change length (ripple)."
           : "Lock a scene to protect its content from the assistant, re-planning and bulk edits. Ripple timing from earlier scenes can still move its position."}
       </p>
+
+      {scene.quote && <QuoteSource quote={scene.quote} />}
 
       <fieldset disabled={locked} className="space-y-3 disabled:opacity-60">
         <div className="grid grid-cols-2 gap-3">
@@ -283,4 +287,23 @@ function LayerEditor({ layer, scene, doc, apply, colors }: { layer: Layer; scene
         </>
       );
   }
+}
+
+/** Where an event quote comes from: verbatim text, exact source range and a playable excerpt (A19). */
+function QuoteSource({ quote }: { quote: NonNullable<Scene["quote"]> }) {
+  const [url, setUrl] = useState<string | null>(null);
+  useEffect(() => {
+    api<{ asset: { url: string | null } }>(`/api/assets/${quote.assetId}`).then((r) => setUrl(r.asset.url)).catch(() => setUrl(null));
+  }, [quote.assetId]);
+  return (
+    <section className="rounded-md border border-line bg-bg p-2 text-xs" aria-label="Quote source" data-testid="quote-source">
+      <p className="mb-1 font-medium">Authentic quote (from the recording; not editable by the assistant)</p>
+      <p className="mb-1">“{quote.text}”</p>
+      <p className="text-faint">
+        {quote.sourceName} · words {fmtDuration(quote.speechInSec)}–{fmtDuration(quote.speechOutSec)} · clip {fmtDuration(quote.clipInSec)}–{fmtDuration(quote.clipOutSec)}
+        {quote.cutLevelsDb.in !== null && ` · cut levels ${quote.cutLevelsDb.in?.toFixed(0)} / ${quote.cutLevelsDb.out?.toFixed(0)} dBFS`}
+      </p>
+      {url && <video className="mt-1 max-h-32 rounded" controls preload="none" src={`${url}#t=${quote.clipInSec.toFixed(2)},${quote.clipOutSec.toFixed(2)}`} aria-label="Play the original source range" />}
+    </section>
+  );
 }

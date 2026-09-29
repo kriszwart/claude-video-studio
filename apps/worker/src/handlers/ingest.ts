@@ -2,7 +2,7 @@ import { parseSubtitles } from "@vs/domain";
 import { open, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
-import { findDuplicate, getDb, getStore, JobError, schema, UPLOAD_LIMITS } from "@vs/db";
+import { findDuplicate, getDb, getStore, JobError, schema, syncCollectionItemsForAsset, uploadLimitsFor } from "@vs/db";
 import { FFMPEG, opaqueLuma, probeMedia, resolveChromePath, run, runOk } from "@vs/rendering";
 import { chromium } from "playwright-core";
 import { sha256File, type Handler } from "../context";
@@ -103,8 +103,10 @@ export const ingestAsset: Handler = async (ctx) => {
   const asset = await db.query.assets.findFirst({ where: and(eq(schema.assets.id, assetId), eq(schema.assets.workspaceId, ctx.job.workspaceId)) });
   if (!asset) throw new JobError("not_found", "Asset not found.", false);
   if (asset.status === "ready") return { assetId, alreadyReady: true };
+  const limits = uploadLimitsFor(asset.provenance);
   const fail = async (code: string, message: string) => {
     await db.update(schema.assets).set({ status: "failed", error: message }).where(eq(schema.assets.id, assetId));
+    await syncCollectionItemsForAsset(db, assetId);
     throw new JobError(code, message, false, "Upload a different file.");
   };
 
@@ -112,7 +114,7 @@ export const ingestAsset: Handler = async (ctx) => {
   const path = await store.materialize(asset.storageKey).catch(() => null);
   if (!path) await fail("upload_missing", "The uploaded file was not received.");
   const size = await store.size(asset.storageKey);
-  if (size > UPLOAD_LIMITS.maxBytes) await fail("too_large", "File exceeds the upload limit.");
+  if (size > limits.maxBytes) await fail("too_large", "File exceeds the upload limit.");
   const hash = await sha256File(path!);
   const head = await magic(path!, 64);
   const media: Record<string, unknown> = {};
@@ -148,7 +150,7 @@ export const ingestAsset: Handler = async (ctx) => {
     if (p!.video) kind = "video";
     else kind = "audio";
     const dur = p!.durationSec ?? 0;
-    if (kind === "video" && dur > UPLOAD_LIMITS.maxSourceSec) await fail("too_long", `Source recordings are limited to ${UPLOAD_LIMITS.maxSourceSec / 60} minutes.`);
+    if ((kind === "video" || (kind === "audio" && !!(asset.provenance as { collectionId?: string }).collectionId)) && dur > limits.maxSourceSec) await fail("too_long", `Source recordings are limited to ${limits.maxSourceSec / 60} minutes.`);
     Object.assign(media, {
       durationSec: dur,
       width: p!.video?.width,
@@ -206,10 +208,12 @@ export const ingestAsset: Handler = async (ctx) => {
       .set({ status: "failed", error: "duplicate", contentHash: null, provenance: sql`${schema.assets.provenance} || ${JSON.stringify({ duplicateOf: dup.id })}::jsonb` })
       .where(eq(schema.assets.id, assetId));
     await store.delete(asset.storageKey);
+    await syncCollectionItemsForAsset(db, assetId);
     return { assetId: dup.id, duplicateOf: dup.id, deduplicated: true };
   }
 
   await db.update(schema.assets).set({ status: "ready", kind, contentHash: hash, bytes: size, media, derived, error: null }).where(eq(schema.assets.id, assetId));
+  await syncCollectionItemsForAsset(db, assetId);
   await writeFile(join(ctx.workDir, "ok"), "");
   return { assetId, kind, media };
 };

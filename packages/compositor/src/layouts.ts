@@ -198,6 +198,12 @@ export const LAYOUTS: Record<string, LayoutDef> = {
       decor: full,
     },
   },
+  /** Event quote (P3): full-frame recording, a lower-third credit above the captions. */
+  "event-quote": {
+    "16:9": { media: full, kicker: { x: 0.04, y: 0.62, w: 0.6, h: 0.12, align: "start", valign: "end" }, decor: full },
+    "9:16": { media: full, kicker: { x: 0.05, y: 0.57, w: 0.9, h: 0.08, align: "start", valign: "end" }, decor: full },
+    "1:1": { media: full, kicker: { x: 0.04, y: 0.61, w: 0.8, h: 0.1, align: "start", valign: "end" }, decor: full },
+  },
   "fullbleed-media": {
     "16:9": {
       media: full,

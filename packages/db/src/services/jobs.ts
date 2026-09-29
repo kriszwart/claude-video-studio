@@ -26,6 +26,7 @@ export const JOB_TYPES = [
   "analyze_music",
   "analyze_reference",
   "collection_ingest",
+  "build_sizzle",
   "screenshot_capture",
   "cleanup",
   "seed_sample",

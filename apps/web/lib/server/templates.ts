@@ -7,7 +7,7 @@ import type { TemplateDefinition } from "@vs/templates";
  * Honest availability: a template is "ready" only when every required capability is
  * configured on the server and a worker has reported the runtime it needs.
  */
-export async function templateAvailability(def: TemplateDefinition, workspaceId: string) {
+export async function capabilityChecks(workspaceId: string) {
   const providers = await providerStatus(getDb(), workspaceId);
   const configured = (p: string) => providers.find((x) => x.provider === p)?.configured ?? false;
   const workers = await getDb().query.workerCapabilities.findMany({ where: gt(schema.workerCapabilities.heartbeatAt, new Date(Date.now() - 120_000)), orderBy: desc(schema.workerCapabilities.heartbeatAt) });
@@ -23,7 +23,12 @@ export async function templateAvailability(def: TemplateDefinition, workspaceId:
     "graphics-redraw": () => any((c) => c.graphics?.redraw),
     "graphics-skia": () => any((c) => c.graphics?.skia),
   };
+  return { check, workerOnline: workers.length > 0 };
+}
+
+export async function templateAvailability(def: TemplateDefinition, workspaceId: string) {
+  const { check, workerOnline } = await capabilityChecks(workspaceId);
   const missingRequired = def.providers.required.filter((c) => !check[c]?.());
   const missingOptional = def.providers.optional.filter((c) => !check[c]?.());
-  return { ready: missingRequired.length === 0 && workers.length > 0, workerOnline: workers.length > 0, missingRequired, missingOptional };
+  return { ready: missingRequired.length === 0 && workerOnline, workerOnline, missingRequired, missingOptional };
 }

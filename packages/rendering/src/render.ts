@@ -64,7 +64,7 @@ export interface RenderResult {
 export const RENDERER_VERSIONS = {
   "@hyperframes/producer": "0.8.90",
   gsap: "3.15.0",
-  compositor: "video-studio-compositor/2",
+  compositor: "video-studio-compositor/3",
 };
 
 export function defaultChromePath(): string | undefined {

@@ -13,6 +13,7 @@ import {
   type Scene,
 } from "@vs/domain";
 import { escalateEras } from "./mascot";
+import { withQuotes, type SizzleQuote } from "./sizzle";
 import type { LayerRecipe, SceneRecipe, TemplateDefinition } from "./types";
 
 export type InputValue = string | number | boolean | string[];
@@ -30,6 +31,8 @@ export interface InstantiateOptions {
   seed?: number;
   /** Program engine: probed duration of the source recording. */
   sourceDurationSec?: number;
+  /** Collection engine (P3): the selected authentic quotes with measured clip ranges. */
+  quotes?: SizzleQuote[];
 }
 
 export const MAIN_CHARACTER_ID = "char-main";
@@ -208,6 +211,10 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
   });
 
   if (def.engine === "program") return withProgram(def, doc, inputs, opts);
+  if (def.engine === "collection") {
+    if (!opts.quotes?.length) throw new Error("This template is built from an event collection: open Collections, select quotes, then build the reel.");
+    return withQuotes(doc, opts.quotes, { eventName: str(inputs.eventName), newId: opts.newId, maxSec: def.duration.maxSec });
+  }
   if (def.musicVideo) return withMusicExcerpt(def, doc, inputs, opts);
   if (def.character) escalateEras(doc);
 

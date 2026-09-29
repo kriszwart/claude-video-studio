@@ -51,7 +51,7 @@ export function serializeJob(j: JobRow) {
 export type JobDTO = ReturnType<typeof serializeJob>;
 
 export function serializeExport(e: ExportRow) {
-  const v = e.verification as { checks?: { name: string; ok: boolean; detail: string; severity: string }[]; loudness?: { lufs: number; truePeakDb: number } | null; warnings?: string[] };
+  const v = e.verification as { checks?: { name: string; ok: boolean; detail: string; severity: string }[]; loudness?: { lufs: number; truePeakDb: number } | null; warnings?: string[]; mix?: { speechIntervals?: [number, number][] } };
   return {
     id: e.id,
     kind: e.kind,
@@ -70,6 +70,8 @@ export function serializeExport(e: ExportRow) {
     checks: v.checks ?? [],
     loudness: v.loudness ?? null,
     warnings: v.warnings ?? [],
+    /** Where music was ducked under voices (seconds). */
+    speechIntervals: v.mix?.speechIntervals ?? [],
   };
 }
 export type ExportDTO = ReturnType<typeof serializeExport>;

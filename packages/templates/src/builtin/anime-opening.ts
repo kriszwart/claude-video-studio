@@ -15,7 +15,7 @@ export const animeOpening: TemplateDefinitionInput = {
   family: "anime-opening",
   name: "Anime Opening",
   description: "A shot-listed opening cut to your song: cold open, character introductions, world montage, rising action, climax and title. Supply your own footage, or generate shots within a budget you set — accepted shots are never lost when another shot fails.",
-  version: 1,
+  version: 2,
   tags: { purpose: ["anime", "series", "trailer"], generatedMedia: "optional" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16"],

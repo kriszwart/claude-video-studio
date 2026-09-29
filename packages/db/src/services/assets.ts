@@ -12,6 +12,13 @@ export const UPLOAD_LIMITS = {
   maxSourceSec: Number(process.env.MAX_SOURCE_SECONDS ?? 600),
 };
 
+/** Event-collection recordings have their own (larger) limits, configured separately. */
+export function uploadLimitsFor(provenance: unknown) {
+  const p = (provenance ?? {}) as { collectionId?: string; collectionMaxFileBytes?: number };
+  if (!p.collectionId) return UPLOAD_LIMITS;
+  return { maxBytes: Number(p.collectionMaxFileBytes ?? UPLOAD_LIMITS.maxBytes), maxSourceSec: Number(process.env.COLLECTION_MAX_SOURCE_SECONDS ?? 4 * 3600) };
+}
+
 /** Allowed declared types. The ingest job re-checks the real signature with ffprobe/magic bytes. */
 const DECLARED: Record<string, AssetKind> = {
   "image/png": "image",
@@ -56,9 +63,9 @@ export function sanitizeFilename(name: string): string {
   return base.replace(/[^a-zA-Z0-9._-]+/g, "_").slice(-100) || "file";
 }
 
-export async function createPendingAsset(db: DbOrTx, input: { workspaceId: string; filename: string; mime: string; bytes: number; rightsAcknowledged: boolean; provenance?: Record<string, unknown> }) {
+export async function createPendingAsset(db: DbOrTx, input: { workspaceId: string; filename: string; mime: string; bytes: number; rightsAcknowledged: boolean; provenance?: Record<string, unknown>; maxBytes?: number }) {
   if (!Number.isFinite(input.bytes) || input.bytes <= 0) throw new AppError(400, "invalid_size", "Upload size is required.");
-  if (input.bytes > UPLOAD_LIMITS.maxBytes) {
+  if (input.bytes > (input.maxBytes ?? UPLOAD_LIMITS.maxBytes)) {
     throw new AppError(413, "too_large", `Files are limited to ${Math.round(UPLOAD_LIMITS.maxBytes / 1024 / 1024)} MB.`, "Compress or trim the file, or use a collection import for large event libraries.");
   }
   const kind = kindForDeclaredType(input.mime, input.filename);

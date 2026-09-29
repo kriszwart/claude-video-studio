@@ -78,3 +78,17 @@ export async function deriveProgramState(db: DbOrTx, doc: ProjectDocument, works
   }
   return next;
 }
+
+/**
+ * Make an existing transcript searchable inside a collection without re-transcribing:
+ * copies its segment rows under the collection id (idempotent).
+ */
+export async function linkTranscriptToCollection(db: DbOrTx, transcriptId: string, workspaceId: string, collectionId: string): Promise<number> {
+  const already = await db.query.transcriptSegments.findFirst({ where: and(eq(transcriptSegments.transcriptId, transcriptId), eq(transcriptSegments.collectionId, collectionId)) });
+  if (already) return 0;
+  const t = await getTranscript(db, transcriptId, workspaceId);
+  for (let i = 0; i < t.segments.length; i += 500) {
+    await db.insert(transcriptSegments).values(t.segments.slice(i, i + 500).map((s) => ({ workspaceId, collectionId, transcriptId, assetId: t.assetId, startSec: s.startSec, endSec: s.endSec, text: s.text })));
+  }
+  return t.segments.length;
+}

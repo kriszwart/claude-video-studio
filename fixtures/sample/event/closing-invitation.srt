@@ -1,0 +1,11 @@
+1
+00:00:00,600 --> 00:00:02,504
+Thank you for being here.
+
+2
+00:00:03,104 --> 00:00:05,376
+Next year we are going bigger.
+
+3
+00:00:05,876 --> 00:00:10,260
+Join us in Lisbon, and register early for the community ticket.

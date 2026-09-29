@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="480" height="160" viewBox="0 0 480 160">
+  <title>Harbor Summit (fictional sample event)</title>
+  <g fill="none" stroke="#f59e0b" stroke-width="10" stroke-linecap="round">
+    <path d="M24 108 Q52 84 80 108 T136 108"/>
+    <path d="M24 132 Q52 108 80 132 T136 132"/>
+    <path d="M80 28 L80 92 M80 28 L118 72 L80 72"/>
+  </g>
+  <text x="156" y="92" font-family="DejaVu Sans, Arial, sans-serif" font-size="46" font-weight="700" fill="#ffffff">Harbor</text>
+  <text x="156" y="138" font-family="DejaVu Sans, Arial, sans-serif" font-size="38" font-weight="400" fill="#fcd34d">Summit</text>
+</svg>

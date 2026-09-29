@@ -7,6 +7,7 @@ const ITEMS = [
   { href: "/templates", label: "Templates" },
   { href: "/brand-kits", label: "Brand Kits" },
   { href: "/assets", label: "Assets" },
+  { href: "/collections", label: "Collections" },
   { href: "/settings", label: "Settings" },
 ];
 

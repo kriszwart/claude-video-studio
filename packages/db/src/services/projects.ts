@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { verifyQuoteScenes } from "./quotes";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   applyOperations,
@@ -53,6 +54,7 @@ export interface CreateProjectInput {
 
 export async function createProject(db: DbOrTx, input: CreateProjectInput): Promise<{ project: ProjectRow; revision: RevisionRow }> {
   const doc = ProjectDocument.parse(input.doc);
+  await verifyQuoteScenes(db, input.workspaceId, null, doc, "system");
   const projectId = newId("prj");
   const revisionId = newId("rev");
   const [project] = await db
@@ -181,6 +183,7 @@ export async function applyProjectOperations(db: DbOrTx, input: ApplyInput) {
       }
     }
   }
+  await verifyQuoteScenes(db, input.workspaceId, doc, result.doc, input.actor);
   // Any asset newly referenced by this edit must belong to this workspace (A14).
   const before = new Set(referencedAssetIds(doc));
   const added = referencedAssetIds(result.doc).filter((id) => !before.has(id));
@@ -215,6 +218,7 @@ export async function replaceDocument(
   if (project.currentRevisionId !== input.baseRevisionId) throw conflict("The project changed while this was being prepared.", { currentRevisionId: project.currentRevisionId });
   const current = await db.query.projectRevisions.findFirst({ where: eq(projectRevisions.id, project.currentRevisionId!) });
   const doc = ProjectDocument.parse(input.doc);
+  await verifyQuoteScenes(db, input.workspaceId, ProjectDocument.parse(current!.document), doc, input.author === "assistant" || input.author === "planner" ? "assistant" : "system");
   return insertRevision(db, project, current!, doc, {
     author: input.author,
     action: input.action,
@@ -303,7 +307,7 @@ export async function restoreDeletedProject(db: DbOrTx, projectId: string, works
 export { emitJobEvent };
 
 /** Bumped when still capture changes (e.g. video frame injection) so cached keyframes refresh. */
-const KEYFRAME_RENDER_VERSION = 2;
+const KEYFRAME_RENDER_VERSION = 3;
 
 /** Everything that affects how one scene's keyframe looks. */
 export function keyframeHash(doc: ProjectDocument, sceneId: string): string {

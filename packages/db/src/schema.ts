@@ -405,7 +405,7 @@ export const collectionItems = pgTable(
     contentHash: text("content_hash"),
     bytes: bigint("bytes", { mode: "number" }),
     durationSec: real("duration_sec"),
-    status: text("status", { enum: ["pending", "uploaded", "probing", "transcribing", "indexed", "failed"] }).notNull().default("pending"),
+    status: text("status", { enum: ["pending", "uploaded", "probing", "transcribing", "needs_transcript", "indexed", "failed"] }).notNull().default("pending"),
     transcriptId: text("transcript_id"),
     error: text("error"),
     createdAt: createdAt(),

@@ -1,0 +1,129 @@
+# Video Studio
+
+A standalone, project-based video creation studio. Pick a template, add your content and
+assets, review a storyboard, render a draft **with audio**, revise scenes directly or through
+the Creative Assistant (Claude), and export a playable MP4. Projects are revisioned, reopen
+exactly as you left them, and can be saved as reusable templates.
+
+> Working name. Not an official Anthropic product. Everything under `fixtures/sample/` is
+> generated sample data for fictional brands (see its README).
+
+## What works
+
+| Area | Status |
+| --- | --- |
+| Seven template families: motion reel (T1), mascot story (T2), product launch (T3), vertical short (T4), talking head (T5), music video (T6), anime opening (T7) | Implemented, each with a real export test |
+| Six presets: P1 presenter intro, P2 brand showreel, P4 whiteboard, P5 course lesson, P6 product spec ad (P3 event sizzle: see status) | See [docs/STATUS.md](docs/STATUS.md) |
+| Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
+| Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
+| Music analysis (tempo/beats/downbeats/sections), markers, cuts fitted to music, accents | A12 |
+| Generation pipeline with budgets, ledger, webhooks, recovery | Built and tested against a local **fake** queue only; live fal is **unverified** |
+| Redraw (WebGPU) and Skia (CanvasKit) graphics layers | Capability proofs pass for both; see [docs/GRAPHICS.md](docs/GRAPHICS.md) |
+| Security: password mode, workspace isolation, SSRF-guarded URL import, upload validation | A14, A15 against a production build |
+
+The authoritative, per-requirement checklist with evidence and every blocked live check is
+[docs/STATUS.md](docs/STATUS.md). The build plan is [docs/PLAN.md](docs/PLAN.md).
+
+## Architecture
+
+```
+apps/web        Next.js 16 app: UI + REST API (thin; all rules live in packages)
+apps/worker     Job runner (BullMQ + Postgres leases): ingest, render, TTS, transcription,
+                music analysis, generation, cleanup
+packages/domain       Project document schema, timeline maths, typed operations, budgets,
+                      transcript/EDL/beat logic (pure, unit-tested)
+packages/templates    Template definitions (T1–T7, presets), instantiation, program/music builders
+packages/compositor   Document → HyperFrames composition (HTML/GSAP), layouts, characters
+packages/graphics     Skia and Redraw adapters + versioned component catalog
+packages/rendering    HyperFrames render, FFmpeg mixing/verification, stills, music analysis
+packages/providers    Claude planner/editor, TTS, transcription, fal queue adapter
+packages/db           Drizzle schema + migrations, services (projects, jobs, ledger, auth, storage)
+```
+
+The database is authoritative. Every edit is a typed operation against a base revision
+(409 when stale) and produces an immutable revision. Long work is a persisted job: enqueued
+through a transactional outbox, claimed with a lease and heartbeat, retried with backoff,
+and reconciled after a crash. Renders are pinned to the revision they were requested for.
+
+## Setup
+
+Requirements: Node ≥ 22, pnpm 10, PostgreSQL 16, Redis 7, FFmpeg (with libx264), a
+Chromium headless shell (Playwright's is auto-detected), optionally `pico2wave`/`espeak-ng`
+for local narration.
+
+```bash
+pnpm install
+cp .env.example .env            # fill APP_SECRET / APP_ENCRYPTION_KEY for anything but local dev
+docker compose -f infra/docker-compose.yml up -d postgres redis   # or native services
+pnpm db:migrate
+pnpm fixtures                   # (re)generate sample fixtures (already committed)
+scripts/dev-worker.sh start     # worker in the background (log: data/worker.log)
+scripts/dev-web.sh start        # web on http://127.0.0.1:3000 (log: data/web.log)
+```
+
+Local mode (`STUDIO_AUTH_MODE=local`) is a passwordless single owner and **only answers
+loopback requests**. Anything reachable by others must use password mode; see
+[docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
+
+Providers are optional. Without keys the studio still does everything that doesn't need
+them (manual editing, local narration, subtitle-based transcripts, rendering, exports) and
+each AI/paid action explains what to configure. Keys are entered in **Settings** (stored
+AES-256-GCM encrypted) or supplied as server environment variables; they are never sent to
+the browser.
+
+### Environment variables (names only)
+
+`DATABASE_URL`, `REDIS_URL`, `STORAGE_DRIVER`, `DATA_DIR`, `S3_BUCKET`, `S3_ENDPOINT`,
+`S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `STUDIO_AUTH_MODE`, `APP_SECRET`,
+`APP_ENCRYPTION_KEY`, `SETUP_TOKEN`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT`,
+`CLAUDE_MAX_TOKENS`, `CLAUDE_FALLBACKS`, `STUDIO_ANTHROPIC_BASE_URL`, `ELEVENLABS_API_KEY`,
+`ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STT_MODEL`, `WHISPER_CPP_BIN`, `WHISPER_CPP_MODEL`,
+`FAL_KEY`, `FAL_QUEUE_BASE_URL`, `FAL_JWKS_URL`, `FAL_WEBHOOK_SIGNATURE`, `FAL_WAIT_MAX_SEC`,
+`PUBLIC_BASE_URL`, `REDRAW_TARBALL`, `REDRAW_SHA256`, `REDRAW_DISABLED`,
+`HYPERFRAMES_CHROME_PATH`, `RENDER_WORKERS`, `WORKER_CONCURRENCY`, `PREVIEW_SCALE`,
+`MAX_UPLOAD_BYTES`, `MAX_SOURCE_SECONDS`, `FFMPEG_PATH`, `FFPROBE_PATH`, `DB_POOL_MAX`,
+`QUEUE_NAME`, `DELETE_RECOVERY_DAYS`, `KEEP_WORK_DIRS`, `SKIP_PROXIES`,
+`ALLOW_BUILTIN_TEMPLATE_REWRITE`; test-only: `VS_TEST_TRUSTED_OUTPUT`, `FAKE_FAL_PORT`,
+`PW_CHROMIUM`, `E2E_BASE_URL`, `E2E_PROD_URL`. Descriptions are in `.env.example`.
+
+### Redraw (licensed)
+
+Redraw is a paid, non-redistributable package. It is **not** in this repository. Point
+`REDRAW_TARBALL` at the owner's release tarball (e.g. `vendor/redraw/redraw-1.3.3.tgz`,
+git-ignored) and set `REDRAW_SHA256`. Without it the Redraw capability is reported as
+unavailable and projects using Redraw layers fail with an explicit error instead of a blank
+render. Details: [docs/GRAPHICS.md](docs/GRAPHICS.md).
+
+## Tests
+
+```bash
+pnpm typecheck
+pnpm test                                   # unit/integration (vitest)
+cd apps/web && npx playwright test          # end-to-end against a running web + worker
+```
+
+End-to-end suites (in `apps/web/test/e2e/`) drive the real UI/API, wait for real jobs, and
+download, probe and inspect the exported MP4s (frames under `artifacts/e2e/`):
+
+| Spec | Covers |
+| --- | --- |
+| `m1-product-launch` | A01–A05, A10 (UI flow, scene-only revision, reopen, template reuse, portrait) |
+| `m2-families` | T4 narration + captions, T1 reel, P2 Redraw showreel |
+| `m3-talking-head`, `m3-ui` | A11, A17, A18, cut review, beat anchors (drag), variants |
+| `m4-music-mascot` | A12: excerpt identity by audio correlation, section cuts, accents; T2 |
+| `generation` | A08, A09, A13 against the TEST-ONLY fake fal queue (`scripts/fake-fal.ts`) |
+| `reliability` | A06 missing credentials, A07 worker SIGKILL mid-export |
+| `security` | A14, A15 against a password-mode production build (`E2E_PROD_URL`) |
+| `a16-templates` | A16: final 1080p export of every core template + P6, fully decoded |
+
+`generation` needs `npx tsx scripts/fake-fal.ts` and the fixture wiring in `.env` described in
+`.env.example`; `security` needs `next build` + `next start` in password mode and two users
+created with `tsx scripts/create-user.ts`.
+
+## Documentation
+
+- [docs/PLAN.md](docs/PLAN.md) — implementation plan and milestone record
+- [docs/STATUS.md](docs/STATUS.md) — requirements/status checklist, test evidence, blocked live checks
+- [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md) — production setup, isolation, backups, restore
+- [docs/GRAPHICS.md](docs/GRAPHICS.md) — Skia and Redraw integration, capability proofs
+- [docs/review/A16.md](docs/review/A16.md) — reviewed export of every template

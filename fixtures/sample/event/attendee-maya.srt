@@ -1,0 +1,7 @@
+1
+00:00:00,600 --> 00:00:04,648
+Honestly, this was the best workshop I have been to all year.
+
+2
+00:00:05,348 --> 00:00:08,400
+I learned how to set up tracing in one afternoon.

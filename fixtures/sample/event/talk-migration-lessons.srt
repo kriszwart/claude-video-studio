@@ -1,0 +1,19 @@
+1
+00:00:00,600 --> 00:00:04,279
+The biggest lesson from our migration was simple.
+
+2
+00:00:04,879 --> 00:00:09,019
+Measure first, then change one thing at a time.
+
+3
+00:00:09,719 --> 00:00:13,561
+We cut our build time from forty minutes to six.
+
+4
+00:00:14,361 --> 00:00:17,216
+And the team shipped twice as often.
+
+5
+00:00:18,116 --> 00:00:20,503
+Um, so, yeah.

@@ -18,12 +18,26 @@ export function encryptSecret(plain: string, k?: string): string {
   return `v1:${iv.toString("base64")}:${c.getAuthTag().toString("base64")}:${data.toString("base64")}`;
 }
 
-export function decryptSecret(enc: string, k?: string): string {
+function decryptWith(enc: string, k?: string): string {
   const [v, iv, tag, data] = enc.split(":");
   if (v !== "v1" || !iv || !tag || !data) throw new Error("unsupported secret format");
   const d = createDecipheriv("aes-256-gcm", key(k), Buffer.from(iv, "base64"));
   d.setAuthTag(Buffer.from(tag, "base64"));
   return Buffer.concat([d.update(Buffer.from(data, "base64")), d.final()]).toString("utf8");
+}
+
+/**
+ * Decrypt with the current key; during a key rotation, fall back to
+ * APP_ENCRYPTION_KEY_PREVIOUS (then run scripts/rotate-secrets.ts to re-encrypt).
+ */
+export function decryptSecret(enc: string, k?: string): string {
+  try {
+    return decryptWith(enc, k);
+  } catch (e) {
+    const prev = process.env.APP_ENCRYPTION_KEY_PREVIOUS;
+    if (!k && prev) return decryptWith(enc, prev);
+    throw e;
+  }
 }
 
 export function hashPassword(pw: string): string {

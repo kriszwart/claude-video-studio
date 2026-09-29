@@ -5,3 +5,4 @@ export * from "./verify";
 export * from "./render";
 export * from "./stills";
 export * from "./music";
+export * from "./cuts";

@@ -439,6 +439,7 @@ html,body{margin:0;padding:0;background:#000;}
 .role-cta .fit{justify-content:center;}
 .cta-pill{display:inline-block;padding:.35em .9em;border-radius:999px;}
 .backing-solid>span,.backing-translucent>span{padding:.08em .32em;border-radius:.18em;-webkit-box-decoration-break:clone;box-decoration-break:clone;}
+.backing-solid>div,.backing-translucent>div{padding:.1em .34em;}
 .media{overflow:hidden;display:flex;align-items:center;justify-content:center;}
 .media-inner{width:100%;height:100%;display:flex;align-items:center;justify-content:center;}
 .media img,.media video{max-width:100%;max-height:100%;display:block;}
@@ -472,7 +473,7 @@ html,body{margin:0;padding:0;background:#000;}
 })();`;
 
   const html = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="generator" content="video-studio-compositor/2">
+<html><head><meta charset="utf-8"><meta name="generator" content="video-studio-compositor/3">
 <style>${css}</style>
 <script src="${ctx.gsapFile}"></script>
 </head><body>
@@ -495,7 +496,7 @@ ${[...scriptSrcs].map((src) => `<script src="${escapeHtml(src)}"></script>`).joi
 </body></html>`;
 
   const manifest = {
-    compiler: "video-studio-compositor/2",
+    compiler: "video-studio-compositor/3",
     width,
     height,
     fps,

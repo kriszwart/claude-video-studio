@@ -2,7 +2,7 @@
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/client/api";
 
-interface P { provider: string; label: string; capabilities: string[]; configured: boolean; source: "settings" | "env" | null; keyHint: string | null; lastCheck: { ok: boolean; message: string; at: string } | null }
+interface P { provider: string; label: string; capabilities: string[]; configured: boolean; source: "settings" | "env" | null; keyHint: string | null; lastCheck: { ok: boolean; message: string; at: string } | null; settings?: Record<string, unknown> }
 
 export default function Settings() {
   const [providers, setProviders] = useState<P[]>([]);
@@ -47,10 +47,46 @@ export default function Settings() {
               <button type="button" className="btn" disabled={!p.configured} onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "POST", json: { provider: p.provider } }))}>Test connection</button>
               {p.source === "settings" && <button type="button" className="btn btn-danger" onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "PUT", json: { provider: p.provider, secret: null } }))}>Remove</button>}
             </form>
+            {p.provider === "fal" && <FalModels settings={(p.settings ?? {}) as FalModelSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "fal", settings } }))} />}
             {(msg[p.provider] || p.lastCheck) && <p className="mt-2 text-xs text-dim" role="status">{msg[p.provider] ?? `Last check ${new Date(p.lastCheck!.at).toLocaleString()}: ${p.lastCheck!.ok ? "✓" : "✗"} ${p.lastCheck!.message}`}</p>}
           </li>
         ))}
       </ul>
     </main>
+  );
+}
+
+type Model = { endpoint: string; priceMicros: number | null; priceCheckedAt?: string; maxDurationSec?: number; notes?: string };
+type FalModelSettings = { image?: Model; video?: Model };
+
+/** Owner-entered fal models: endpoint ids and prices come from fal's own pages, not from the studio. */
+function FalModels({ settings, onSave }: { settings: FalModelSettings; onSave: (s: FalModelSettings) => void }) {
+  const [form, setForm] = useState(() => ({
+    imageEndpoint: settings.image?.endpoint ?? "",
+    imagePrice: settings.image?.priceMicros != null ? String(settings.image.priceMicros / 1_000_000) : "",
+    videoEndpoint: settings.video?.endpoint ?? "",
+    videoPrice: settings.video?.priceMicros != null ? String(settings.video.priceMicros / 1_000_000) : "",
+    videoMax: settings.video?.maxDurationSec ? String(settings.video.maxDurationSec) : "",
+  }));
+  const f = (k: keyof typeof form) => ({ value: form[k], onChange: (e: React.ChangeEvent<HTMLInputElement>) => setForm((x) => ({ ...x, [k]: e.target.value })) });
+  const model = (endpoint: string, price: string, max?: string): Model | undefined =>
+    endpoint.trim() ? { endpoint: endpoint.trim(), priceMicros: price.trim() ? Math.round(Number(price) * 1_000_000) : null, priceCheckedAt: new Date().toISOString().slice(0, 10), ...(max ? { maxDurationSec: Number(max) } : {}) } : undefined;
+  return (
+    <form
+      className="mt-3 grid grid-cols-1 gap-2 border-t border-line pt-3 text-xs sm:grid-cols-3"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ image: model(form.imageEndpoint, form.imagePrice), video: model(form.videoEndpoint, form.videoPrice, form.videoMax) });
+      }}
+    >
+      <p className="text-faint sm:col-span-3">Generation models (fal endpoint ids, e.g. owner/model). Copy the endpoint and its current price from fal. Leave the price empty if you don't know it: each request then needs an explicit per-project authorisation.</p>
+      <label className="flex flex-col gap-1">Image endpoint<input className="input" placeholder="owner/image-model" {...f("imageEndpoint")} /></label>
+      <label className="flex flex-col gap-1">Image price per request ($)<input className="input" inputMode="decimal" {...f("imagePrice")} /></label>
+      <span />
+      <label className="flex flex-col gap-1">Video endpoint<input className="input" placeholder="owner/video-model" {...f("videoEndpoint")} /></label>
+      <label className="flex flex-col gap-1">Video price per request ($)<input className="input" inputMode="decimal" {...f("videoPrice")} /></label>
+      <label className="flex flex-col gap-1">Max clip length (s)<input className="input" inputMode="numeric" {...f("videoMax")} /></label>
+      <button className="btn sm:col-span-3">Save models</button>
+    </form>
   );
 }

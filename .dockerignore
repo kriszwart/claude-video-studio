@@ -1,0 +1,11 @@
+# Never ship local secrets, data, build output or test artifacts into images.
+.env
+.env.*
+!.env.example
+data
+artifacts
+**/node_modules
+apps/web/.next
+.git
+# Redraw tarballs are private: include vendor/ only when building a PRIVATE worker image
+# (see docs/DEPLOYMENT.md); public images must be built with REDRAW disabled.

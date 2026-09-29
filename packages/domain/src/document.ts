@@ -258,6 +258,31 @@ export const Scene = z.object({
       error: z.string().max(300).optional(),
     })
     .optional(),
+  /**
+   * Event sizzle (P3): the authentic source moment this scene plays. Text is the verbatim
+   * transcript of the kept segments; nothing here is ever generated (FR-16, A19).
+   */
+  quote: z
+    .object({
+      collectionId: Id.optional(),
+      assetId: Id,
+      transcriptId: Id,
+      sourceName: z.string().max(200).default(""),
+      /** Transcript segment ids fully inside the kept range. */
+      segmentIds: z.array(z.string().max(40)).min(1).max(40),
+      /** Spoken range (first word start .. last word end) in source seconds. */
+      speechInSec: z.number().min(0),
+      speechOutSec: z.number().min(0),
+      /** Clip range including the clean handles cut in silence. */
+      clipInSec: z.number().min(0),
+      clipOutSec: z.number().min(0),
+      text: z.string().max(1200),
+      theme: z.string().max(40).default(""),
+      speaker: z.string().max(80).default(""),
+      /** Measured level at the cut points (dBFS RMS over 40 ms); null when not measured. */
+      cutLevelsDb: z.object({ in: z.number().nullable(), out: z.number().nullable() }).default({ in: null, out: null }),
+    })
+    .optional(),
   status: z
     .object({ state: z.enum(["ready", "needs_input", "generating", "failed"]).default("ready"), message: z.string().max(300).default("") })
     .default({ state: "ready", message: "" }),

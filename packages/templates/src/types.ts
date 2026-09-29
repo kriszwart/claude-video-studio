@@ -167,7 +167,7 @@ export const TemplateDefinition = z.object({
   plannerGuidance: z.string().max(4000).default(""),
   checklist: z.array(z.string().max(200)).max(20).default([]),
   /** Workflow engine the family uses beyond scene recipes. */
-  engine: z.enum(["scenes", "program", "shots"]).default("scenes"),
+  engine: z.enum(["scenes", "program", "shots", "collection"]).default("scenes"),
   /** Program engine (talking head): which input is the recording, which the optional subtitle file, and the style treatment. */
   program: z
     .object({
