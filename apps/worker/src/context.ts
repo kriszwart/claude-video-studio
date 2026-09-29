@@ -53,25 +53,7 @@ export function sha256File(path: string): Promise<string> {
   });
 }
 
-/** Collect every asset id a document references. */
-export function referencedAssetIds(doc: ProjectDocument): string[] {
-  const ids = new Set<string>();
-  for (const s of doc.scenes) {
-    if (s.background.type === "asset") ids.add(s.background.assetId);
-    for (const l of s.layers) if ((l.kind === "image" || l.kind === "video") && l.assetId) ids.add(l.assetId);
-  }
-  for (const t of doc.audio) ids.add(t.assetId);
-  if (doc.brand.logoAssetId) ids.add(doc.brand.logoAssetId);
-  for (const f of [doc.brand.fonts.heading, doc.brand.fonts.body]) if (f.assetId) ids.add(f.assetId);
-  if (doc.program) ids.add(doc.program.sourceAssetId);
-  for (const b of doc.beats) if (b.assetId) ids.add(b.assetId);
-  for (const c of doc.characters) {
-    if (c.mode !== "image") continue;
-    for (const r of c.referenceAssetIds) ids.add(r);
-    for (const r of Object.values(c.poseAssets)) ids.add(r);
-  }
-  return [...ids];
-}
+export { referencedAssetIds } from "@vs/domain";
 
 function renderKind(a: AssetRow): ResolvedAssetFile["kind"] {
   // SVGs are rasterised at ingest; renders use the PNG derivative.

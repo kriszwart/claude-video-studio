@@ -2,6 +2,7 @@ import type { Handler } from "../context";
 import { proposeProgramCuts, transcribe } from "./program";
 import { synthesizeNarration } from "./tts";
 import { analyzeMusic } from "./music";
+import { importUrl } from "./importUrl";
 
 /** Additional handlers registered by later milestones (TTS, transcription, QA, generation…). */
 export const extraHandlers: Record<string, Handler> = {
@@ -9,4 +10,5 @@ export const extraHandlers: Record<string, Handler> = {
   transcribe,
   propose_cuts: proposeProgramCuts,
   analyze_music: analyzeMusic,
+  import_url: importUrl,
 };

@@ -138,10 +138,19 @@ export function escapeHtml(s: string): string {
   return s.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!);
 }
 
+/** JSON safe to inline in a <script> element (no "</script>", "<!--" or line separators). */
+export function scriptJson(v: unknown): string {
+  return JSON.stringify(v).replace(/</g, "\\u003c").replace(/>/g, "\\u003e").replace(/\u2028/g, "\\u2028").replace(/\u2029/g, "\\u2029");
+}
+
 function cssFamily(name: string): string {
   // Font families are data; strip anything that could escape the CSS string.
   // Single quotes: the value is embedded in double-quoted style attributes.
-  return `'${name.replace(/["'\\;{}<>&]/g, "")}'`;
+  return `'${cleanFamily(name)}'`;
+}
+
+function cleanFamily(name: string): string {
+  return name.replace(/[^\p{L}\p{N} ._-]/gu, "").trim() || "sans-serif";
 }
 
 const f3 = (n: number) => Number(n.toFixed(3));
@@ -446,7 +455,7 @@ html,body{margin:0;padding:0;background:#000;}
       el.setAttribute('data-fitted', (s/base).toFixed(3));
     }
   }
-  var fams = ${JSON.stringify([...new Set([heading.family, body.family])])};
+  var fams = ${scriptJson([...new Set([cleanFamily(heading.family), cleanFamily(body.family)])])};
   window.__hf.buildReady["vs-fit"] = (document.fonts ? document.fonts.ready : Promise.resolve()).then(function(){
     return Promise.all(fams.map(function(f){ return document.fonts.load('700 32px "'+f+'"').then(function(r){ if(!r.length) window.__vsReport.missingFonts.push(f); }).catch(function(){ window.__vsReport.missingFonts.push(f); }); }));
   }).then(fitAll);

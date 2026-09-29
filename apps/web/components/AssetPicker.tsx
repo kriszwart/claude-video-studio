@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api, ApiError, uploadFile, type UploadedAsset } from "@/lib/client/api";
+import { api, ApiError, uploadFile, waitForJob, type UploadedAsset } from "@/lib/client/api";
 
 const ACCEPT: Record<string, string> = {
   image: "image/png,image/jpeg,image/webp,image/gif,image/svg+xml",
@@ -99,6 +99,33 @@ export function AssetPicker({
             />
             {progress && <span className="text-xs text-dim" aria-live="polite">{progress}</span>}
           </div>
+          {kind !== "font" && kind !== "document" && (
+            <form
+              className="mb-2 flex gap-2"
+              onSubmit={async (e) => {
+                e.preventDefault();
+                const url = String(new FormData(e.currentTarget).get("url") ?? "").trim();
+                if (!url) return;
+                setErr(null);
+                setProgress("Importing link…");
+                try {
+                  const r = await api<{ job: { id: string } }>("/api/assets/import", { method: "POST", json: { url, rightsAcknowledged: true } });
+                  const done = await waitForJob(r.job.id, (j) => setProgress(`Importing link: ${j.stage}`));
+                  if (done.status !== "succeeded") throw new Error(done.error?.message ?? "Import failed.");
+                  await load();
+                  const id = String((done.result as { assetId?: string }).assetId ?? "");
+                  if (id) onChange(multiple ? [...value, id].slice(0, max) : [id]);
+                } catch (x) {
+                  setErr(x instanceof ApiError || x instanceof Error ? x.message : String(x));
+                } finally {
+                  setProgress(null);
+                }
+              }}
+            >
+              <input name="url" type="url" className="input py-1 text-xs" placeholder="https://… (public link)" aria-label="Import from link" disabled={!rights} />
+              <button className="btn text-xs" disabled={!rights}>Import</button>
+            </form>
+          )}
           {err && <p role="alert" className="mb-2 text-xs text-bad">{err}</p>}
           {assets.length === 0 ? (
             <p className="text-xs text-faint">No {kind} assets yet.</p>

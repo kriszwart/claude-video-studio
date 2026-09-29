@@ -32,16 +32,44 @@ export async function createOwner(db: DbOrTx, input: { email: string; password: 
   return { userId, workspaceId };
 }
 
+/**
+ * Operator tool (CLI only, never exposed over HTTP): create a user owning a new workspace,
+ * or reset the password of an existing one. Used for multi-workspace installs and tests.
+ */
+export async function upsertWorkspaceOwner(db: DbOrTx, input: { email: string; password: string; workspaceName: string }) {
+  if (input.password.length < 10) throw new AppError(400, "weak_password", "Use a password of at least 10 characters.");
+  const email = input.email.toLowerCase();
+  const existing = await db.query.users.findFirst({ where: eq(users.email, email) });
+  if (existing) {
+    await db.update(users).set({ passwordHash: hashPassword(input.password) }).where(eq(users.id, existing.id));
+    const m = await db.query.memberships.findFirst({ where: eq(memberships.userId, existing.id) });
+    return { userId: existing.id, workspaceId: m!.workspaceId, created: false };
+  }
+  const userId = newId("usr");
+  const workspaceId = newId("ws");
+  await db.insert(workspaces).values({ id: workspaceId, name: input.workspaceName });
+  await db.insert(users).values({ id: userId, email, displayName: "", passwordHash: hashPassword(input.password) });
+  await db.insert(memberships).values({ workspaceId, userId, role: "owner" });
+  return { userId, workspaceId, created: true };
+}
+
 /** Local development mode: a single owner without a password, only reachable on loopback. */
 export async function ensureLocalOwner(db: DbOrTx) {
   const existing = await db
     .select({ userId: users.id, workspaceId: memberships.workspaceId, email: users.email })
     .from(users)
     .innerJoin(memberships, eq(memberships.userId, users.id))
-    .where(eq(memberships.role, "owner"))
+    .where(and(eq(memberships.role, "owner"), eq(users.email, "owner@localhost")))
     .limit(1);
   if (existing[0]) return existing[0];
-  const r = await createOwner(db, { email: "owner@localhost", password: null, displayName: "Local owner" });
+  // First run in local mode creates the passwordless local owner (other accounts may exist
+  // on a shared database, e.g. operator-created users; they are never used in local mode).
+  const userId = newId("usr");
+  const workspaceId = newId("ws");
+  await db.insert(workspaces).values({ id: workspaceId, name: "My studio" });
+  await db.insert(users).values({ id: userId, email: "owner@localhost", displayName: "Local owner", passwordHash: null });
+  await db.insert(memberships).values({ workspaceId, userId, role: "owner" });
+  const r = { userId, workspaceId };
   return { ...r, email: "owner@localhost" };
 }
 

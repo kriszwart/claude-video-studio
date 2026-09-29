@@ -422,3 +422,26 @@ export type ProjectDocumentInput = z.input<typeof ProjectDocument>;
 export function parseDocument(input: unknown): ProjectDocument {
   return ProjectDocument.parse(input);
 }
+
+/** Collect every asset id a document references. */
+export function referencedAssetIds(doc: ProjectDocument): string[] {
+  const ids = new Set<string>();
+  for (const s of doc.scenes) {
+    if (s.background.type === "asset") ids.add(s.background.assetId);
+    for (const l of s.layers) if ((l.kind === "image" || l.kind === "video") && l.assetId) ids.add(l.assetId);
+  }
+  for (const t of doc.audio) ids.add(t.assetId);
+  if (doc.brand.logoAssetId) ids.add(doc.brand.logoAssetId);
+  for (const f of [doc.brand.fonts.heading, doc.brand.fonts.body]) if (f.assetId) ids.add(f.assetId);
+  if (doc.program) ids.add(doc.program.sourceAssetId);
+  for (const b of doc.beats) if (b.assetId) ids.add(b.assetId);
+  for (const c of doc.characters) {
+    if (c.mode !== "image") continue;
+    for (const r of c.referenceAssetIds) ids.add(r);
+    for (const r of Object.values(c.poseAssets)) ids.add(r);
+  }
+  // Graphics parameters that hold asset ids (e.g. a product image for a Skia reveal).
+  for (const s of doc.scenes) for (const l of s.layers) if (l.kind === "graphics") for (const v of Object.values(l.params)) if (typeof v === "string" && /^ast_[a-z0-9]{8,}$/.test(v)) ids.add(v);
+  return [...ids];
+}
+

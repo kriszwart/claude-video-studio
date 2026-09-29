@@ -2,6 +2,7 @@ import { createHash } from "node:crypto";
 import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 import {
   applyOperations,
+  referencedAssetIds,
   checkCreativeMode,
   computeTimeline,
   DEFAULT_BUDGET,
@@ -21,7 +22,7 @@ import {
 import type { DbOrTx } from "../client";
 import { AppError, conflict, notFound } from "../errors";
 import { newId } from "../ids";
-import { cleanupTasks, jobs, projectRevisions, projects } from "../schema";
+import { assets, cleanupTasks, jobs, projectRevisions, projects } from "../schema";
 import { emitJobEvent, requestCancel } from "./jobs";
 import { deriveProgramState, touchesProgram } from "./transcripts";
 
@@ -179,6 +180,13 @@ export async function applyProjectOperations(db: DbOrTx, input: ApplyInput) {
         throw e;
       }
     }
+  }
+  // Any asset newly referenced by this edit must belong to this workspace (A14).
+  const before = new Set(referencedAssetIds(doc));
+  const added = referencedAssetIds(result.doc).filter((id) => !before.has(id));
+  if (added.length) {
+    const owned = await db.query.assets.findMany({ where: and(inArray(assets.id, added), eq(assets.workspaceId, input.workspaceId)), columns: { id: true } });
+    if (owned.length !== added.length) throw new AppError(422, "unknown_asset", "An asset used in this edit is not available in this workspace.");
   }
   if (hashDocument(result.doc) === current!.documentHash) {
     return { revision: current!, doc: result.doc, changedSceneIds: [], noop: true };

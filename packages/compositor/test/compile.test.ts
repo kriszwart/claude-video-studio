@@ -108,3 +108,25 @@ describe("character layers", () => {
     expect(out.warnings.filter((w: string) => /character/.test(w))).toEqual([]);
   });
 });
+
+describe("A15: hostile project text cannot escape into markup or script", () => {
+  it("escapes text, captions, beats, character names and font families", async () => {
+    const { instantiateTemplate, getBuiltinTemplate, DEFAULT_BRAND } = await import("@vs/templates");
+    let n = 0;
+    const evil = `</script><script>window.pwned=1</script><img src=x onerror="pwned">'`;
+    const brand = { ...DEFAULT_BRAND, name: evil, fonts: { heading: { family: `Inter</script><script>window.pwned=3</script>`, weight: 700 }, body: { family: `x'; background:url(http://169.254.169.254/)`, weight: 400 } } };
+    const doc = instantiateTemplate(getBuiltinTemplate("mascot-story")!, { title: evil, brand, inputs: { characterName: evil, theme: evil, eras: [evil, "b"], transformation: evil, finale: evil }, newId: (p: string) => `${p}${++n}` });
+    doc.captions = { ...doc.captions, enabled: true, cues: [{ id: "c1", text: evil, anchor: { type: "absolute", startFrame: 0 }, startFrame: 0, endFrame: 30, timing: "manual" }] };
+    const out = compileComposition(doc, { scale: 0.5, assets: new Map(), fonts: [], gsapFile: "gsap.min.js" } as never);
+    const { document } = parseHTML(out.html);
+    // Only the compositor's own scripts exist, and none contains a raw tag breakout.
+    const benign = instantiateTemplate(getBuiltinTemplate("mascot-story")!, { title: "t", brand: DEFAULT_BRAND, inputs: { characterName: "a", theme: "b", eras: ["c", "d"], transformation: "e", finale: "f" }, newId: (p: string) => `${p}${++n}` });
+    const benignScripts = parseHTML(compileComposition(benign, { scale: 0.5, assets: new Map(), fonts: [], gsapFile: "gsap.min.js" } as never).html).document.querySelectorAll("script").length;
+    expect(document.querySelectorAll("script").length).toBe(benignScripts);
+    for (const s of document.querySelectorAll("script")) expect(s.textContent ?? "").not.toMatch(/<\/?script/i);
+    expect([...document.querySelectorAll("[onerror]")]).toHaveLength(0);
+    expect([...document.querySelectorAll("img")].every((i) => !/^x$/.test(i.getAttribute("src") ?? ""))).toBe(true);
+    expect(out.html).not.toMatch(/url\(http/);
+    expect(document.body.textContent).toContain("window.pwned=1"); // shown as text, inert
+  });
+});
