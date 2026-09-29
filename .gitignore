@@ -1,0 +1,16 @@
+node_modules/
+.next/
+dist/
+.env
+.env.local
+*.log
+/data/
+/vendor/
+/artifacts/
+test-results/
+playwright-report/
+.turbo/
+*.tsbuildinfo
+# Redraw is subscriber-licensed: never commit its source or release tarballs.
+/vendor/redraw*
+**/redraw-*.tgz

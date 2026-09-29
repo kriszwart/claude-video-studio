@@ -1,0 +1,28 @@
+{
+  "name": "video-studio",
+  "private": true,
+  "type": "module",
+  "packageManager": "pnpm@10.33.0",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "pnpm --parallel --filter @vs/web --filter @vs/worker dev",
+    "db:migrate": "pnpm --filter @vs/db migrate",
+    "db:generate": "pnpm --filter @vs/db generate",
+    "worker": "pnpm --filter @vs/worker start",
+    "web": "pnpm --filter @vs/web dev",
+    "typecheck": "pnpm -r --parallel typecheck",
+    "test": "vitest run",
+    "test:e2e": "pnpm --filter @vs/web e2e",
+    "fixtures": "tsx scripts/make-fixtures.ts"
+  },
+  "devDependencies": {
+    "@fontsource/space-grotesk": "5.3.0",
+    "@types/node": "22.20.4",
+    "playwright-core": "1.63.0",
+    "tsx": "4.23.15",
+    "typescript": "5.9.3",
+    "vitest": "5.0.2"
+  }
+}
