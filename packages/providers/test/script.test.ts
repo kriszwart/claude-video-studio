@@ -38,6 +38,15 @@ describe("script operations", () => {
   });
 });
 
+describe("shot-plan review", () => {
+  it("only the owner approves the shot plan", () => {
+    const pending = { ...doc, review: { status: "pending" as const, next: { voiceId: "v1" } } };
+    expect(() => applyOperations(pending, [{ op: "setReviewStatus", status: "approved" }], "assistant")).toThrow(OperationError);
+    expect(applyOperations(pending, [{ op: "setReviewStatus", status: "approved" }], "user").doc.review).toEqual({ status: "approved", next: { voiceId: "v1" } });
+    expect(() => applyOperations(doc, [{ op: "setReviewStatus", status: "approved" }], "user")).toThrow(/no shot plan/);
+  });
+});
+
 describe("scriptwriter", () => {
   it("rejects invented figures, bad slots and a wrong total length", () => {
     const v = validateScript({ beats: [beat("hook", "Used by 10,000 teams.", 5), beat("nope", "x", 3)], notes: "" }, ctx);

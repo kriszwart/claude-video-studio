@@ -20,6 +20,7 @@ exactly as you left them, and can be saved as reusable templates.
 | Capability routing to workers that can run Redraw/Skia; per-scene render cache | A29, A30 |
 | Composer: one prompt (+ optional template chip, attachments) → Claude proposes template, settings and inputs → you review claims and title → project; settings default to Auto; one effort dial (Quick/Standard/High/Max) | Tested against the Claude SDK test double (composer spec); live Claude output unverified here |
 | Script stage: Claude writes narration + on-screen line per beat in a chosen style (University professor, Plain, Conversational, Documentary, Energetic); deterministic check for stock AI phrasing, pace (words per beat vs. style's words-per-minute), dashes and invented figures, repaired automatically and shown live while you edit; you approve the exact words, then planning builds one scene per beat with the narration verbatim | script-stage spec (SDK test double) and unit tests; live Claude output unverified here |
+| Shot-plan review: the planned storyboard as real frames (one card per shot with timing, transition, on-screen text, narration, missing media); revise a single shot with a note, replan everything with a note, or approve — approval records the voiceover or renders a draft; approval only covers the version on screen | shot-plan spec (SDK test double) |
 | Live in-browser player and a multi-track timeline (scenes, voice, music, captions, markers) with trim and zoom | live-preview and timeline specs |
 | Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
 | Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
@@ -124,6 +125,14 @@ repairs what it can, and the Script tab shows anything left as you edit. Ask for
 note, or edit lines yourself, then **Approve script & plan storyboard**: the planner builds one
 scene per beat and must keep your narration word for word; the voiceover is recorded after that.
 Editing an approved line reopens it for approval.
+
+When Claude has planned the storyboard, the editor opens on the **shot plan**: one card per shot
+with a real rendered frame, its timing, transition, on-screen text and narration, and a warning
+for shots that still need media. **Revise…** sends a note about that one shot to Claude;
+**Replan with a note…** plans the whole storyboard again (an approved script stays word for
+word). **Approve** is the go-ahead for the slower or paid steps: it records the voiceover with
+the voice chosen in the composer, or renders a draft when there is no voiceover. If a newer plan
+lands while you are looking, approval stops and shows you the new version first.
 
 ### ElevenLabs voices
 

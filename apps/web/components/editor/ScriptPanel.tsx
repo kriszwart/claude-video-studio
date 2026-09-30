@@ -15,6 +15,8 @@ export function ScriptPanel({
   jobs,
   apply,
   revRef,
+  revisionId,
+  refresh,
   claudeReady,
 }: {
   projectId: string;
@@ -22,6 +24,8 @@ export function ScriptPanel({
   jobs: JobDTO[];
   apply: (ops: Operation[]) => Promise<boolean>;
   revRef: { current: string | null };
+  revisionId: string;
+  refresh: () => Promise<void>;
   claudeReady: boolean;
 }) {
   const script = doc.script;
@@ -61,11 +65,14 @@ export function ScriptPanel({
     setErr(null);
     setBusy("approve");
     try {
+      // Approve only the words on screen: if a rewrite landed meanwhile, show it first.
+      await refresh();
+      if (revRef.current !== revisionId) throw new Error("The script just changed. Review the new version, then approve.");
       if (!(await apply([{ op: "setScriptStatus", status: "approved" }]))) throw new Error("Could not save the approval.");
       await api(`/api/projects/${projectId}/plan`, {
         method: "POST",
         idempotent: true,
-        json: { baseRevisionId: revRef.current, ...(script.next.planEffort ? { effort: script.next.planEffort } : {}), ...(script.narrated && script.next.voiceId ? { narration: { voiceId: script.next.voiceId } } : {}) },
+        json: { baseRevisionId: revRef.current, review: true, ...(script.next.planEffort ? { effort: script.next.planEffort } : {}), ...(script.narrated && script.next.voiceId ? { narration: { voiceId: script.next.voiceId } } : {}) },
       });
     } catch (e) {
       setErr(e instanceof ApiError ? `${e.message}${e.recovery ? ` — ${e.recovery}` : ""}` : e instanceof Error ? e.message : String(e));
@@ -181,7 +188,7 @@ export function ScriptPanel({
         <div className="space-y-1">
           <button className="btn btn-primary w-full" disabled={!claudeReady || !!busy || !!writing || !!planning} onClick={() => void approve()}>{busy === "approve" ? "Approving…" : "Approve script & plan storyboard"}</button>
           <p className="text-[11px] text-faint">
-            Claude builds one scene per beat and keeps your narration word for word{script.narrated && script.next.voiceId ? "; the voiceover is recorded after planning" : ""}.
+            Claude builds one scene per beat and keeps your narration word for word; you then review the shot plan{script.narrated && script.next.voiceId ? " before the voiceover is recorded" : ""}.
             {issues.length > 0 ? ` ${issues.length} style note${issues.length > 1 ? "s" : ""} above — fix or approve as is.` : ""}
           </p>
         </div>

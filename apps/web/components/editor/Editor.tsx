@@ -17,6 +17,7 @@ import { ProjectPanel } from "./ProjectPanel";
 import { SceneInspector } from "./SceneInspector";
 import { SceneList } from "./SceneList";
 import { ScriptPanel } from "./ScriptPanel";
+import { ShotPlanReview } from "./ShotPlanReview";
 import { useProject } from "./useProject";
 
 type Tab = "script" | "scene" | "transcript" | "shots" | "assistant" | "audio" | "export" | "project";
@@ -25,6 +26,7 @@ export function Editor({ projectId }: { projectId: string }) {
   const p = useProject(projectId);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("scene");
+  const [reviewHidden, setReviewHidden] = useState(false);
   const previewRef = useRef<PreviewHandle>(null);
   const [clock, setClock] = useState<PreviewClock>({ time: 0, playing: false, ready: false });
   const onClock = useCallback((c: PreviewClock) => setClock(c), []);
@@ -87,6 +89,12 @@ export function Editor({ projectId }: { projectId: string }) {
           <button className="ml-auto underline" onClick={p.clearNotice}>Dismiss</button>
         </div>
       )}
+      {doc.review?.status === "pending" && reviewHidden && (
+        <div role="status" className="flex items-center gap-2 border-b border-line bg-accent/10 px-3 py-1 text-xs">
+          The shot plan is waiting for your approval{doc.review.next.voiceId ? "; the voiceover is recorded after it" : ""}.
+          <button className="ml-auto underline" onClick={() => setReviewHidden(false)}>Review the shot plan</button>
+        </div>
+      )}
       {doc.script?.status === "draft" && !planning && tab !== "script" && (
         <div role="status" className="flex items-center gap-2 border-b border-line bg-warn/10 px-3 py-1 text-xs">
           The script is waiting for your approval; the storyboard is planned from it.
@@ -107,6 +115,24 @@ export function Editor({ projectId }: { projectId: string }) {
       <p className="border-b border-line bg-panel-2 px-3 py-1 text-[11px] text-dim lg:hidden">
         Small screen: review, text edits, rendering and downloads work here. Timeline editing is designed for tablet and desktop.
       </p>
+      {doc.review?.status === "pending" && !reviewHidden ? (
+        <ShotPlanReview
+          projectId={projectId}
+          doc={doc}
+          view={view}
+          apply={p.apply}
+          revRef={p.revRef}
+          revisionId={p.revisionId}
+          refresh={() => p.refresh()}
+          claudeReady={!!claudeStatus?.readiness.available}
+          onOpenScene={(id) => {
+            setSelected(id);
+            setTab("scene");
+            setReviewHidden(true);
+          }}
+          onDismiss={() => setReviewHidden(true)}
+        />
+      ) : (
       <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[216px_minmax(0,1fr)_368px] lg:grid-rows-[minmax(0,1fr)_auto] lg:overflow-hidden">
         <aside className="order-4 min-h-0 border-line p-2.5 lg:order-none lg:col-start-1 lg:row-start-1 lg:overflow-y-auto lg:border-r">
           <SceneList doc={doc} view={view} selected={scene.id} onSelect={(id) => { setSelected(id); setTab("scene"); }} apply={p.apply} />
@@ -137,7 +163,7 @@ export function Editor({ projectId }: { projectId: string }) {
           <div className="min-h-0 flex-1 overflow-y-auto p-3" role="tabpanel">
             {tab === "transcript" && doc.program && <ProgramPanel projectId={projectId} doc={doc} view={view} apply={p.apply} onChanged={() => p.refresh()} />}
             {tab === "shots" && <ShotsPanel projectId={projectId} doc={doc} jobs={view.jobs} apply={p.apply} />}
-            {tab === "script" && <ScriptPanel projectId={projectId} doc={doc} jobs={view.jobs} apply={p.apply} revRef={p.revRef} claudeReady={!!claudeStatus?.readiness.available} />}
+            {tab === "script" && <ScriptPanel projectId={projectId} doc={doc} jobs={view.jobs} apply={p.apply} revRef={p.revRef} revisionId={p.revisionId} refresh={() => p.refresh()} claudeReady={!!claudeStatus?.readiness.available} />}
             {tab === "scene" && <SceneInspector doc={doc} scene={scene} apply={p.apply} />}
             {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claude={claudeStatus?.readiness ?? null} />}
             {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}
@@ -151,6 +177,7 @@ export function Editor({ projectId }: { projectId: string }) {
           </div>
         </aside>
       </div>
+      )}
     </div>
   );
 }

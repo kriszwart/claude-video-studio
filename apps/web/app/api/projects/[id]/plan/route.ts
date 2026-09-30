@@ -13,8 +13,12 @@ export const POST = route<{ id: string }>(async (req, { id }) => {
       assetIds: z.array(z.string().max(64)).max(50).optional(),
       effort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
       narration: z.object({ voiceId: z.string().min(1).max(120) }).optional(),
+      /** Hold the result for shot-plan review (composer flows). */
+      review: z.boolean().optional(),
+      /** Owner's note when replanning. */
+      note: z.string().max(1000).optional(),
     }),
   );
-  const r = await enqueueProjectJob(s, id, "plan", b.baseRevisionId, { baseRevisionId: b.baseRevisionId, targetDurationSec: b.targetDurationSec, assetIds: b.assetIds, effort: b.effort, narration: b.narration }, idempotencyKey(req), { requiresClaude: true });
+  const r = await enqueueProjectJob(s, id, "plan", b.baseRevisionId, { baseRevisionId: b.baseRevisionId, targetDurationSec: b.targetDurationSec, assetIds: b.assetIds, effort: b.effort, narration: b.narration, review: b.review, note: b.note }, idempotencyKey(req), { requiresClaude: true });
   return json(r, 202);
 });

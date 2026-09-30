@@ -104,6 +104,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setScript"), script: Script.nullable() }),
   z.object({ op: z.literal("updateScriptBeat"), beatId: z.string().max(64), patch: z.object({ narration: z.string().max(1200), onScreen: z.string().max(220), durationSec: ScriptBeat.shape.durationSec, purpose: z.string().max(80) }).partial() }),
   z.object({ op: z.literal("setScriptStatus"), status: z.enum(["draft", "approved"]) }),
+  z.object({ op: z.literal("setReviewStatus"), status: z.enum(["pending", "approved"]) }),
   z.object({ op: z.literal("proposeCuts"), cuts: Program.shape.proposedCuts.unwrap() }),
   z.object({ op: z.literal("acceptCuts"), cutIds: z.array(Id).min(1) }),
   z.object({ op: z.literal("rejectCuts"), cutIds: z.array(Id).min(1) }),
@@ -601,6 +602,11 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       doc.script.status = "draft";
       return doc;
     }
+    case "setReviewStatus":
+      if (!doc.review) throw new OperationError("not_found", "This project has no shot plan to review.");
+      if (op.status === "approved" && actor !== "user") throw new OperationError("approved_claim", "Only the owner can approve the shot plan.");
+      doc.review.status = op.status;
+      return doc;
     case "setScriptStatus":
       if (!doc.script) throw new OperationError("not_found", "This project has no script.");
       if (op.status === "approved" && actor !== "user") throw new OperationError("approved_claim", "Only the owner can approve the script.");

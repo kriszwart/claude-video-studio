@@ -468,6 +468,16 @@ export const ProjectDocument = z.object({
   program: Program.optional(),
   /** Script stage: narration and on-screen lines per beat, approved before planning. */
   script: Script.optional(),
+  /**
+   * Shot-plan review: set when Claude plans a storyboard from the composer. Approval is the
+   * owner's go-ahead for paid or slow steps that follow (voiceover, draft render).
+   */
+  review: z
+    .object({
+      status: z.enum(["pending", "approved"]),
+      next: z.object({ voiceId: z.string().max(120).optional() }).default({}),
+    })
+    .optional(),
   beats: z.array(EditorialBeat).max(200).default([]),
   characters: z.array(Character).max(6).default([]),
   /**

@@ -132,7 +132,8 @@ export const planStoryboard: Handler = async (ctx) => {
   let run;
   try {
     const effort = ctx.job.input.effort as ClaudeEffort | undefined;
-    run = await runPlanner(client, { template, doc, assets, targetDurationSec: target, newId }, { signal: ctx.signal, ...(effort ? { effort } : {}) });
+    const note = typeof ctx.job.input.note === "string" ? ctx.job.input.note.slice(0, 1000) : undefined;
+    run = await runPlanner(client, { template, doc, assets, targetDurationSec: target, newId, ...(note ? { note } : {}) }, { signal: ctx.signal, ...(effort ? { effort } : {}) });
   } catch (e) {
     await noteLimit(ctx.job.workspaceId, e);
     throw toJobError(e);
@@ -143,12 +144,16 @@ export const planStoryboard: Handler = async (ctx) => {
   await ctx.stage("validating storyboard");
   const replaced = applyOperations(doc, [{ op: "replaceScenes", scenes: run.scenes }], "bulk").doc;
   const next = fitDuration(replaced, target);
+  const review = ctx.job.input.review === true;
+  const narrationNext = ctx.job.input.narration as { voiceId: string } | undefined;
+  // Composer storyboards wait for the owner's shot-plan approval before the voiceover is recorded.
+  if (review) next.review = { status: "pending", next: narrationNext?.voiceId ? { voiceId: narrationNext.voiceId } : {} };
   try {
     const narration = ctx.job.input.narration as { voiceId: string } | undefined;
     const revision = await db.transaction(async (tx) => {
       const rev = await replaceDocument(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId, doc: next, author: "planner", action: `storyboard planned (${run.attempts} attempt${run.attempts > 1 ? "s" : ""})` });
       // Composer projects with a voice: narrate the planned script once the storyboard lands.
-      if (narration?.voiceId) await enqueueJob(tx, { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId, revisionId: rev.id, type: "tts", input: { voiceId: narration.voiceId, rate: 1, fit: "extend" }, idempotencyKey: `tts-after:${ctx.job.id}` });
+      if (narration?.voiceId && !review) await enqueueJob(tx, { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId, revisionId: rev.id, type: "tts", input: { voiceId: narration.voiceId, rate: 1, fit: "extend" }, idempotencyKey: `tts-after:${ctx.job.id}` });
       return rev;
     });
     return { revisionId: revision.id, rationale: run.plan.rationale, omitted: run.plan.omitted, warnings: run.plan.warnings, attempts: run.attempts, repairs: run.repairs, model: run.usage.at(-1)?.model ?? CLAUDE_CONFIG.model, runtime: client.kind };
