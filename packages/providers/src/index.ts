@@ -11,3 +11,4 @@ export * from "./transcription/elevenlabs";
 export * from "./transcription/whisper-cpp";
 export * from "./media/fal";
 export * from "./media/settings";
+export * from "./footage";

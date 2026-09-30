@@ -209,6 +209,15 @@ export const ingestAsset: Handler = async (ctx) => {
       .where(eq(schema.assets.id, assetId));
     await store.delete(asset.storageKey);
     await syncCollectionItemsForAsset(db, assetId);
+    // The same file imported again from a footage source: keep that source's licence record on
+    // the existing asset instead of dropping it (the first import's licence stays primary).
+    const prov = asset.provenance as { source?: string };
+    if (prov.source === "footage") {
+      await db
+        .update(schema.assets)
+        .set({ provenance: sql`jsonb_set(${schema.assets.provenance}, '{alsoFrom}', coalesce(${schema.assets.provenance}->'alsoFrom', '[]'::jsonb) || ${JSON.stringify([prov])}::jsonb)` })
+        .where(eq(schema.assets.id, dup.id));
+    }
     return { assetId: dup.id, duplicateOf: dup.id, deduplicated: true };
   }
 

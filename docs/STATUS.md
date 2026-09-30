@@ -27,6 +27,7 @@ spectrum and level measurements (this environment has no speakers — "listened"
 | FR-13 | Transcript-first editorial pipeline | ✅ subtitles / 🟡 STT | A11, A17; ElevenLabs STT & whisper.cpp model blocked |
 | FR-14 | Editorial beat sheet & placement | ✅ | A17, A24 |
 | FR-15 | Asset research & shot sourcing (policy, provenance, screenshots, image→video chain) | ✅ / 🟡 generation | acquisition policy, `/api/projects/:id/asset-requests`, screenshot capture (`m6-screenshot.spec.ts`); fal live blocked |
+| FR-15b | Free footage search & import (Internet Archive, Wikimedia Commons, Pexels, Pixabay) with per-item licence, credits | 🟡 | `packages/providers/src/footage/*` + `footage.test.ts` (20 cases); `footage.spec.ts` (4) against the API stand-in; **live APIs blocked here** |
 | FR-16 | Multi-recording event collections | ✅ | A19, A20; `docs/BENCHMARK.md` |
 | FR-17 | Creative profiles & reference analysis | ✅ | A21 |
 | FR-18 | Bounded render–review–repair | ✅ | A22 |
@@ -138,6 +139,7 @@ against test doubles only. They are **not** claimed as verified.
 | ElevenLabs TTS and Scribe STT | No key; `elevenlabs.io` unreachable | Add a key in Settings; create a T4 with an ElevenLabs voice; transcribe a T5 without subtitles |
 | fal image/video generation, webhooks | No key; `fal.run` unreachable; webhooks need a public URL | Configure fal key + model endpoints/prices in Settings; set `PUBLIC_BASE_URL`; generate a T7 shot |
 | whisper.cpp local STT | Model download (Hugging Face) blocked | Set `WHISPER_CPP_BIN` and `WHISPER_MODEL`; transcribe a T5 without subtitles |
+| Footage APIs (Internet Archive, Wikimedia Commons, Pexels, Pixabay) | All four hosts are blocked by this environment's network policy; parsers follow each API's documented response format and are tested against `scripts/fake-footage.ts` | Assets → Find free footage: search "harbour" on Internet Archive and Wikimedia Commons (no key), add free Pexels/Pixabay keys in Settings and search there; import one item from each and check the licence on the asset and Export → Footage credits |
 | Segmentation provider (background removal) | Not integrated (no verified provider contract) | — (templates never require it) |
 | Redraw on hardware GPU | Only SwiftShader software WebGPU here (~4 s/frame at 540p) | Run `scripts/clean-worker-check.sh` on a GPU worker |
 

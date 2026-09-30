@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FootageSearch } from "@/components/FootageSearch";
 import { api, ApiError, uploadFile, waitForJob } from "@/lib/client/api";
 
 interface A {
@@ -89,6 +90,12 @@ export default function Assets() {
         <button className="btn">Capture screenshot</button>
         <span className="text-xs text-faint">Public pages only; the capture keeps the address and date. Public availability is not a usage right.</span>
       </form>
+      <details className="card mb-3 p-3" id="footage">
+        <summary className="cursor-pointer text-sm font-medium">Find free footage and images (Internet Archive, Wikimedia Commons, Pexels, Pixabay)</summary>
+        <div className="mt-3">
+          <FootageSearch onImported={() => void load()} />
+        </div>
+      </details>
       <p className="mb-4 text-xs text-faint">Limits: 500 MB per file, 10 minutes per source recording. Files are checked by their contents, not their extension. Identical files are stored once.</p>
       {Object.keys(uploads).length > 0 && (
         <ul className="card mb-4 p-3 text-xs" aria-live="polite">
@@ -126,6 +133,19 @@ export default function Assets() {
             <dt className="text-faint">Kind</dt><dd>{sel.asset.kind}</dd>
             <dt className="text-faint">Size</dt><dd>{sel.asset.bytes ? `${(sel.asset.bytes / 1024 / 1024).toFixed(2)} MB` : "—"}</dd>
             <dt className="text-faint">Media</dt><dd>{JSON.stringify(sel.asset.media)}</dd>
+            {sel.asset.provenance.source === "footage" && (
+              <>
+                <dt className="text-faint">Licence</dt>
+                <dd>
+                  {String(sel.asset.provenance.license ?? "")}
+                  {sel.asset.provenance.attributionRequired ? <span className="text-warn"> — credit required</span> : null}
+                  {sel.asset.provenance.licenseConfirmedByOwner ? <span className="text-warn"> — no licence stated; you confirmed you checked it</span> : null}
+                </dd>
+                {typeof sel.asset.provenance.attribution === "string" && (<><dt className="text-faint">Credit line</dt><dd className="break-words">{sel.asset.provenance.attribution}</dd></>)}
+                <dt className="text-faint">Source</dt>
+                <dd><a className="text-accent underline" href={String(sel.asset.provenance.pageUrl)} target="_blank" rel="noreferrer noopener">{String(sel.asset.provenance.pageUrl)}</a></dd>
+              </>
+            )}
             <dt className="text-faint">Provenance</dt><dd className="break-all">{JSON.stringify(sel.asset.provenance)}</dd>
             <dt className="text-faint">Used in</dt>
             <dd>{sel.usage.projects.length ? sel.usage.projects.map((p) => p.title).join(", ") : "No projects"}{sel.usage.templates.length ? `; templates: ${sel.usage.templates.map((t) => `${t.templateId} v${t.version}`).join(", ")}` : ""}</dd>

@@ -1,5 +1,5 @@
 "use client";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import type { ProjectDocument } from "@vs/domain";
 import { api, ApiError, fmtDuration } from "@/lib/client/api";
 import type { ExportDTO, JobDTO } from "./types";
@@ -11,6 +11,7 @@ export function ExportPanel({ projectId, doc, revisionId, exports, jobs, blockin
   const [showTpl, setShowTpl] = useState(false);
   return (
     <div className="space-y-4">
+      <Credits projectId={projectId} revisionId={revisionId} />
       <div>
         <button
           className="btn btn-primary"
@@ -166,5 +167,47 @@ function SaveTemplate({ projectId, doc }: { projectId: string; doc: ProjectDocum
         </div>
       )}
     </div>
+  );
+}
+
+interface CreditItem { assetId: string; title?: string; source?: string; license?: string; licenseStatus?: string; attributionRequired: boolean; attribution: string | null; pageUrl?: string; licenseConfirmedByOwner: boolean }
+
+/** Footage credits for this revision: what must be credited (CC BY / BY-SA) and a copyable credit block. */
+function Credits({ projectId, revisionId }: { projectId: string; revisionId: string }) {
+  const [c, setC] = useState<{ items: CreditItem[]; attributionRequired: boolean; creditsText: string } | null>(null);
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    api<{ items: CreditItem[]; attributionRequired: boolean; creditsText: string }>(`/api/projects/${projectId}/credits`).then(setC).catch(() => {});
+  }, [projectId, revisionId]);
+  if (!c || c.items.length === 0) return null;
+  return (
+    <section className="rounded-md border border-line p-2 text-xs" aria-label="Footage credits">
+      <p className="font-medium">Footage credits</p>
+      {c.attributionRequired ? (
+        <>
+          <p className="text-warn">Some footage in this video must be credited (for example in the description or end card):</p>
+          <pre className="mt-1 whitespace-pre-wrap break-words rounded bg-bg p-2">{c.creditsText}</pre>
+          <button
+            type="button"
+            className="btn mt-1 text-xs"
+            onClick={() => {
+              void navigator.clipboard?.writeText(c.creditsText).then(() => setCopied(true));
+            }}
+          >
+            {copied ? "Copied" : "Copy credits"}
+          </button>
+        </>
+      ) : (
+        <p className="text-dim">No credit is required for the sourced footage in this revision.</p>
+      )}
+      <ul className="mt-1 space-y-0.5 text-faint">
+        {c.items.map((i) => (
+          <li key={i.assetId}>
+            {i.title} — {i.license}
+            {i.licenseConfirmedByOwner ? " (no licence stated; confirmed by you)" : ""}
+          </li>
+        ))}
+      </ul>
+    </section>
   );
 }

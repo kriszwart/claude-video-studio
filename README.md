@@ -95,6 +95,25 @@ AI actions show a setup link, everything else keeps working, and the Assistant t
 **Claude Code handoff**: download the project file, ask Claude Code for the change in your own
 terminal, and import the `operations.json` it writes (validated like any assistant edit).
 
+### Free footage for B-roll
+
+**Assets → Find free footage** (also inside every image/video picker, including the scene
+editor) searches four sources and imports clips or images as assets:
+
+| Source | Key | Licences |
+| --- | --- | --- |
+| Internet Archive | none | per item (Public Domain Mark, CC0, CC BY/BY-SA, or none stated) |
+| Wikimedia Commons | none | per file (public domain, CC0, CC BY/BY-SA, …); WebM video, JPEG/PNG/WebP images |
+| Pexels | free key (`PEXELS_API_KEY` or Settings) | Pexels License |
+| Pixabay | free key (`PIXABAY_API_KEY` or Settings) | Pixabay Content License |
+
+Every result shows the licence its source reports. Non-commercial / no-derivatives items can't be
+imported; items with no stated licence need an explicit "I checked" confirmation. The server
+re-fetches each item by id before downloading (through the same SSRF guard and content checks
+as uploads) and stores the source, creator, licence and credit line on the asset. The editor's
+**Export** tab lists **Footage credits** with a copyable credit block when CC BY/BY-SA or
+unconfirmed items are used.
+
 Other providers are optional. Without keys the studio still does everything that doesn't need
 them (manual editing, local narration, subtitle-based transcripts, rendering, exports) and
 each AI/paid action explains what to configure. Keys are entered in **Settings** (stored
@@ -108,13 +127,13 @@ the browser.
 `APP_ENCRYPTION_KEY`, `SETUP_TOKEN`, `CLAUDE_RUNTIME`, `CLAUDE_CODE_EXECUTABLE`,
 `CLAUDE_RUNTIME_TIMEOUT_MS`, `STUDIO_CLAUDE_WORKDIR`, `STUDIO_ALLOWED_ORIGINS`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT`,
 `CLAUDE_MAX_TOKENS`, `CLAUDE_FALLBACKS`, `STUDIO_ANTHROPIC_BASE_URL`, `ELEVENLABS_API_KEY`,
-`ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STT_MODEL`, `WHISPER_CPP_BIN`, `WHISPER_CPP_MODEL`,
+`PEXELS_API_KEY`, `PIXABAY_API_KEY`, `ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STT_MODEL`, `WHISPER_CPP_BIN`, `WHISPER_CPP_MODEL`,
 `FAL_KEY`, `FAL_QUEUE_BASE_URL`, `FAL_JWKS_URL`, `FAL_WEBHOOK_SIGNATURE`, `FAL_WAIT_MAX_SEC`,
 `PUBLIC_BASE_URL`, `REDRAW_TARBALL`, `REDRAW_SHA256`, `REDRAW_DISABLED`,
 `HYPERFRAMES_CHROME_PATH`, `RENDER_WORKERS`, `WORKER_CONCURRENCY`, `PREVIEW_SCALE`,
 `MAX_UPLOAD_BYTES`, `MAX_SOURCE_SECONDS`, `FFMPEG_PATH`, `FFPROBE_PATH`, `DB_POOL_MAX`,
 `QUEUE_NAME`, `DELETE_RECOVERY_DAYS`, `KEEP_WORK_DIRS`, `SKIP_PROXIES`,
-`ALLOW_BUILTIN_TEMPLATE_REWRITE`; test-only: `VS_TEST_TRUSTED_OUTPUT`, `FAKE_FAL_PORT`, `STUDIO_CLAUDE_SDK_DOUBLE`, `STUDIO_CLAUDE_SDK_DOUBLE_STATE`,
+`ALLOW_BUILTIN_TEMPLATE_REWRITE`; test-only: `VS_TEST_TRUSTED_OUTPUT`, `FAKE_FAL_PORT`, `STUDIO_CLAUDE_SDK_DOUBLE`, `STUDIO_CLAUDE_SDK_DOUBLE_STATE`, `FOOTAGE_IA_BASE_URL`, `FOOTAGE_WIKIMEDIA_BASE_URL`, `FOOTAGE_PEXELS_BASE_URL`, `FOOTAGE_PIXABAY_BASE_URL`, `FAKE_FOOTAGE_PORT`,
 `PW_CHROMIUM`, `E2E_BASE_URL`, `E2E_PROD_URL`. Descriptions are in `.env.example`.
 
 ### Redraw (licensed)
@@ -144,6 +163,8 @@ download, probe and inspect the exported MP4s (frames under `artifacts/e2e/`):
 | `m4-music-mascot` | A12: excerpt identity by audio correlation, section cuts, accents; T2 |
 | `generation` | A08, A09, A13 against the TEST-ONLY fake fal queue (`scripts/fake-fal.ts`) |
 | `reliability` | A06 missing credentials, A07 worker SIGKILL mid-export |
+| `footage` | Footage search/import from all four sources, licence gating, dedupe keeps licence records, project credits, picker flow — against the TEST-ONLY API stand-in (`scripts/fake-footage.ts`) |
+| `asset-picker` | "Import from link" inside the New Project form doesn't submit it |
 | `claude-runtime` | A31–A33 and the Claude Code handoff against the TEST-ONLY Agent SDK double (`scripts/fake-claude-sdk.mjs`) |
 | `security` | A14, A15, A33 (multi-user mode refuses the subscription runtime) against a password-mode production build (`E2E_PROD_URL`) |
 | `a16-templates` | A16: final 1080p export of every core template + P6, fully decoded |

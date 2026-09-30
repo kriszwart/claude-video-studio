@@ -150,7 +150,12 @@ test.describe.serial("M1 product launch", () => {
     frameAt(file, exp.durationSec - 1.5, "a05-portrait-cta.png");
     // Compiled page reported no text overflow.
     const kf = await waitForJobs(page.request, projectId, "keyframes", t0);
-    expect((kf.job.result as { report: { overflow: string[] } }).report.overflow).toEqual([]);
+    const kr = kf.job.result as { report: { overflow: string[] } | null; rendered: number; reused: number };
+    if (kr.report) expect(kr.report.overflow).toEqual([]);
+    // On a re-run against the same database every portrait frame can come from the per-scene
+    // cache (identical scenes were compiled and checked by an earlier run): nothing is compiled,
+    // so there is no new report.
+    else expect([kr.rendered, kr.reused]).toEqual([0, view.doc.scenes.length]);
   });
 
   test("A04: save as template and create a second product without original media", async ({ page }) => {

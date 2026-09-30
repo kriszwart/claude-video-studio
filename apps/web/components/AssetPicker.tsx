@@ -1,5 +1,6 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { FootageSearch } from "./FootageSearch";
 import { api, ApiError, uploadFile, waitForJob, type UploadedAsset } from "@/lib/client/api";
 
 const ACCEPT: Record<string, string> = {
@@ -30,6 +31,7 @@ export function AssetPicker({
   const [err, setErr] = useState<string | null>(null);
   const [rights, setRights] = useState(false);
   const [linkUrl, setLinkUrl] = useState("");
+  const [findFootage, setFindFootage] = useState(false);
   const input = useRef<HTMLInputElement>(null);
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -152,6 +154,24 @@ export function AssetPicker({
               <button type="button" className="btn text-xs" disabled={!rights || !!progress || !linkUrl.trim()} onClick={() => void importLink()}>
                 Import
               </button>
+            </div>
+          )}
+          {(kind === "video" || kind === "image") && (
+            <div className="mb-2">
+              <button type="button" className="btn text-xs" aria-expanded={findFootage} onClick={() => setFindFootage(!findFootage)}>
+                {findFootage ? "Hide footage search" : "Find free footage"}
+              </button>
+              {findFootage && (
+                <div className="mt-2 rounded border border-line p-2">
+                  <FootageSearch
+                    kind={kind}
+                    onImported={async (id) => {
+                      await load();
+                      onChange(multiple ? [...value, id].slice(0, max) : [id]);
+                    }}
+                  />
+                </div>
+              )}
             </div>
           )}
           {err && <p role="alert" className="mb-2 text-xs text-bad">{err}</p>}

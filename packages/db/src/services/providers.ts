@@ -9,6 +9,8 @@ export const PROVIDERS = {
   anthropic: { env: "ANTHROPIC_API_KEY", label: "Claude API key (optional, billed separately)", capabilities: ["planner", "editor"] },
   elevenlabs: { env: "ELEVENLABS_API_KEY", label: "ElevenLabs", capabilities: ["tts", "transcription"] },
   fal: { env: "FAL_KEY", label: "fal", capabilities: ["image-generation", "video-generation"] },
+  pexels: { env: "PEXELS_API_KEY", label: "Pexels (free stock footage key)", capabilities: ["footage-search"] },
+  pixabay: { env: "PIXABAY_API_KEY", label: "Pixabay (free stock footage key)", capabilities: ["footage-search"] },
 } as const;
 export type ProviderId = keyof typeof PROVIDERS;
 
