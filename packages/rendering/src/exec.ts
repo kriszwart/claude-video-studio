@@ -9,9 +9,9 @@ export interface ExecResult {
 }
 
 /** Run a binary with an argument array (never a shell string). */
-export function run(bin: string, args: string[], opts: { signal?: AbortSignal; timeoutMs?: number; input?: Buffer } = {}): Promise<ExecResult> {
+export function run(bin: string, args: string[], opts: { signal?: AbortSignal; timeoutMs?: number; input?: Buffer; cwd?: string } = {}): Promise<ExecResult> {
   return new Promise((resolve, reject) => {
-    const child = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"], signal: opts.signal });
+    const child = spawn(bin, args, { stdio: ["pipe", "pipe", "pipe"], signal: opts.signal, ...(opts.cwd ? { cwd: opts.cwd } : {}) });
     const out: Buffer[] = [];
     const err: Buffer[] = [];
     let timer: NodeJS.Timeout | undefined;

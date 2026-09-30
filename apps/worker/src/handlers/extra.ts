@@ -12,6 +12,7 @@ import { captureScreenshot } from "./screenshot";
 import { composeBrief } from "./compose";
 import { writeScript } from "./script";
 import { critique } from "./critique";
+import { exportOtio } from "./otio";
 
 /** Additional handlers registered by later milestones (TTS, transcription, QA, generation…). */
 export const extraHandlers: Record<string, Handler> = {
@@ -30,4 +31,5 @@ export const extraHandlers: Record<string, Handler> = {
   compose: composeBrief,
   write_script: writeScript,
   critique,
+  export_otio: exportOtio,
 };

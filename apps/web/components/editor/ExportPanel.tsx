@@ -12,6 +12,7 @@ export function ExportPanel({ projectId, doc, revisionId, exports, jobs, blockin
   return (
     <div className="space-y-4">
       <Credits projectId={projectId} revisionId={revisionId} />
+      <OtioExport projectId={projectId} revisionId={revisionId} exports={exports} jobs={jobs} />
       <div>
         <button
           className="btn btn-primary"
@@ -173,6 +174,49 @@ function SaveTemplate({ projectId, doc }: { projectId: string; doc: ProjectDocum
 interface CreditItem { assetId: string; title?: string; source?: string; license?: string; licenseStatus?: string; attributionRequired: boolean; attribution: string | null; pageUrl?: string; licenseConfirmedByOwner: boolean }
 
 /** Footage credits for this revision: what must be credited (CC BY / BY-SA) and a copyable credit block. */
+/** OpenTimelineIO bundle (.otioz) of a rendered version, for finishing in Resolve, Premiere and other editors. */
+function OtioExport({ projectId, revisionId, exports, jobs }: { projectId: string; revisionId: string; exports: ExportDTO[]; jobs: JobDTO[] }) {
+  const [jobId, setJobId] = useState<string | null>(null);
+  const [url, setUrl] = useState<string | null>(null);
+  const [err, setErr] = useState<string | null>(null);
+  const rendered = exports.some((e) => e.revisionId === revisionId);
+  const job = jobs.find((j) => j.id === jobId) ?? jobs.find((j) => j.type === "export_otio");
+  const active = job && ["queued", "running"].includes(job.status);
+  const assetId = job?.status === "succeeded" && job.revisionId === revisionId ? String((job.result as { assetId?: string } | null)?.assetId ?? "") : "";
+  useEffect(() => {
+    setUrl(null);
+    if (assetId) api<{ asset: { downloadUrl: string | null } }>(`/api/assets/${assetId}`).then((r) => setUrl(r.asset.downloadUrl)).catch(() => {});
+  }, [assetId]);
+  return (
+    <section className="space-y-1.5 rounded-lg border border-line p-2.5 text-xs" aria-label="Export for editing">
+      <div className="font-medium">Edit elsewhere (OpenTimelineIO)</div>
+      <p className="text-faint">A .otioz bundle: the rendered program cut at every scene, plus voiceover, music and footage on their own tracks and music markers. Opens in DaVinci Resolve and other OTIO-aware editors with media linked.</p>
+      <div className="flex items-center gap-2">
+        <button
+          className="btn px-3 text-xs"
+          disabled={!rendered || !!active}
+          title={rendered ? "" : "Render this version first"}
+          onClick={async () => {
+            setErr(null);
+            try {
+              const r = await api<{ job: JobDTO }>(`/api/projects/${projectId}/otio`, { method: "POST", idempotent: true, json: { revisionId } });
+              setJobId(r.job.id);
+            } catch (e) {
+              setErr(e instanceof ApiError ? e.message : String(e));
+            }
+          }}
+        >
+          {active ? `Packaging… ${job!.stage}` : "Package .otioz"}
+        </button>
+        {url && <a className="text-accent underline" href={url} download data-testid="otio-download">Download .otioz</a>}
+      </div>
+      {!rendered && <p className="text-faint">Render this version first — the timeline cuts the rendered program.</p>}
+      {job?.status === "failed" && <p className="text-bad">{job.error?.message} {job.error?.recovery}</p>}
+      {err && <p className="text-bad" role="alert">{err}</p>}
+    </section>
+  );
+}
+
 function Credits({ projectId, revisionId }: { projectId: string; revisionId: string }) {
   const [c, setC] = useState<{ items: CreditItem[]; attributionRequired: boolean; creditsText: string } | null>(null);
   const [copied, setCopied] = useState(false);
