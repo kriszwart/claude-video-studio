@@ -159,6 +159,11 @@ export function ShotPlanReview({
                   <div className="text-sm font-medium">{s.purpose}</div>
                   {texts.length > 0 && <div className="text-xs text-ink/90">{texts.join(" · ")}</div>}
                   {s.script.narration.trim() && <p className="text-xs italic text-dim">“{s.script.narration.trim()}”</p>}
+                  {s.script.direction && (
+                    <p className="text-[11px] text-faint">
+                      Delivery: {[s.script.direction.pace !== "normal" ? s.script.direction.pace : "", s.script.direction.energy !== "neutral" ? s.script.direction.energy : "", s.script.direction.note].filter(Boolean).join(", ")}
+                    </p>
+                  )}
                   {job?.status === "succeeded" && (job.result as { status?: string; explanation?: string } | null)?.status !== "rejected_stale" && <p className="text-[11px] text-ok">Revised: {(job.result as { explanation?: string } | null)?.explanation}</p>}
                   {job && ["failed", "paused"].includes(job.status) && <p className="text-[11px] text-bad">{job.error?.message}</p>}
                   {job?.status === "succeeded" && (job.result as { status?: string; message?: string } | null)?.status === "rejected_stale" && <p className="text-[11px] text-warn">{(job.result as { message?: string }).message}</p>}

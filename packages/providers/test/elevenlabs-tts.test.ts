@@ -2,7 +2,7 @@ import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { ElevenLabsTts } from "../src";
+import { ElevenLabsTts, elevenLabsVoiceSettings } from "../src";
 
 const mp3 = Buffer.concat([Buffer.from("ID3"), Buffer.alloc(64)]);
 function fake(handler: (url: string, init?: RequestInit) => Response) {
@@ -26,6 +26,13 @@ describe("ElevenLabs TTS adapter", () => {
     expect((calls[0]!.init!.headers as Record<string, string>)["xi-api-key"]).toBe("key-cache-test");
     await t.voices();
     expect(calls).toHaveLength(1);
+  });
+
+  it("maps delivery direction to voice settings; neutral leaves the voice's own settings", async () => {
+    expect(elevenLabsVoiceSettings({})).toBeNull();
+    expect(elevenLabsVoiceSettings({ rate: 1, energy: "neutral", note: "stress it" })).toBeNull();
+    expect(elevenLabsVoiceSettings({ rate: 0.9, energy: "calm" })).toEqual({ speed: 0.9, stability: 0.75, style: 0 });
+    expect(elevenLabsVoiceSettings({ rate: 1.5, energy: "lively" })).toEqual({ speed: 1.2, stability: 0.3, style: 0.45 });
   });
 
   it("synthesises MP3 with model and speed", async () => {

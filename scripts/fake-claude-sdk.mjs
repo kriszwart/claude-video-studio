@@ -97,6 +97,7 @@ function scriptAnswer(text) {
     narration: narrated ? `${i === 0 && !revising ? "Let's dive in. " : ""}This beat covers ${s.purpose.toLowerCase().replace(/[^a-z ]/g, "")} in plain words.` : "",
     onScreen: s.purpose.replace(/[0-9]/g, ""),
     durationSec: Math.max(1, Math.round((s.sec / sum) * target * 10) / 10),
+    direction: i === 0 && narrated ? { pace: "slower", energy: "calm", note: "let the first line land" } : { pace: "normal", energy: "neutral", note: "" },
   }));
   return { beats, notes: "TEST DOUBLE: canned script, one beat per recipe step." };
 }

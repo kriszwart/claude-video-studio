@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { AspectRatio, SafeAreaPresetIdSchema } from "./format";
 import { Script } from "./script";
+import { VoiceDirection } from "./voice";
 
 /**
  * Project document schema. Every revision stores one validated document.
@@ -246,7 +247,7 @@ export const Scene = z.object({
   transitionIn: Transition.default({ type: "cut", durationFrames: 0 }),
   motionIntensity: Unit.default(0.6),
   layers: z.array(Layer).max(24),
-  script: z.object({ narration: z.string().max(1200).default("") }).default({ narration: "" }),
+  script: z.object({ narration: z.string().max(1200).default(""), direction: VoiceDirection.optional() }).default({ narration: "" }),
   notes: z.string().max(1000).default(""),
   /** Frame offset (scene-local) used for the storyboard keyframe. */
   keyframeOffset: Frames.optional(),

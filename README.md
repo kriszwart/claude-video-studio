@@ -21,6 +21,7 @@ exactly as you left them, and can be saved as reusable templates.
 | Composer: one prompt (+ optional template chip, attachments) → Claude proposes template, settings and inputs → you review claims and title → project; settings default to Auto; one effort dial (Quick/Standard/High/Max) | Tested against the Claude SDK test double (composer spec); live Claude output unverified here |
 | Script stage: Claude writes narration + on-screen line per beat in a chosen style (University professor, Plain, Conversational, Documentary, Energetic); deterministic check for stock AI phrasing, pace (words per beat vs. style's words-per-minute), dashes and invented figures, repaired automatically and shown live while you edit; you approve the exact words, then planning builds one scene per beat with the narration verbatim | script-stage spec (SDK test double) and unit tests; live Claude output unverified here |
 | Shot-plan review: the planned storyboard as real frames (one card per shot with timing, transition, on-screen text, narration, missing media); revise a single shot with a note, replan everything with a note, or approve — approval records the voiceover or renders a draft; approval only covers the version on screen | shot-plan spec (SDK test double) |
+| Per-scene voice direction: pace, energy and a delivery note per line (written by the scriptwriter, editable in the Script and Scene tabs); pace works on every voice (Pico via pitch-preserving tempo), energy maps to ElevenLabs stability/style, energy and notes go to OmniVoice as instructions; only parts a voice uses affect its cache, so changing an ignored note never re-records | voice-direction spec with real Pico audio; provider request tests |
 | Live in-browser player and a multi-track timeline (scenes, voice, music, captions, markers) with trim and zoom | live-preview and timeline specs |
 | Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
 | Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
@@ -133,6 +134,15 @@ for shots that still need media. **Revise…** sends a note about that one shot 
 word). **Approve** is the go-ahead for the slower or paid steps: it records the voiceover with
 the voice chosen in the composer, or renders a draft when there is no voiceover. If a newer plan
 lands while you are looking, approval stops and shows you the new version first.
+
+**Voice direction.** Each narrated line can carry a delivery direction: pace (slower, normal,
+faster), energy (calm, neutral, lively) and a short note such as “stress *focus*”. The
+scriptwriter suggests them sparingly; edit them per beat in the Script tab or per scene in the
+Scene tab. What each voice does with them is shown next to the controls: every voice follows
+pace; ElevenLabs maps energy to its stability and style settings; OmniVoice receives energy and
+the note as spoken instructions (whether its server honours them depends on the voice). Only the
+parts a voice actually uses count as a change, so editing a note on a built-in voice never
+re-records, and with ElevenLabs never re-bills.
 
 ### ElevenLabs voices
 

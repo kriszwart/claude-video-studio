@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { applyProjectOperations, AppError, getDb, getProject, getOmniVoiceConfig, getProviderSecret, JobError, newId } from "@vs/db";
-import { captionChunks, secondsToFrames, timeChunks, type AudioTrack, type CaptionCue, type Operation } from "@vs/domain";
+import { captionChunks, DIRECTION_SUPPORT, isNeutralDirection, PACE_RATE, voiceKind, secondsToFrames, timeChunks, type AudioTrack, type CaptionCue, type Operation } from "@vs/domain";
 import { ElevenLabsError, ElevenLabsTts, LocalTts, OmniVoiceError, OmniVoiceTts, type TtsProvider } from "@vs/providers";
 import { probeMedia } from "@vs/rendering";
 import { registerFile, type Handler } from "../context";
@@ -78,7 +78,14 @@ export const synthesizeNarration: Handler = async (ctx) => {
   for (const [i, scene] of scenes.entries()) {
     await ctx.stage(`narrating scene ${i + 1} of ${scenes.length}`, i / scenes.length);
     const text = scene.script.narration.trim();
-    const hash = narrationHash(text, voiceId, rate, provider.cacheSalt?.(voiceId) ?? "");
+    // Per-scene direction: pace scales the rate; energy/note go to providers that use them.
+    const dir = scene.script.direction;
+    const sceneRate = Math.round(rate * PACE_RATE[dir?.pace ?? "normal"] * 1000) / 1000;
+    // Only what this voice actually uses goes into the cache key: changing an ignored note never re-bills.
+    const support = DIRECTION_SUPPORT[voiceKind(voiceId)];
+    const used = dir ? [support.energy && dir.energy !== "neutral" ? dir.energy : "", support.note ? dir.note.trim() : ""] : [];
+    const delivery = isNeutralDirection(dir) || !used.some(Boolean) ? "" : JSON.stringify(used);
+    const hash = narrationHash(text, voiceId, sceneRate, [provider.cacheSalt?.(voiceId) ?? "", delivery].filter(Boolean).join("|"));
     const existing = doc.audio.find((t) => t.kind === "voiceover" && t.anchor.type === "scene" && t.anchor.sceneId === scene.id);
     let track: AudioTrack;
     let durationSec: number;
@@ -89,7 +96,7 @@ export const synthesizeNarration: Handler = async (ctx) => {
       report.push({ sceneId: scene.id, reused: true, durationSec });
     } else {
       const out = join(ctx.workDir, `vo-${scene.id}.wav`);
-      const r = await provider.synthesize(text, voiceId, out, { rate, signal: ctx.signal });
+      const r = await provider.synthesize(text, voiceId, out, { rate: sceneRate, ...(dir ? { energy: dir.energy, note: dir.note } : {}), signal: ctx.signal });
       charactersSynthesized += text.length;
       const probe = await probeMedia(r.file);
       durationSec = probe.durationSec ?? 0;

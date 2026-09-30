@@ -27,6 +27,7 @@ import { computeTimeline, validateTimeline } from "./timeline";
 import { varyScene } from "./variation";
 import { syncProgramScenes } from "./program";
 import { Script, ScriptBeat } from "./script";
+import { VoiceDirection } from "./voice";
 
 const Unit = z.number().min(0).max(1);
 
@@ -102,7 +103,8 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setMusicLock"), enabled: z.boolean(), trackId: Id.optional() }),
   z.object({ op: z.literal("setProgram"), program: Program }),
   z.object({ op: z.literal("setScript"), script: Script.nullable() }),
-  z.object({ op: z.literal("updateScriptBeat"), beatId: z.string().max(64), patch: z.object({ narration: z.string().max(1200), onScreen: z.string().max(220), durationSec: ScriptBeat.shape.durationSec, purpose: z.string().max(80) }).partial() }),
+  z.object({ op: z.literal("updateScriptBeat"), beatId: z.string().max(64), patch: z.object({ narration: z.string().max(1200), onScreen: z.string().max(220), durationSec: ScriptBeat.shape.durationSec, purpose: z.string().max(80), direction: VoiceDirection.nullable() }).partial() }),
+  z.object({ op: z.literal("setSceneVoiceDirection"), sceneId: Id, direction: VoiceDirection.nullable() }),
   z.object({ op: z.literal("setScriptStatus"), status: z.enum(["draft", "approved"]) }),
   z.object({ op: z.literal("setReviewStatus"), status: z.enum(["pending", "approved"]) }),
   z.object({ op: z.literal("proposeCuts"), cuts: Program.shape.proposedCuts.unwrap() }),
@@ -158,6 +160,7 @@ const SCENE_CONTENT_OPS = new Set<Operation["op"]>([
   "setSceneLayout",
   "setSceneMotion",
   "setSceneScript",
+  "setSceneVoiceDirection",
   "setSceneMeta",
   "deleteScene",
 ]);
@@ -328,8 +331,13 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       sceneOp!.motionIntensity = op.motionIntensity;
       changed.add(sceneOp!.id);
       return doc;
+    case "setSceneVoiceDirection":
+      if (op.direction) sceneOp!.script.direction = op.direction;
+      else delete sceneOp!.script.direction;
+      changed.add(sceneOp!.id);
+      return doc;
     case "setSceneScript":
-      sceneOp!.script = { narration: op.narration };
+      sceneOp!.script = { ...sceneOp!.script, narration: op.narration };
       changed.add(sceneOp!.id);
       return doc;
     case "setSceneMeta":
@@ -597,7 +605,10 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       if (!doc.script) throw new OperationError("not_found", "This project has no script.");
       const beat = doc.script.beats.find((b) => b.id === op.beatId);
       if (!beat) throw new OperationError("not_found", `Script beat ${op.beatId} does not exist.`);
-      Object.assign(beat, Object.fromEntries(Object.entries(op.patch).filter(([, v]) => v !== undefined)));
+      const { direction, ...rest } = op.patch;
+      Object.assign(beat, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+      if (direction === null) delete beat.direction;
+      else if (direction) beat.direction = direction;
       // Editing an approved script reopens it: approval always covers the exact words.
       doc.script.status = "draft";
       return doc;

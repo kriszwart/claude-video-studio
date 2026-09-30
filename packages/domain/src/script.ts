@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { VoiceDirection } from "./voice";
 
 /**
  * Script stage (Phase 2): the narration and on-screen line for each beat, written before the
@@ -44,6 +45,8 @@ export const ScriptBeat = z.object({
   narration: z.string().max(1200).default(""),
   onScreen: z.string().max(220).default(""),
   durationSec: z.number().min(1).max(120),
+  /** How the line should be delivered; carried onto the scene when the storyboard is planned. */
+  direction: VoiceDirection.optional(),
 });
 export type ScriptBeat = z.infer<typeof ScriptBeat>;
 

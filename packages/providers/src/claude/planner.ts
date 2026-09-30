@@ -202,6 +202,8 @@ function normalizeQuotes(s: string): string {
 /** Convert a validated plan into scenes, reusing the recipe's backgrounds, decoration and motion. */
 export function planToScenes(plan: PlanOutput, ctx: PlanContext): Scene[] {
   const fps = ctx.doc.format.fps;
+  // An approved script maps one beat to one scene (validated), so its voice direction carries over.
+  const beats = approvedScript(ctx.doc)?.beats;
   return plan.scenes.map((ps, i) => {
     const recipe = ctx.template.scenes.find((r) => r.slot === ps.recipeSlot) ?? ctx.template.scenes[0]!;
     const sceneId = ctx.newId("scn");
@@ -261,7 +263,7 @@ export function planToScenes(plan: PlanOutput, ctx: PlanContext): Scene[] {
       transitionIn: i === 0 || ps.transition === "cut" ? { type: "cut", durationFrames: 0 } : { type: ps.transition, durationFrames: 12 },
       motionIntensity: Math.min(1, Math.max(0, ps.motionIntensity)),
       layers,
-      script: { narration: ps.narration.slice(0, 1200) },
+      script: { narration: ps.narration.slice(0, 1200), ...(beats?.[i]?.direction ? { direction: beats[i]!.direction } : {}) },
       status: { state: layers.some((l) => (l.kind === "image" || l.kind === "video") && !l.assetId) ? "needs_input" : "ready", message: "" },
     });
   });

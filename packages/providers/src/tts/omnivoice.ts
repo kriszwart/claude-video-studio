@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import type { TtsProvider, TtsResult, Voice } from "./types";
+import { directionInstructions, type SynthesizeOptions, type TtsProvider, type TtsResult, type Voice } from "./types";
 
 /**
  * OmniVoice (k2-fsa/OmniVoice, open-source multilingual TTS with voice cloning/design) served
@@ -104,7 +104,7 @@ export class OmniVoiceTts implements TtsProvider {
     }
   }
 
-  async synthesize(text: string, voiceId: string, out: string, opts: { rate?: number; signal?: AbortSignal } = {}): Promise<TtsResult> {
+  async synthesize(text: string, voiceId: string, out: string, opts: SynthesizeOptions = {}): Promise<TtsResult> {
     const name = voiceId.replace(/^omnivoice:/, "");
     const configured = this.settings.voices?.find((v) => v.name === name);
     const body = {
@@ -113,7 +113,11 @@ export class OmniVoiceTts implements TtsProvider {
       voice: name,
       response_format: "wav",
       ...(opts.rate ? { speed: Math.min(2, Math.max(0.5, opts.rate)) } : {}),
-      ...(configured?.instructions ? { instructions: configured.instructions } : {}),
+      // The voice's own instructions first, then this line's delivery direction.
+      ...(() => {
+        const instructions = [configured?.instructions ?? "", directionInstructions(opts)].filter(Boolean).join(" ");
+        return instructions ? { instructions } : {};
+      })(),
     };
     const r = await this.call("/v1/audio/speech", { method: "POST", headers: this.headers({ "Content-Type": "application/json", Accept: "audio/wav" }), body: JSON.stringify(body), signal: opts.signal }, 10 * 60_000);
     if (!r.ok) {

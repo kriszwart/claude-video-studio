@@ -1,5 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
+import { DIRECTION_SUPPORT, voiceKind } from "@vs/domain";
 import type { AudioTrack, Operation, ProjectDocument } from "@vs/domain";
 import { AssetPicker } from "@/components/AssetPicker";
 import { api, ApiError } from "@/lib/client/api";
@@ -149,6 +150,14 @@ function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: P
           </button>
         </div>
       )}
+      {(() => {
+        const directed = doc.scenes.filter((s) => s.script.narration.trim() && s.script.direction).length;
+        return directed > 0 && voice ? (
+          <p className="mt-1 text-[11px] text-faint" data-testid="direction-note">
+            {directed} line{directed > 1 ? "s have" : " has"} delivery direction (set per scene). {DIRECTION_SUPPORT[voiceKind(voice)].how}
+          </p>
+        ) : null;
+      })()}
       <p className="text-faint">Built-in voices run on your worker (compute, no provider bill) and sound synthetic; OmniVoice voices also run on your computer, through your OmniVoice server. Captions are timed to the measured narration per phrase, not per word.</p>
       {last?.status === "failed" && <p className="text-bad">{last.error?.message} {(last.error as { recovery?: string } | null)?.recovery && <span className="text-dim">{(last.error as { recovery?: string }).recovery}</span>}</p>}
       {last?.status === "succeeded" && last.result?.provider === "elevenlabs" && (

@@ -1,8 +1,8 @@
 import { spawn } from "node:child_process";
 import { constants } from "node:fs";
-import { access } from "node:fs/promises";
+import { access, rm } from "node:fs/promises";
 import { delimiter, join } from "node:path";
-import type { TtsProvider, TtsResult, Voice } from "./types";
+import type { TtsProvider, TtsResult, Voice, SynthesizeOptions } from "./types";
 
 function run(bin: string, args: string[], signal?: AbortSignal): Promise<void> {
   return new Promise((resolve, reject) => {
@@ -50,12 +50,18 @@ export class LocalTts implements TtsProvider {
     }
     return v;
   }
-  async synthesize(text: string, voiceId: string, out: string, opts: { rate?: number; signal?: AbortSignal } = {}): Promise<TtsResult> {
+  async synthesize(text: string, voiceId: string, out: string, opts: SynthesizeOptions = {}): Promise<TtsResult> {
     const clean = text.replace(/[\u0000-\u001f]/g, " ").slice(0, 2000);
     const [engine, lang] = voiceId.split(":");
     if (engine === "pico") {
-      // pico2wave has no rate flag; tempo is adjusted later by the mixer if requested.
-      await run((await findBinary("pico2wave")) ?? "pico2wave", ["-l", lang ?? "en-US", "-w", out, clean], opts.signal);
+      // pico2wave has no rate flag: synthesise, then change tempo without changing pitch.
+      const rate = opts.rate ?? 1;
+      const raw = rate !== 1 ? out.replace(/\.wav$/, ".raw.wav") : out;
+      await run((await findBinary("pico2wave")) ?? "pico2wave", ["-l", lang ?? "en-US", "-w", raw, clean], opts.signal);
+      if (raw !== out) {
+        await run(process.env.FFMPEG_BIN || "ffmpeg", ["-y", "-loglevel", "error", "-i", raw, "-filter:a", `atempo=${Math.min(2, Math.max(0.5, rate)).toFixed(3)}`, out], opts.signal);
+        await rm(raw, { force: true });
+      }
     } else if (engine === "espeak") {
       const wpm = Math.round(165 * (opts.rate ?? 1));
       await run((await findBinary("espeak-ng")) ?? "espeak-ng", ["-v", lang ?? "en-us", "-s", String(wpm), "-w", out, clean], opts.signal);

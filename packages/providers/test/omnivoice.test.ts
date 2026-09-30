@@ -55,6 +55,14 @@ describe("OmniVoice adapter (OpenAI-compatible speech API)", () => {
     expect(edited.cacheSalt("omnivoice:designed")).not.toBe(tts.cacheSalt("omnivoice:designed"));
   });
 
+  it("sends per-line delivery direction after the voice's own instructions", async () => {
+    const { f, calls } = fake({ "/v1/audio/speech": () => new Response(wav, { headers: { "content-type": "audio/wav" } }) });
+    const tts = new OmniVoiceTts({ baseUrl: "http://127.0.0.1:8000", voices: [{ name: "designed", instructions: "warm, British" }] }, undefined, f);
+    const out = join(mkdtempSync(join(tmpdir(), "ov-")), "a.wav");
+    await tts.synthesize("Hello", "omnivoice:designed", out, { rate: 0.9, energy: "calm", note: "stress 'focus'" });
+    expect(JSON.parse(String(calls[0]!.init!.body))).toMatchObject({ speed: 0.9, instructions: "warm, British Calm, measured delivery. stress 'focus'" });
+  });
+
   it("maps errors: unknown voice, non-audio response", async () => {
     const t1 = new OmniVoiceTts({ baseUrl: "http://h:1" }, undefined, fake({ "/v1/audio/speech": () => Response.json({ detail: "voice not found" }, { status: 404 }) }).f);
     await expect(t1.synthesize("x", "omnivoice:nope", "/tmp/x.wav")).rejects.toMatchObject({ code: "unknown_voice" });

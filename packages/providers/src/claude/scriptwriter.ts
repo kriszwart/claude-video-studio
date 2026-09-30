@@ -1,4 +1,4 @@
-import { lintScript, SCRIPT_STYLES, wordBudget, type ProjectDocument, type Script, type ScriptIssue, type ScriptStyle } from "@vs/domain";
+import { isNeutralDirection, lintScript, SCRIPT_STYLES, wordBudget, type ProjectDocument, type Script, type ScriptIssue, type ScriptStyle } from "@vs/domain";
 import type { TemplateDefinition } from "@vs/templates";
 import { ProviderError, type ChatTurn, type ClaudeBackend, type ClaudeEffort, type StructuredResult } from "./client";
 import { arr, num, obj, str, enm } from "./schema";
@@ -29,6 +29,7 @@ interface WrittenBeat {
   narration: string;
   onScreen: string;
   durationSec: number;
+  direction?: { pace: "slower" | "normal" | "faster"; energy: "calm" | "neutral" | "lively"; note: string };
 }
 interface WrittenScript {
   beats: WrittenBeat[];
@@ -44,6 +45,14 @@ export function scriptSchema(template: TemplateDefinition) {
         narration: str("The exact spoken words for this beat; empty string when there is no voiceover."),
         onScreen: str("The main on-screen line for this beat (headline-length)."),
         durationSec: num("How long the beat lasts on screen."),
+        direction: obj(
+          {
+            pace: enm(["slower", "normal", "faster"], "Relative to the style's pace."),
+            energy: enm(["calm", "neutral", "lively"], "Relative to the style's energy."),
+            note: str("Optional short delivery note (max ~12 words), e.g. \"stress 'focus'\" or \"let the pause land\"; empty if none."),
+          },
+          "How this line should be spoken. Most beats stay normal/neutral with no note; vary only where it helps the meaning.",
+        ),
       }),
     ),
     notes: str("One or two sentences on the structure and the through-line."),
@@ -56,6 +65,7 @@ How to write:
 - Follow the template recipe's beats in order. You may omit a step whose material is missing; do not invent material to fill it.
 - One idea per beat. The on-screen line complements the narration; it does not repeat it word for word.
 - Write for the ear: sentences that are easy to say aloud, natural rhythm, concrete nouns and verbs. Specific beats general.
+- Voice direction: for each narrated beat, say how it should be delivered — pace and energy relative to the style, and at most a short note such as which word to stress. Keep most beats normal and neutral; a direction on every line is noise. Without a voiceover, leave directions normal/neutral with no note.
 - Fit the pace: the narration of each beat must be speakable in its duration at the given words-per-minute.
 - Avoid stock AI phrasing entirely, for example: delve, tapestry, testament to, landscape, game-changer, unlock, elevate, seamless, embark, harness the power, cutting-edge, revolutionize, leverage, robust, navigate the complexities, it's worth noting, dive in, picture this, imagine a world, here's the thing, "it's not just X", "it isn't X — it's Y", "not only … but also", "whether you're a … or a …", moreover, furthermore, empower, next-level, "in today's fast-paced world". Keep dashes rare and exclamation marks rarer.
 - Facts: never invent numbers, metrics, prices, dates, customers, quotes or awards. Approved facts may be used verbatim. If a figure is not in the brief, do not use it.
@@ -101,6 +111,7 @@ export function validateScript(out: WrittenScript, ctx: ScriptContext): ScriptVa
     if (!slots.has(b.recipeSlot)) hard.push(`beats[${i}].recipeSlot: "${b.recipeSlot}" is not a recipe step.`);
     if (!(b.durationSec >= 1 && b.durationSec <= 60)) hard.push(`beats[${i}].durationSec must be between 1 and 60 seconds.`);
     if (!ctx.narrated && b.narration.trim()) hard.push(`beats[${i}].narration must be empty: there is no voiceover.`);
+    if (b.direction?.note && b.direction.note.length > 120) hard.push(`beats[${i}].direction.note must be a short note (max ~120 characters).`);
     if (b.onScreen.length > 220) hard.push(`beats[${i}].onScreen is too long for the screen (max ~220 characters).`);
     for (const n of `${b.narration} ${b.onScreen}`.match(/\d[\d.,%]*/g) ?? []) {
       if (!sources.includes(n.toLowerCase().replace(/[.,]$/, ""))) hard.push(`beats[${i}]: the figure "${n}" is not in the brief or approved facts; remove it.`);
@@ -143,7 +154,18 @@ export async function runScriptwriter(backend: ClaudeBackend, ctx: ScriptContext
     });
   }
   if (!best) throw new ProviderError("invalid_output", `Claude could not write a usable script after ${maxRepairs} repair attempts.`, false, "Try again, change the style, or add a note.");
-  const beats = best.out.beats.map((b) => ({ id: ctx.newId("beat"), recipeSlot: b.recipeSlot, purpose: b.purpose.slice(0, 80), narration: ctx.narrated ? b.narration.trim().slice(0, 1200) : "", onScreen: b.onScreen.trim().slice(0, 220), durationSec: Math.round(b.durationSec * 10) / 10 }));
+  const beats = best.out.beats.map((b) => {
+    const direction = ctx.narrated && b.direction ? { pace: b.direction.pace, energy: b.direction.energy, note: (b.direction.note ?? "").trim().slice(0, 200) } : undefined;
+    return {
+      id: ctx.newId("beat"),
+      recipeSlot: b.recipeSlot,
+      purpose: b.purpose.slice(0, 80),
+      narration: ctx.narrated ? b.narration.trim().slice(0, 1200) : "",
+      onScreen: b.onScreen.trim().slice(0, 220),
+      durationSec: Math.round(b.durationSec * 10) / 10,
+      ...(direction && !isNeutralDirection(direction) ? { direction } : {}),
+    };
+  });
   const script: Script = { style: ctx.style, direction: ctx.direction, narrated: ctx.narrated, status: "draft", beats, notes: best.out.notes.slice(0, 1000), next: ctx.previous?.next ?? {} };
   return { script, attempts: usage.length, remaining: lintScript(script), usage };
 }

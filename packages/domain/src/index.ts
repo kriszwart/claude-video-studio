@@ -13,3 +13,4 @@ export * from "./profile";
 export * from "./quality";
 export * from "./effort";
 export * from "./script";
+export * from "./voice";

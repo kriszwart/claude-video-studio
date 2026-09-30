@@ -3,6 +3,7 @@ import { useMemo, useState } from "react";
 import { lintScript, SCRIPT_STYLE_IDS, SCRIPT_STYLES, wordBudget, wordCount, type Operation, type ProjectDocument, type ScriptStyle } from "@vs/domain";
 import { api, ApiError } from "@/lib/client/api";
 import { DebouncedText, NumberField } from "./fields";
+import { projectVoiceId, VoiceDirectionControls } from "./VoiceDirectionControls";
 import type { JobDTO } from "./types";
 
 /**
@@ -158,6 +159,14 @@ export function ScriptPanel({
                 <>
                   <DebouncedText multiline ariaLabel={`Narration ${i + 1}`} value={b.narration} maxLength={1200} onCommit={(v) => apply([{ op: "updateScriptBeat", beatId: b.id, patch: { narration: v } }])} />
                   <div className={`mt-0.5 text-right text-[10px] tabular-nums ${w > budget * 1.15 + 1 ? "text-warn" : "text-faint"}`}>{w} / ~{budget} words</div>
+                  <details className="mb-1 text-xs" open={!!b.direction}>
+                    <summary className="cursor-pointer text-[11px] text-dim">
+                      Delivery{b.direction ? `: ${[b.direction.pace !== "normal" ? b.direction.pace : "", b.direction.energy !== "neutral" ? b.direction.energy : "", b.direction.note].filter(Boolean).join(", ")}` : " (default)"}
+                    </summary>
+                    <div className="mt-1.5">
+                      <VoiceDirectionControls label={`Beat ${i + 1} delivery`} value={b.direction} voiceId={projectVoiceId(doc)} onChange={(d) => apply([{ op: "updateScriptBeat", beatId: b.id, patch: { direction: d } }])} />
+                    </div>
+                  </details>
                 </>
               )}
               <label className="mt-1 block text-[10px] uppercase tracking-wider text-faint">On screen</label>

@@ -1,5 +1,5 @@
 import { writeFile } from "node:fs/promises";
-import type { TtsProvider, TtsResult, Voice } from "./types";
+import type { TtsProvider, TtsResult, Voice, SynthesizeOptions } from "./types";
 
 /**
  * ElevenLabs text-to-speech over its REST API (GET /v1/voices, POST /v1/text-to-speech/{id}).
@@ -80,7 +80,7 @@ export class ElevenLabsTts implements TtsProvider {
     return voices;
   }
 
-  async synthesize(text: string, voiceId: string, out: string, opts: { rate?: number; signal?: AbortSignal } = {}): Promise<TtsResult> {
+  async synthesize(text: string, voiceId: string, out: string, opts: SynthesizeOptions = {}): Promise<TtsResult> {
     const id = voiceId.replace(/^elevenlabs:/, "");
     if (!/^[A-Za-z0-9]{1,64}$/.test(id)) throw new ElevenLabsError("unknown_voice", "Invalid ElevenLabs voice id.");
     const r = await this.req(
@@ -88,7 +88,7 @@ export class ElevenLabsTts implements TtsProvider {
       {
         method: "POST",
         headers: { "Content-Type": "application/json", Accept: "audio/mpeg" },
-        body: JSON.stringify({ text, model_id: this.model, ...(opts.rate ? { voice_settings: { speed: Math.min(1.2, Math.max(0.7, opts.rate)) } } : {}) }),
+        body: JSON.stringify({ text, model_id: this.model, ...(elevenLabsVoiceSettings(opts) ? { voice_settings: elevenLabsVoiceSettings(opts) } : {}) }),
         signal: opts.signal,
       },
       5 * 60_000,
@@ -100,4 +100,17 @@ export class ElevenLabsTts implements TtsProvider {
     await writeFile(file, buf);
     return { file, provider: this.id, voiceId };
   }
+}
+
+/**
+ * Direction → ElevenLabs voice settings: pace as speed (0.7–1.2), energy as stability/style
+ * (lower stability and more style read as livelier). Neutral energy leaves the voice's own
+ * settings alone. Free-text notes have no equivalent on the standard models.
+ */
+export function elevenLabsVoiceSettings(opts: SynthesizeOptions): Record<string, number> | null {
+  const s: Record<string, number> = {};
+  if (opts.rate && opts.rate !== 1) s.speed = Math.min(1.2, Math.max(0.7, Math.round(opts.rate * 100) / 100));
+  if (opts.energy === "calm") Object.assign(s, { stability: 0.75, style: 0 });
+  if (opts.energy === "lively") Object.assign(s, { stability: 0.3, style: 0.45 });
+  return Object.keys(s).length ? s : null;
 }

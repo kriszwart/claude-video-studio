@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
 import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
+import { projectVoiceId, VoiceDirectionControls } from "./VoiceDirectionControls";
 
 const TRANSITIONS = ["cut", "fade", "slide", "wipe", "zoom"] as const;
 const FRAMES = ["none", "card", "laptop", "phone", "circle", "rounded"] as const;
@@ -84,6 +85,13 @@ export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; sc
         <div>
           <label className="label" htmlFor="narr">Narration script (optional)</label>
           <DebouncedText id="narr" multiline value={scene.script.narration} maxLength={1200} onCommit={(v) => op({ op: "setSceneScript", sceneId: scene.id, narration: v })} placeholder="Voiceover for this scene" />
+          {scene.script.narration.trim() && (
+            <div className="mt-2">
+              <div className="mb-1 text-[11px] text-dim">Delivery for this line</div>
+              <VoiceDirectionControls label="Scene delivery" value={scene.script.direction} voiceId={projectVoiceId(doc)} disabled={scene.locked} onChange={(d) => op({ op: "setSceneVoiceDirection", sceneId: scene.id, direction: d })} />
+              <p className="mt-1 text-[10px] text-faint">Changes apply the next time you generate narration (Audio tab); unchanged lines are reused.</p>
+            </div>
+          )}
         </div>
       </fieldset>
 
