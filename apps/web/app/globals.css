@@ -1,14 +1,14 @@
 @import "tailwindcss";
 
 @theme {
-  --color-bg: #0d0f14;
-  --color-panel: #151821;
-  --color-panel-2: #1b1f2a;
-  --color-line: #272c39;
-  --color-ink: #e8eaf0;
-  --color-dim: #a1a8b8;
-  --color-faint: #6b7385;
-  --color-accent: #8b8fff;
+  --color-bg: #0b0c10;
+  --color-panel: #13151b;
+  --color-panel-2: #1a1d25;
+  --color-line: #252935;
+  --color-ink: #ecedf2;
+  --color-dim: #a3a9b8;
+  --color-faint: #6c7384;
+  --color-accent: #8f8cff;
   --color-accent-ink: #0d0f14;
   --color-ok: #4ade80;
   --color-warn: #fbbf24;
@@ -25,6 +25,20 @@ body {
   font-family: var(--font-sans);
   font-size: 14px;
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
+}
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--color-line);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: padding-box;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 *:focus-visible {
   outline: 2px solid var(--color-accent);
@@ -64,6 +78,38 @@ body {
 }
 .chip {
   @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-[11px] text-dim;
+}
+/* Segmented control (mode switches, inspector tabs). */
+.seg {
+  @apply rounded-md px-2.5 py-1 text-xs text-dim transition-colors hover:bg-panel-2 hover:text-ink;
+}
+.seg-on {
+  @apply bg-panel-2 text-ink shadow-[inset_0_0_0_1px_var(--color-line)];
+}
+.btn-icon {
+  @apply h-8 w-8 border-transparent bg-transparent p-0 text-base text-dim hover:bg-panel-2 hover:text-ink;
+}
+.btn-play {
+  @apply h-9 w-9 rounded-full border-accent bg-accent p-0 text-sm text-accent-ink hover:brightness-110;
+}
+.panel-title {
+  @apply text-[11px] font-semibold uppercase tracking-[0.08em] text-faint;
+}
+.scrub {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 4px;
+  border-radius: 999px;
+  background: var(--color-line);
+  accent-color: var(--color-accent);
+}
+.scrub::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 999px;
+  background: var(--color-accent);
+  box-shadow: 0 0 0 3px rgb(143 140 255 / 0.25);
 }
 .sample-badge {
   @apply inline-flex items-center rounded border border-warn/60 bg-warn/10 px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-warn;

@@ -227,3 +227,23 @@ export const ingestAsset: Handler = async (ctx) => {
   return { assetId, kind, media };
 };
 
+
+/** Backfill waveform peaks for audio stored before generated audio got them (bounded, best effort). */
+export async function backfillAudioPeaks(limit = 200): Promise<number> {
+  const { getDb, getStore, schema } = await import("@vs/db");
+  const { and, eq, sql } = await import("drizzle-orm");
+  const db = getDb();
+  const rows = await db.query.assets.findMany({ where: and(eq(schema.assets.kind, "audio"), eq(schema.assets.status, "ready"), sql`${schema.assets.derived}->'peaks' is null`), limit });
+  let n = 0;
+  for (const a of rows) {
+    try {
+      const peaks = await audioPeaks(await getStore().materialize(a.storageKey));
+      if (!peaks.length) continue;
+      await db.update(schema.assets).set({ derived: sql`${schema.assets.derived} || ${JSON.stringify({ peaks })}::jsonb` }).where(eq(schema.assets.id, a.id));
+      n++;
+    } catch {
+      /* leave it; the timeline just shows no waveform */
+    }
+  }
+  return n;
+}

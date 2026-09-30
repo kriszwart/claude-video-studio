@@ -10,6 +10,7 @@ import { runCleanup } from "./handlers/cleanup";
 import { ingestAsset } from "./handlers/ingest";
 import { renderKeyframes } from "./handlers/keyframes";
 import { livePreview } from "./handlers/livePreview";
+import { backfillAudioPeaks } from "./handlers/ingest";
 import { renderRevision } from "./handlers/render";
 import { seedSample } from "./handlers/seed";
 import { extraHandlers } from "./handlers/extra";
@@ -40,6 +41,7 @@ const handlers = {
 
 async function main() {
   await syncBuiltinTemplates(getDb(), BUILTIN_TEMPLATES);
+  void backfillAudioPeaks().then((n) => n && log("backfilled audio waveforms", { n })).catch(() => {});
   const caps = await workerCapabilities();
   // Capability routing (FR-21): jobs whose composition needs graphics backends go to a queue
   // named after those backends; this worker only consumes queues it can actually run.

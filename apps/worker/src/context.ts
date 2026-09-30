@@ -115,10 +115,18 @@ export async function registerFile(
     const p = await probeMedia(path).catch(() => null);
     if (p) media = { width: p.video?.width, height: p.video?.height, durationSec: p.durationSec ?? undefined, hasAudio: !!p.audio, codecs: { video: p.video?.codec, audio: p.audio?.codec }, fps: p.video?.fps };
   }
+  // Generated audio (narration, music) gets waveform peaks like uploads, for the timeline.
+  const derived: Record<string, unknown> = {};
+  if (opts.kind === "audio") {
+    const { audioPeaks } = await import("./handlers/ingest");
+    const peaks = await audioPeaks(path).catch(() => null);
+    if (peaks?.length) derived.peaks = peaks;
+  }
   return insertReadyAsset(getDb(), {
     workspaceId,
     kind: opts.kind,
     storageKey: key,
+    derived,
     contentHash,
     mime: opts.mime ?? mimeFor(ext),
     bytes,

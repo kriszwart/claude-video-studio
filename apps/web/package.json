@@ -11,6 +11,7 @@
     "e2e": "playwright test"
   },
   "dependencies": {
+    "@fontsource/inter": "5.3.0",
     "@vs/compositor": "workspace:*",
     "@vs/db": "workspace:*",
     "@vs/domain": "workspace:*",

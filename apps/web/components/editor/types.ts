@@ -43,6 +43,7 @@ export interface ProjectViewDTO {
   exports: ExportDTO[];
   jobs: JobDTO[];
   keyframes: Record<string, { url: string; revisionId: string; fresh: boolean }>;
+  media: Record<string, { durationSec: number | null; peaks: number[] | null; name: string }>;
   revisions: { id: string; seq: number; author: string; action: string; createdAt: string }[];
 }
 export type SaveState = { kind: "saved" } | { kind: "saving" } | { kind: "error"; message: string } | { kind: "conflict"; message: string };

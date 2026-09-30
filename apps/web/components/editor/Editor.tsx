@@ -1,6 +1,6 @@
 "use client";
 import Link from "next/link";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { validateTimeline } from "@vs/domain";
 import { api } from "@/lib/client/api";
 import { useClaudeStatus } from "@/lib/client/claude";
@@ -9,7 +9,8 @@ import { AudioPanel } from "./AudioPanel";
 import { ExportPanel } from "./ExportPanel";
 import { QualityPanel } from "./QualityPanel";
 import { DebouncedText } from "./fields";
-import { Preview } from "./Preview";
+import { Preview, type PreviewClock, type PreviewHandle } from "./Preview";
+import { Timeline } from "./Timeline";
 import { ProgramPanel } from "./ProgramPanel";
 import { ShotsPanel } from "./ShotsPanel";
 import { ProjectPanel } from "./ProjectPanel";
@@ -23,6 +24,9 @@ export function Editor({ projectId }: { projectId: string }) {
   const p = useProject(projectId);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("scene");
+  const previewRef = useRef<PreviewHandle>(null);
+  const [clock, setClock] = useState<PreviewClock>({ time: 0, playing: false, ready: false });
+  const onClock = useCallback((c: PreviewClock) => setClock(c), []);
   const [claudeStatus] = useClaudeStatus();
   useEffect(() => {
     if (p.doc && (!selected || !p.doc.scenes.some((s) => s.id === selected))) setSelected(p.doc.scenes[0]?.id ?? null);
@@ -86,17 +90,29 @@ export function Editor({ projectId }: { projectId: string }) {
       <p className="border-b border-line bg-panel-2 px-3 py-1 text-[11px] text-dim lg:hidden">
         Small screen: review, text edits, rendering and downloads work here. Timeline editing is designed for tablet and desktop.
       </p>
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[250px_minmax(0,1fr)_380px] lg:overflow-hidden">
-        <aside className="order-2 min-h-0 border-line p-3 lg:order-1 lg:overflow-y-auto lg:border-r">
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[216px_minmax(0,1fr)_368px] lg:grid-rows-[minmax(0,1fr)_auto] lg:overflow-hidden">
+        <aside className="order-4 min-h-0 border-line p-2.5 lg:order-none lg:col-start-1 lg:row-start-1 lg:overflow-y-auto lg:border-r">
           <SceneList doc={doc} view={view} selected={scene.id} onSelect={(id) => { setSelected(id); setTab("scene"); }} apply={p.apply} />
         </aside>
-        <main className="order-1 min-h-0 p-3 lg:order-2 lg:overflow-y-auto">
-          <Preview projectId={projectId} doc={doc} revisionId={p.revisionId} exports={view.exports} jobs={view.jobs} selectedSceneId={scene.id} onSelectScene={setSelected} blockingIssues={blocking} />
+        <main className="order-1 flex min-h-[360px] flex-col p-3 lg:order-none lg:col-start-2 lg:row-start-1 lg:min-h-0">
+          <Preview ref={previewRef} projectId={projectId} doc={doc} revisionId={p.revisionId} exports={view.exports} jobs={view.jobs} blockingIssues={blocking} onClock={onClock} />
         </main>
-        <aside className="order-3 flex min-h-0 flex-col border-line lg:border-l">
-          <div role="tablist" aria-label="Inspector" className="flex gap-1 overflow-x-auto border-b border-line px-2 py-1.5">
+        <div className="order-2 min-w-0 border-line p-2 lg:order-none lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:max-h-[40vh] lg:overflow-y-auto lg:border-t">
+          <Timeline
+            doc={doc}
+            view={view}
+            time={clock.time}
+            playing={clock.playing}
+            onSeek={(sec, m) => previewRef.current?.seek(sec, m)}
+            selectedSceneId={scene.id}
+            onSelectScene={(id) => { setSelected(id); setTab("scene"); }}
+            apply={p.apply}
+          />
+        </div>
+        <aside className="order-3 flex min-h-0 flex-col border-line bg-panel/40 lg:order-none lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:border-l">
+          <div role="tablist" aria-label="Inspector" className="flex gap-0.5 overflow-x-auto border-b border-line px-2 py-1.5">
             {([...(doc.program ? ["transcript"] : []), "scene", ...(doc.scenes.some((s) => s.shot) ? ["shots"] : []), "assistant", "audio", "export", "project"] as Tab[]).map((t) => (
-              <button key={t} role="tab" aria-selected={tab === t} className={`btn btn-ghost shrink-0 px-2 py-1 text-xs capitalize ${tab === t ? "bg-panel-2 text-ink" : "text-dim"}`} onClick={() => setTab(t)}>
+              <button key={t} role="tab" aria-selected={tab === t} className={`seg shrink-0 capitalize ${tab === t ? "seg-on" : ""}`} onClick={() => setTab(t)}>
                 {t === "assistant" ? "Assistant" : t}
               </button>
             ))}
