@@ -98,6 +98,9 @@ export interface CompiledBundle {
 
 export class GraphicsUnavailableError extends Error {}
 
+/** Film grain tile: deterministic fractal noise (fixed seed), drawn once and moved in steps. */
+const GRAIN_SVG = `data:image/svg+xml;utf8,${encodeURIComponent('<svg xmlns="http://www.w3.org/2000/svg" width="256" height="256"><filter id="n"><feTurbulence type="fractalNoise" baseFrequency=".85" numOctaves="3" seed="7" stitchTiles="stitch"/><feColorMatrix type="saturate" values="0"/></filter><rect width="100%" height="100%" filter="url(#n)"/></svg>')}`;
+
 const ROLE_SIZE: Record<TextLayer["role"], number> = {
   kicker: 34,
   headline: 104,
@@ -208,7 +211,14 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
     const m = motion(scene);
     const sid = `s-${scene.id}`;
     const parts: string[] = [];
+    const exits: string[] = [];
     parts.push(backgroundHtml(scene.background, brand, ctx, sid, start, dur, warnings));
+    if (scene.background.type !== "asset") {
+      // A soft light in the brand colour drifting across flat backgrounds: depth without clutter.
+      parts.push(`<div class="bglight" id="${sid}-light" style="background:radial-gradient(closest-side, ${hexWithAlpha(resolveColor(brand, "brand.primary", "#4455ff"), 0.28)}, transparent);"></div>`);
+      const dx = index % 2 === 0 ? 1 : -1;
+      tweens.push(`tl.fromTo("#${sid}-light",{xPercent:${-8 * dx},yPercent:-6,scale:1},{xPercent:${8 * dx},yPercent:6,scale:1.08,duration:${dur},ease:"sine.inOut"},${start});`);
+    }
 
     // Talking-head program: kept source segments inside this scene, in the presenter slot.
     if (doc.program) {
@@ -263,16 +273,29 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       const z = (slot?.z ?? 2) * 10 + li;
       const delay = f3(start + ("animation" in layer ? layer.animation.delayFrames / fps : 0));
       switch (layer.kind) {
-        case "text":
-          parts.push(textHtml(layer, lid, box, z, slot, brand, profile.typeScale * unit));
-          tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m, layer.animation.stagger));
+        case "text": {
+          // Display text rises word by word from behind a mask (the "kinetic" reveal); other
+          // roles keep their block entrance. Words stay in place for fitting and captions.
+          const masked = layer.animation.in === "rise" && !layer.animation.stagger && MASKED_ROLES.has(layer.role) && layer.text.split(/\s+/).length <= 18;
+          parts.push(textHtml(layer, lid, box, z, slot, brand, profile.typeScale * unit, masked));
+          if (masked) {
+            const n = Math.max(1, layer.text.split(/\s+/).filter(Boolean).length);
+            tweens.push(`tl.fromTo("#${lid} .wm > .w",{yPercent:115},{yPercent:0,duration:${f3(Math.max(0.35, Number(m.dur) * 0.9))},stagger:${f3(Math.min(0.09, (dur * 0.3) / n))},ease:"power4.out"},${delay});`);
+          } else {
+            tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m, layer.animation.stagger));
+          }
           if (layer.animation.in === "type" || layer.animation.stagger) {
             tweens.push(`tl.fromTo("#${lid} .w",{opacity:0,y:${f3(m.dist * 0.4)}},{opacity:1,y:0,duration:${f3(m.dur * 0.6)},stagger:${f3(Math.min(0.12, (dur * 0.35) / Math.max(1, layer.text.split(/\s+/).length)))},ease:"power2.out"},${delay});`);
           }
+          // Gentle drift while on screen, so held frames are never frozen.
+          tweens.push(`tl.fromTo("#${lid} .fit",{y:0},{y:${f3(-(6 + 10 * m.k) * unit)},duration:${dur},ease:"none"},${start});`);
+          exits.push(`#${lid}`);
           break;
+        }
         case "image":
           parts.push(imageHtml(layer, lid, box, z, ctx, brand, unit, warnings, scene));
           tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m));
+          exits.push(`#${lid}`);
           if (layer.animation.kenBurns) {
             tweens.push(`tl.fromTo("#${lid} .media-inner",{scale:1},{scale:${f3(1 + 0.08 * Math.max(0.3, m.k))},duration:${dur},ease:"none"},${start});`);
           }
@@ -334,21 +357,38 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       `<div id="${sid}" class="clip scene" data-start="${start}" data-duration="${dur}" style="z-index:${index + 1};">${parts.join("")}</div>`,
     );
 
+    // Content eases out just before a hard cut (not before overlapping transitions, which cover
+    // it, not on the final scene, which holds, and not when cuts are timed to music markers).
+    const next = doc.scenes[index + 1];
+    const cutAfter = !!next && (next.transitionIn.type === "cut" || (timeline.scenes[index + 1]?.overlapIn ?? 0) === 0);
+    if (cutAfter && exits.length && !doc.markers.length && t.duration / fps >= 1.5) {
+      const d = Math.min(0.3, (t.duration / fps) * 0.08);
+      const at = f3((t.start + t.duration) / fps - d - 1 / fps);
+      tweens.push(`tl.fromTo(${scriptJson(exits.join(","))},{opacity:1},{opacity:0,duration:${f3(d)},ease:"power2.in",immediateRender:false},${at});`);
+    }
+
     if (index > 0 && t.overlapIn > 0) {
       const o = sec(t.overlapIn);
       switch (scene.transitionIn.type) {
         case "fade":
           tweens.push(`tl.fromTo("#${sid}",{opacity:0},{opacity:1,duration:${o},ease:"none"},${start});`);
           break;
-        case "slide":
+        case "slide": {
           tweens.push(`tl.fromTo("#${sid}",{xPercent:100},{xPercent:0,duration:${o},ease:"power3.inOut"},${start});`);
+          // The outgoing scene is pushed along, not just covered.
+          const prev = `s-${doc.scenes[index - 1]!.id}`;
+          tweens.push(`tl.fromTo("#${prev}",{xPercent:0},{xPercent:-35,duration:${o},ease:"power3.inOut",immediateRender:false},${start});`);
           break;
+        }
         case "wipe":
           tweens.push(`tl.fromTo("#${sid}",{clipPath:"inset(0% 100% 0% 0%)"},{clipPath:"inset(0% 0% 0% 0%)",duration:${o},ease:"power2.inOut"},${start});`);
           break;
-        case "zoom":
+        case "zoom": {
           tweens.push(`tl.fromTo("#${sid}",{opacity:0,scale:1.12},{opacity:1,scale:1,duration:${o},ease:"power2.out"},${start});`);
+          const prev = `s-${doc.scenes[index - 1]!.id}`;
+          tweens.push(`tl.fromTo("#${prev}",{scale:1},{scale:0.94,duration:${o},ease:"power2.in",immediateRender:false},${start});`);
           break;
+        }
       }
     }
   });
@@ -450,6 +490,11 @@ html,body{margin:0;padding:0;background:#000;}
 .cap-clean span{color:#fff;text-shadow:0 .05em .25em rgba(0,0,0,.95);}
 .cap-minimal span{color:#fff;background:rgba(0,0,0,.45);}
 .w{display:inline-block;white-space:pre;}
+.wm{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .04em .16em;margin:0 -.04em -.16em;}
+.bglight{position:absolute;left:-15%;top:-15%;width:130%;height:130%;pointer-events:none;}
+#finish{position:absolute;inset:0;pointer-events:none;z-index:850;}
+#finish .vig{position:absolute;inset:0;background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.38) 100%);}
+#finish .grain{position:absolute;inset:-50%;opacity:.07;mix-blend-mode:overlay;background-size:256px 256px;}
 `;
 
   const fitScript = `
@@ -477,12 +522,13 @@ html,body{margin:0;padding:0;background:#000;}
 })();`;
 
   const html = `<!doctype html>
-<html><head><meta charset="utf-8"><meta name="generator" content="video-studio-compositor/4">
+<html><head><meta charset="utf-8"><meta name="generator" content="video-studio-compositor/5">
 <style>${css}</style>
 <script src="${ctx.gsapFile}"></script>
 </head><body>
 <div id="root" data-composition-id="main" data-start="0" data-width="${width}" data-height="${height}" data-duration="${f3(durationSec)}">
 ${sceneHtml.join("\n")}
+<div id="finish"><div class="vig"></div><div class="grain" id="grain" style="background-image:url(&quot;${GRAIN_SVG}&quot;);"></div></div>
 ${beatHtml.join("\n")}
 ${captionHtml.join("\n")}
 ${audioHtml}
@@ -492,6 +538,7 @@ ${audioHtml}
 window.__timelines = window.__timelines || {};
 var tl = gsap.timeline({ paused: true });
 ${tweens.join("\n")}
+tl.fromTo("#grain",{x:0,y:0},{x:${f3(-200 * unit)},y:${f3(-140 * unit)},duration:${f3(durationSec)},ease:"steps(${Math.max(1, Math.round(durationSec * 12))})"},0);
 tl.set({}, {}, ${f3(durationSec)});
 window.__timelines["main"] = tl;
 </script>
@@ -500,7 +547,7 @@ ${[...scriptSrcs].map((src) => `<script src="${escapeHtml(src)}"></script>`).joi
 </body></html>`;
 
   const manifest = {
-    compiler: "video-studio-compositor/4",
+    compiler: "video-studio-compositor/5",
     width,
     height,
     fps,
@@ -536,7 +583,10 @@ function entrance(sel: string, kind: string, at: number, m: { dist: number; dur:
   }
 }
 
-function textHtml(layer: TextLayer, lid: string, box: Box, z: number, slot: SlotBox | undefined, brand: BrandSnapshot, sizeUnit: number): string {
+/** Roles whose words rise from behind a mask when entering with "rise". */
+const MASKED_ROLES = new Set<TextLayer["role"]>(["headline", "stat", "quote"]);
+
+function textHtml(layer: TextLayer, lid: string, box: Box, z: number, slot: SlotBox | undefined, brand: BrandSnapshot, sizeUnit: number, masked = false): string {
   const role = layer.role;
   const size = ROLE_SIZE[role] * layer.style.scale * sizeUnit;
   const fontRef = ROLE_FONT[role] === "heading" ? brand.fonts.heading : brand.fonts.body;
@@ -562,7 +612,7 @@ function textHtml(layer: TextLayer, lid: string, box: Box, z: number, slot: Slot
         : "";
   const words = escapeHtml(layer.text)
     .split(/(\s+)/)
-    .map((w) => (w.trim() ? `<span class="w">${w}</span>` : w))
+    .map((w) => (w.trim() ? (masked ? `<span class="wm"><span class="w">${w}</span></span>` : `<span class="w">${w}</span>`) : w))
     .join("");
   const inner =
     role === "cta"
