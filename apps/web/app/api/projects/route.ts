@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
-import { AppError, createProject, enqueueJob, getDb, getTemplateVersion, listProjects, newId, schema } from "@vs/db";
+import { AppError, createProject, signAssetUrl, enqueueJob, getDb, getTemplateVersion, listProjects, newId, schema } from "@vs/db";
 import { AspectRatio, BrandSnapshot, type BudgetPolicy, DEFAULT_BUDGET } from "@vs/domain";
 import { DEFAULT_BRAND, instantiateTemplate, missingRequiredInputs, TemplateDefinition } from "@vs/templates";
 import { requireSession } from "@/lib/server/auth";
@@ -16,7 +16,24 @@ export const GET = route(async (req) => {
   const out = [];
   for (const p of rows) {
     const last = await db.query.exportsTable.findFirst({ where: eq(schema.exportsTable.projectId, p.id), orderBy: (e, { desc }) => desc(e.createdAt) });
-    out.push({ id: p.id, title: p.title, family: p.family, isSample: p.isSample, status: p.status, updatedAt: p.updatedAt, variantLabel: p.variantLabel, thumbnailAssetId: last?.thumbnailAssetId ?? null });
+    // Poster: the latest render's thumbnail, else the newest keyframe of the opening scene.
+    let posterAssetId = last?.thumbnailAssetId ?? null;
+    if (!posterAssetId) {
+      const kf = await db.query.jobs.findFirst({ where: and(eq(schema.jobs.projectId, p.id), eq(schema.jobs.type, "keyframes"), eq(schema.jobs.status, "succeeded")), orderBy: (j, { desc }) => desc(j.createdAt) });
+      posterAssetId = (kf?.result as { keyframes?: { assetId: string }[] } | null)?.keyframes?.[0]?.assetId ?? null;
+    }
+    out.push({
+      id: p.id,
+      title: p.title,
+      family: p.family,
+      isSample: p.isSample,
+      status: p.status,
+      updatedAt: p.updatedAt,
+      variantLabel: p.variantLabel,
+      thumbnailAssetId: last?.thumbnailAssetId ?? null,
+      posterUrl: posterAssetId ? signAssetUrl(posterAssetId, s.workspaceId) : null,
+      rendered: !!last,
+    });
   }
   return json({ projects: out });
 });

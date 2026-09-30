@@ -105,9 +105,18 @@ export default function Assets() {
       <ul className="grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-6">
         {assets.map((a) => (
           <li key={a.id}>
-            <button className="card w-full overflow-hidden text-left" onClick={() => api<NonNullable<typeof sel>>(`/api/assets/${a.id}`).then(setSel)}>
-              <div className="flex aspect-video items-center justify-center bg-bg text-xs text-faint">
-                {a.thumbUrl ? <img src={a.thumbUrl} alt="" className="h-full w-full object-contain" /> : a.kind === "audio" && a.peaks ? <Wave peaks={a.peaks} /> : a.kind}
+            <button className="card w-full overflow-hidden text-left transition-colors hover:border-accent/50" onClick={() => api<NonNullable<typeof sel>>(`/api/assets/${a.id}`).then(setSel)}>
+              <div className="relative flex aspect-video items-center justify-center bg-bg text-xs text-faint">
+                {a.thumbUrl ? (
+                  <img src={a.thumbUrl} alt="" className="h-full w-full object-contain" />
+                ) : a.kind === "audio" && a.peaks ? (
+                  <div className="h-full w-full px-2 py-3 text-accent/80"><Wave peaks={a.peaks} /></div>
+                ) : (
+                  <span className="rounded border border-line px-2 py-0.5 text-[10px] uppercase tracking-wider">{a.status === "failed" ? `${a.kind} · failed` : a.status === "ready" ? a.kind : `${a.kind} · ${a.status}`}</span>
+                )}
+                {typeof a.media?.durationSec === "number" && (
+                  <span className="absolute bottom-1 right-1 rounded bg-black/70 px-1 text-[10px] tabular-nums text-white">{fmtSec(a.media.durationSec)}</span>
+                )}
               </div>
               <div className="p-2">
                 <div className="truncate text-xs">{a.name}</div>
@@ -132,7 +141,7 @@ export default function Assets() {
           <dl className="grid grid-cols-[120px_1fr] gap-1 text-xs">
             <dt className="text-faint">Kind</dt><dd>{sel.asset.kind}</dd>
             <dt className="text-faint">Size</dt><dd>{sel.asset.bytes ? `${(sel.asset.bytes / 1024 / 1024).toFixed(2)} MB` : "—"}</dd>
-            <dt className="text-faint">Media</dt><dd>{JSON.stringify(sel.asset.media)}</dd>
+            <dt className="text-faint">Media</dt><dd>{describeMedia(sel.asset.media) || "—"}</dd>
             {sel.asset.provenance.source === "footage" && (
               <>
                 <dt className="text-faint">Licence</dt>
@@ -158,7 +167,20 @@ export default function Assets() {
   );
 }
 
-function Wave({ peaks }: { peaks: number[] }) {
+function describeMedia(m: { width?: number; height?: number; durationSec?: number; font?: { family: string } } | null) {
+  if (!m) return "";
+  return [m.width && m.height ? `${m.width}×${m.height}` : "", typeof m.durationSec === "number" ? fmtSec(m.durationSec) : "", m.font?.family ?? ""].filter(Boolean).join(" · ");
+}
+
+function fmtSec(sec: number) {
+  const s = Math.round(sec);
+  return `${Math.floor(s / 60)}:${String(s % 60).padStart(2, "0")}`;
+}
+
+function Wave({ peaks: raw }: { peaks: number[] }) {
+  // Normalise so quiet recordings are still readable; the shape is what matters here.
+  const max = Math.max(0.05, ...raw);
+  const peaks = raw.map((p) => p / max);
   const n = peaks.length;
   return (
     <svg viewBox={`0 0 ${n} 100`} preserveAspectRatio="none" className="h-full w-full" aria-hidden>

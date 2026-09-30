@@ -12,6 +12,28 @@ interface ProjectItem {
   updatedAt: string;
   variantLabel: string | null;
   thumbnailAssetId: string | null;
+  posterUrl: string | null;
+  rendered: boolean;
+}
+
+const FAMILY_LABEL: Record<string, string> = {
+  "product-launch": "Product launch",
+  "motion-reel": "Motion reel",
+  "vertical-short": "Vertical short",
+  "talking-head": "Talking head",
+  "mascot-story": "Mascot story",
+  "music-video": "Music video",
+  "anime-opening": "Anime opening",
+};
+const familyLabel = (f: string) => FAMILY_LABEL[f] ?? f.replace(/-/g, " ").replace(/^./, (c) => c.toUpperCase());
+
+function ago(iso: string) {
+  const s = (Date.now() - new Date(iso).getTime()) / 1000;
+  if (s < 60) return "just now";
+  if (s < 3600) return `${Math.floor(s / 60)} min ago`;
+  if (s < 86400) return `${Math.floor(s / 3600)} h ago`;
+  if (s < 86400 * 7) return `${Math.floor(s / 86400)} d ago`;
+  return new Date(iso).toLocaleDateString();
 }
 
 export default function Projects() {
@@ -90,33 +112,53 @@ export default function Projects() {
       )}
       {err && <p role="alert" className="mb-4 text-sm text-bad">{err}</p>}
       {!projects ? (
-        <p className="text-dim">Loading…</p>
+        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Loading projects">
+          {[0, 1, 2].map((i) => (
+            <li key={i} className="card overflow-hidden">
+              <div className="aspect-video animate-pulse bg-panel-2" />
+              <div className="space-y-2 p-3"><div className="h-3 w-1/2 rounded bg-panel-2" /><div className="h-2.5 w-1/3 rounded bg-panel-2" /></div>
+            </li>
+          ))}
+        </ul>
       ) : (
         <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
           {projects.map((p) => (
-            <li key={p.id} className="card overflow-hidden">
+            <li key={p.id} className="card group overflow-hidden transition-colors hover:border-accent/50">
               <Link href={`/projects/${p.id}`} className="block">
-                <div className="flex aspect-video items-center justify-center bg-bg text-xs text-faint">
-                  {p.thumbnailAssetId ? <ProjectThumb projectId={p.id} /> : "No render yet"}
+                <div className="relative aspect-video overflow-hidden bg-bg">
+                  {p.posterUrl ? (
+                    <>
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.posterUrl} alt="" aria-hidden className="absolute inset-0 h-full w-full scale-110 object-cover opacity-50 blur-xl" />
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={p.posterUrl} alt={`Preview of ${p.title}`} className="relative h-full w-full object-contain transition-transform duration-300 group-hover:scale-[1.02]" />
+                    </>
+                  ) : (
+                    <div className="flex h-full flex-col items-center justify-center gap-1 bg-[radial-gradient(circle_at_30%_20%,color-mix(in_srgb,var(--color-accent)_22%,transparent),transparent_65%)]">
+                      <span className="text-sm font-semibold text-white/70">{familyLabel(p.family)}</span>
+                      <span className="text-[11px] text-faint">Open to generate a preview</span>
+                    </div>
+                  )}
+                  <span className={`absolute right-2 top-2 rounded px-1.5 py-0.5 text-[10px] font-medium ${p.rendered ? "bg-black/70 text-white" : "bg-black/60 text-dim"}`}>{p.rendered ? "Rendered" : "Draft"}</span>
                 </div>
-                <div className="p-3">
+                <div className="px-3 pb-2 pt-3">
                   <div className="flex items-center gap-2">
                     <span className="truncate font-medium">{p.title}</span>
                     {p.isSample && <span className="sample-badge">Sample</span>}
                   </div>
                   <div className="mt-1 text-xs text-faint">
-                    {p.family}
-                    {p.variantLabel ? ` · ${p.variantLabel}` : ""} · edited {new Date(p.updatedAt).toLocaleString()}
+                    {familyLabel(p.family)}
+                    {p.variantLabel ? ` · ${p.variantLabel}` : ""} · <span title={new Date(p.updatedAt).toLocaleString()}>edited {ago(p.updatedAt)}</span>
                   </div>
                 </div>
               </Link>
-              <div className="flex gap-1 border-t border-line p-2">
-                <button className="btn btn-ghost text-xs" disabled={!!busy} onClick={() => act("dup", () => api(`/api/projects/${p.id}/duplicate`, { method: "POST" }))}>Duplicate</button>
-                <button className="btn btn-ghost text-xs" disabled={!!busy} onClick={() => act("arch", () => api(`/api/projects/${p.id}`, { method: "PATCH", json: { status: tab === "active" ? "archived" : "active" } }))}>
+              <div className="flex gap-1 px-2 pb-2 opacity-80 transition-opacity group-hover:opacity-100 group-focus-within:opacity-100">
+                <button className="btn btn-ghost px-2 py-1 text-xs" disabled={!!busy} onClick={() => act("dup", () => api(`/api/projects/${p.id}/duplicate`, { method: "POST" }))}>Duplicate</button>
+                <button className="btn btn-ghost px-2 py-1 text-xs" disabled={!!busy} onClick={() => act("arch", () => api(`/api/projects/${p.id}`, { method: "PATCH", json: { status: tab === "active" ? "archived" : "active" } }))}>
                   {tab === "active" ? "Archive" : "Restore"}
                 </button>
                 <button
-                  className="btn btn-ghost ml-auto text-xs text-bad"
+                  className="btn btn-ghost ml-auto px-2 py-1 text-xs text-bad"
                   disabled={!!busy}
                   onClick={() => {
                     if (confirm(`Delete "${p.title}"? Running jobs are cancelled. Renders are purged after a 7-day recovery period; uploaded media stays in your library.`)) void act("del", () => api(`/api/projects/${p.id}`, { method: "DELETE" }));
@@ -131,13 +173,4 @@ export default function Projects() {
       )}
     </main>
   );
-}
-
-function ProjectThumb({ projectId }: { projectId: string }) {
-  const [url, setUrl] = useState<string | null>(null);
-  useEffect(() => {
-    api<{ exports: { thumbUrl: string | null }[] }>(`/api/projects/${projectId}/exports`).then((r) => setUrl(r.exports[0]?.thumbUrl ?? null)).catch(() => {});
-  }, [projectId]);
-  // eslint-disable-next-line @next/next/no-img-element
-  return url ? <img src={url} alt="" className="h-full w-full object-cover" /> : null;
 }
