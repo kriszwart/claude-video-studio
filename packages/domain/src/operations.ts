@@ -107,6 +107,8 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setSceneVoiceDirection"), sceneId: Id, direction: VoiceDirection.nullable() }),
   z.object({ op: z.literal("setScriptStatus"), status: z.enum(["draft", "approved"]) }),
   z.object({ op: z.literal("setReviewStatus"), status: z.enum(["pending", "approved"]) }),
+  z.object({ op: z.literal("setShotKeyframe"), sceneId: Id, assetId: Id.nullable() }),
+  z.object({ op: z.literal("setAnimaticStatus"), status: z.enum(["pending", "approved"]) }),
   z.object({ op: z.literal("proposeCuts"), cuts: Program.shape.proposedCuts.unwrap() }),
   z.object({ op: z.literal("acceptCuts"), cutIds: z.array(Id).min(1) }),
   z.object({ op: z.literal("rejectCuts"), cutIds: z.array(Id).min(1) }),
@@ -613,6 +615,24 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       doc.script.status = "draft";
       return doc;
     }
+    case "setShotKeyframe": {
+      const s = findScene(doc, op.sceneId);
+      if (!s.shot) throw new OperationError("invalid", "This scene is not a footage shot.");
+      if (op.assetId) s.shot.keyframeAssetId = op.assetId;
+      else delete s.shot.keyframeAssetId;
+      // A new keyframe changes the animatic: approval must cover what is actually shown.
+      doc.animatic = { status: "pending" };
+      changed.add(s.id);
+      return doc;
+    }
+    case "setAnimaticStatus":
+      if (!doc.animatic) throw new OperationError("not_found", "This project has no animatic yet: generate keyframes first.");
+      if (op.status === "approved" && actor !== "user") throw new OperationError("approved_claim", "Only the owner can approve the animatic.");
+      if (op.status === "approved" && doc.scenes.some((s) => s.shot?.kind === "video" && s.shot.source === "generate" && !s.shot.acceptedAssetId && !s.shot.keyframeAssetId)) {
+        throw new OperationError("invalid", "Every video shot needs a keyframe (or its own footage) before the animatic can be approved.");
+      }
+      doc.animatic.status = op.status;
+      return doc;
     case "setReviewStatus":
       if (!doc.review) throw new OperationError("not_found", "This project has no shot plan to review.");
       if (op.status === "approved" && actor !== "user") throw new OperationError("approved_claim", "Only the owner can approve the shot plan.");

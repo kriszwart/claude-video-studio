@@ -36,9 +36,11 @@ const orRequests: Record<string, unknown>[] = [];
 function media(id: string, kind: "video" | "image") {
   const file = join(DIR, `${id}.${kind === "video" ? "mp4" : "png"}`);
   if (!existsSync(file)) {
-    const seed = [...id].reduce((a, c) => a + c.charCodeAt(0), 0);
-    if (kind === "video") execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=size=640x360:rate=30:duration=4,hue=h=${seed % 360}`, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-movflags", "+faststart", file]);
-    else execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=size=768x768:rate=1:duration=1,hue=h=${seed % 360}`, "-frames:v", "1", file]);
+    // Distinct bytes per request (hue from a hash, id in the metadata): content-addressed asset
+    // storage must never see two different requests as the same file.
+    const seed = parseInt(createHash("sha256").update(id).digest("hex").slice(0, 8), 16);
+    if (kind === "video") execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=size=640x360:rate=30:duration=4,hue=h=${seed % 360}`, "-c:v", "libx264", "-pix_fmt", "yuv420p", "-metadata", `comment=fake-fal ${id}`, "-movflags", "+faststart", file]);
+    else execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=size=768x768:rate=1:duration=1,hue=h=${seed % 360},drawbox=x=${seed % 700}:y=${(seed >> 10) % 700}:w=8:h=8:color=white:t=fill`, "-frames:v", "1", file]);
   }
   return file;
 }
@@ -107,7 +109,7 @@ http
       return json(res, 200, { id: `gen-${n}`, model: b.model, choices: [{ message: { role: "assistant", content: "Here is the image.", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${readFileSync(f).toString("base64")}` } }] } }], usage: { prompt_tokens: 100, completion_tokens: 1290, cost: 0.039 } });
     }
     if (u.pathname === "/.well-known/jwks.json") return json(res, 200, { keys: [{ kty: "OKP", crv: "Ed25519", x: jwk.x, kid: "test" }] });
-    if (u.pathname === "/__stats") return json(res, 200, { ...stats, requests: [...reqs.values()].map((r) => ({ id: r.id, endpoint: r.endpoint, state: r.state, canceled: r.canceled, error: r.error ?? null })) });
+    if (u.pathname === "/__stats") return json(res, 200, { ...stats, requests: [...reqs.values()].map((r) => ({ id: r.id, endpoint: r.endpoint, state: r.state, canceled: r.canceled, error: r.error ?? null, hasImageUrl: typeof r.input.image_url === "string" && String(r.input.image_url).startsWith("data:image/") })) });
     if (u.pathname === "/__control") {
       Object.assign(control, JSON.parse(bodyText || "{}"));
       return json(res, 200, control);

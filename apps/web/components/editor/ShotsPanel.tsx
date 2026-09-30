@@ -8,7 +8,7 @@ import type { JobDTO } from "./types";
 
 type Estimate = { kind: "known"; micros: number; basis: string } | { kind: "unknown"; reason: string };
 type ShotRow = { index: number; sceneId: string; purpose: string; shot: NonNullable<ProjectDocument["scenes"][number]["shot"]>; estimate: Estimate; model: string | null; fitsBudget: boolean | null; budgetMessage: string | null };
-type ShotsDTO = { providerConfigured: boolean; imageVia?: "openrouter" | "fal" | null; modelsConfigured: { image: boolean; video: boolean }; budget: { projectCeilingMicros: number; operationCeilingMicros: number; unknownPriceRequestsAuthorized: number }; totals: { committedMicros: number; unknownPriceRequestsUsed: number }; shots: ShotRow[]; ledger: { operationId: string; status: string; estimatedMicros: number | null; actualMicros: number | null; priceBasis: string | null }[] };
+type ShotsDTO = { animatic: { status: "pending" | "approved" } | null; keyframeEstimate: Estimate; keyframes: { sceneId: string; needsKeyframe: boolean; url: string | null }[]; providerConfigured: boolean; imageVia?: "openrouter" | "fal" | null; modelsConfigured: { image: boolean; video: boolean }; budget: { projectCeilingMicros: number; operationCeilingMicros: number; unknownPriceRequestsAuthorized: number }; totals: { committedMicros: number; unknownPriceRequestsUsed: number }; shots: ShotRow[]; ledger: { operationId: string; status: string; estimatedMicros: number | null; actualMicros: number | null; priceBasis: string | null }[] };
 type AssetDTO = { id: string; name: string; generated: boolean; previewUrl: string | null; kind: string };
 
 const usd = (m: number) => `$${(m / 1_000_000).toFixed(2)}`;
@@ -64,13 +64,14 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
           {data.budget.unknownPriceRequestsAuthorized > 0 && ` · unknown-price requests used ${data.totals.unknownPriceRequestsUsed}/${data.budget.unknownPriceRequestsAuthorized}`}. Prices are owner-entered estimates; the provider's invoice is authoritative.
         </p>
         <div className="flex flex-wrap items-center gap-2">
-          <button className="btn text-xs" disabled={!pending.length || running > 0} onClick={() => act(() => api(`/api/projects/${projectId}/shots/generate`, { method: "POST", json: {}, idempotent: true }))}>
+          <button className="btn text-xs" disabled={!pending.length || running > 0 || data.animatic?.status === "pending"} title={data.animatic?.status === "pending" ? "Approve the animatic first" : ""} onClick={() => act(() => api(`/api/projects/${projectId}/shots/generate`, { method: "POST", json: {}, idempotent: true }))}>
             {running ? `Generating ${running}…` : `Generate ${pending.length} missing shot(s)`}
           </button>
           {pending.length > 0 && <span className="text-faint">Estimate {usd(known)}{unknown ? ` + ${unknown} unknown-price request(s)` : ""}</span>}
         </div>
         {msg && <p role="alert" className="text-bad">{msg}</p>}
       </section>
+      <AnimaticGate projectId={projectId} data={data} jobs={jobs} apply={apply} act={act} />
       <ol className="space-y-2" aria-label="Shots">
         {data.shots.map((s) => (
           <li key={s.sceneId} className="card space-y-2 p-2" data-testid={`shot-${s.index}`}>
@@ -192,5 +193,68 @@ function BudgetForm({ projectId, budget, onSaved }: { projectId: string; budget:
       <button className="btn col-span-3 text-xs">Save budget</button>
       {err && <p className="col-span-3 text-bad">{err}</p>}
     </form>
+  );
+}
+
+/**
+ * Animatic first (Phase 4): keyframes for every video shot, played with the voiceover and music
+ * as the draft render; paid video generation waits for the owner's approval of that animatic.
+ */
+function AnimaticGate({ projectId, data, jobs, apply, act }: { projectId: string; data: ShotsDTO; jobs: JobDTO[]; apply: (ops: Operation[]) => Promise<boolean>; act: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const shots = data.keyframes.filter((k) => k.needsKeyframe);
+  if (!data.keyframes.length) return null;
+  const missing = shots.filter((k) => !k.url);
+  const done = shots.length - missing.length;
+  const running = jobs.filter((j) => j.type === "generate_media" && ["queued", "running", "waiting_provider"].includes(j.status)).length;
+  const rendering = jobs.find((j) => j.type === "preview" && ["queued", "running"].includes(j.status));
+  const est = data.keyframeEstimate;
+  const status = data.animatic?.status ?? null;
+  return (
+    <section className="card space-y-2 p-2.5" aria-label="Animatic">
+      <div className="flex items-center gap-2">
+        <h3 className="text-sm font-medium">Animatic first</h3>
+        <span className={`chip ${status === "approved" ? "text-ok" : status === "pending" ? "text-warn" : ""}`} data-testid="animatic-status">{status === "approved" ? "approved" : status === "pending" ? "awaiting approval" : "no keyframes yet"}</span>
+      </div>
+      <p className="text-faint">Generate a still keyframe for each video shot, watch them timed to the voiceover and music, and approve before paying for video. Approved keyframes become each shot&apos;s first frame.</p>
+      <ol className="space-y-1.5">
+        <li className="flex flex-wrap items-center gap-2">
+          <span className="text-dim">1. Keyframes {done}/{shots.length}</span>
+          <button className="btn px-2 py-1 text-xs" disabled={!missing.length || running > 0} onClick={() => act(() => api(`/api/projects/${projectId}/shots/generate`, { method: "POST", json: { mode: "keyframes" }, idempotent: true }))}>
+            {running ? `Generating ${running}…` : missing.length ? `Generate ${missing.length} keyframe${missing.length > 1 ? "s" : ""}` : "All keyframes ready"}
+          </button>
+          {missing.length > 0 && <span className="text-faint">{est.kind === "known" ? `about $${((est.micros * missing.length) / 1_000_000).toFixed(2)}` : `${missing.length} unknown-price request(s)`}</span>}
+        </li>
+        <li className="flex flex-wrap items-center gap-2">
+          <span className="text-dim">2. Animatic</span>
+          <button className="btn px-2 py-1 text-xs" disabled={done === 0 || !!rendering} onClick={() => act(() => api(`/api/projects/${projectId}/preview`, { method: "POST", json: {}, idempotent: true }))}>
+            {rendering ? "Rendering…" : "Render the animatic"}
+          </button>
+          <span className="text-faint">A draft render: keyframes as stills with voiceover and music (no generation cost). Watch it in Rendered draft.</span>
+        </li>
+        <li className="flex flex-wrap items-center gap-2">
+          <span className="text-dim">3. Approve</span>
+          <button className="btn btn-primary px-2 py-1 text-xs" disabled={status !== "pending" || missing.length > 0} onClick={() => act(() => apply([{ op: "setAnimaticStatus", status: "approved" }]))}>
+            {status === "approved" ? "Approved" : "Approve the animatic"}
+          </button>
+          <span className="text-faint">{status === "approved" ? "Video generation is unlocked. Changing a keyframe reopens approval." : "Unlocks video generation (the step that costs the most)."}</span>
+        </li>
+      </ol>
+      {data.keyframes.some((k) => k.url) && (
+        <div className="flex flex-wrap gap-1.5" aria-label="Keyframes">
+          {data.keyframes.map((k, i) =>
+            k.url ? (
+              <figure key={k.sceneId} className="w-24">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img src={k.url} alt={`Keyframe for shot ${i + 1}`} className="aspect-video w-full rounded object-cover ring-1 ring-line" />
+                <figcaption className="flex justify-between text-[10px] text-faint">
+                  Shot {i + 1}
+                  <button className="underline" aria-label={`Redo keyframe for shot ${i + 1}`} disabled={running > 0} onClick={() => act(() => api(`/api/projects/${projectId}/shots/generate`, { method: "POST", json: { mode: "keyframes", sceneIds: [k.sceneId], regenerate: true }, idempotent: true }))}>Redo</button>
+                </figcaption>
+              </figure>
+            ) : null,
+          )}
+        </div>
+      )}
+    </section>
   );
 }

@@ -265,6 +265,8 @@ export const Scene = z.object({
       status: z.enum(["pending", "generating", "ready", "accepted", "failed"]).default("pending"),
       candidates: z.array(z.object({ assetId: Id, generationId: z.string().max(64).optional(), provider: z.string().max(40), createdAt: z.string().max(40), review: ShotReview.optional() })).max(12).default([]),
       acceptedAssetId: Id.optional(),
+      /** Keyframe for a video shot (animatic first): a still of the intended first frame. */
+      keyframeAssetId: Id.optional(),
       /** True when the pipeline accepted the first result automatically; the owner should review it. */
       autoAccepted: z.boolean().default(false),
       variant: z.number().int().min(1).default(1),
@@ -470,6 +472,11 @@ export const ProjectDocument = z.object({
   /** Script stage: narration and on-screen lines per beat, approved before planning. */
   script: Script.optional(),
   /**
+   * Animatic gate (Phase 4): once shots have keyframes, paid video generation waits until the
+   * owner approves the animatic (keyframes timed to the voiceover and music).
+   */
+  animatic: z.object({ status: z.enum(["pending", "approved"]) }).optional(),
+  /**
    * Shot-plan review: set when Claude plans a storyboard from the composer. Approval is the
    * owner's go-ahead for paid or slow steps that follow (voiceover, draft render).
    */
@@ -507,6 +514,7 @@ export function referencedAssetIds(doc: ProjectDocument): string[] {
   if (doc.brand.logoAssetId) ids.add(doc.brand.logoAssetId);
   for (const f of [doc.brand.fonts.heading, doc.brand.fonts.body]) if (f.assetId) ids.add(f.assetId);
   if (doc.program) ids.add(doc.program.sourceAssetId);
+  for (const s of doc.scenes) if (s.shot?.keyframeAssetId) ids.add(s.shot.keyframeAssetId);
   for (const b of doc.beats) if (b.assetId) ids.add(b.assetId);
   for (const c of doc.characters) {
     if (c.mode !== "image") continue;

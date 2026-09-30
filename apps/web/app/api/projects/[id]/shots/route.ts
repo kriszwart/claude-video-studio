@@ -1,4 +1,4 @@
-import { getDb, getProject, getProviderSecret, getProviderSettings, projectLedger, projectTotals } from "@vs/db";
+import { getDb, getProject, getProviderSecret, getProviderSettings, projectLedger, projectTotals, signAssetUrl } from "@vs/db";
 import { decideSpend, type BudgetPolicy } from "@vs/domain";
 import { estimateFor, FalSettings, openRouterEstimate, OpenRouterSettings } from "@vs/providers";
 import { requireSession } from "@/lib/server/auth";
@@ -30,5 +30,10 @@ export const GET = route<{ id: string }>(async (_req, { id }) => {
       if (decision?.allowed) running = { committedMicros: running.committedMicros + (decision.reserveMicros ?? 0), unknownPriceRequestsUsed: running.unknownPriceRequestsUsed + (estimate.kind === "unknown" ? 1 : 0) };
       return { index: i + 1, sceneId: sc.id, purpose: sc.purpose, shot: sc.shot, estimate, model: viaOpenRouter ? or.data.image!.model : (model?.endpoint ?? null), provider: viaOpenRouter ? "openrouter" : "fal", fitsBudget: decision ? decision.allowed : null, budgetMessage: decision && !decision.allowed ? decision.message : null };
     });
-  return json({ providerConfigured: configured || orReady, imageVia, modelsConfigured: settings.success ? { image: !!settings.data.image || orReady, video: !!settings.data.video } : { image: orReady, video: false }, budget, totals, shots, ledger: await projectLedger(db, id) });
+  // Keyframes are image generations for video shots: priced like an image through the image provider.
+  const keyframeEstimate = imageVia === "openrouter" && or.success ? openRouterEstimate(or.data) : estimateFor(falImage);
+  const keyframes = doc.scenes
+    .filter((sc) => sc.shot?.kind === "video")
+    .map((sc) => ({ sceneId: sc.id, needsKeyframe: sc.shot!.source === "generate" && !sc.shot!.acceptedAssetId, url: sc.shot!.keyframeAssetId ? signAssetUrl(sc.shot!.keyframeAssetId, s.workspaceId) : null }));
+  return json({ animatic: doc.animatic ?? null, keyframeEstimate, keyframes, providerConfigured: configured || orReady, imageVia, modelsConfigured: settings.success ? { image: !!settings.data.image || orReady, video: !!settings.data.video } : { image: orReady, video: false }, budget, totals, shots, ledger: await projectLedger(db, id) });
 });

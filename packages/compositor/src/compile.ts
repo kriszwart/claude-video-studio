@@ -246,8 +246,20 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       }
     }
 
-    // Footage shot without accepted media: an explicit slate, never a fake frame.
-    if (scene.shot && !scene.shot.acceptedAssetId) {
+    // Animatic: a video shot with a keyframe but no footage yet plays its keyframe as a slow
+    // still, visibly tagged, so timing can be judged before paying for video.
+    const keyframe = scene.shot && !scene.shot.acceptedAssetId && scene.shot.keyframeAssetId ? ctx.assets.get(scene.shot.keyframeAssetId) : undefined;
+    if (keyframe) {
+      const shotNo = doc.scenes.filter((x) => x.shot).findIndex((x) => x.id === scene.id) + 1;
+      warnings.push(`Shot ${shotNo} (“${scene.purpose}”) shows its keyframe (animatic), not generated video.`);
+      parts.push(
+        `<div class="layer" style="left:0;top:0;width:100%;height:100%;z-index:5;overflow:hidden;background:#000"><img id="${sid}-kf" src="${keyframe.file}" alt="" style="position:absolute;inset:0;width:100%;height:100%;object-fit:cover;transform-origin:50% 50%"></div>` +
+          `<div class="layer" style="left:${f3(24 * unit)}px;bottom:${f3(22 * unit)}px;z-index:900;padding:${f3(4 * unit)}px ${f3(10 * unit)}px;border-radius:${f3(6 * unit)}px;background:rgba(0,0,0,.6);color:#fbbf24;font:700 ${f3(18 * unit)}px ${cssFamily(brand.fonts.body.family)},sans-serif;letter-spacing:.12em">KEYFRAME · SHOT ${shotNo}</div>`,
+      );
+      tweens.push(`tl.fromTo("#${sid}-kf",{scale:1.0},{scale:1.08,duration:${dur},ease:"none"},${start});`);
+    }
+    // Footage shot without accepted media or keyframe: an explicit slate, never a fake frame.
+    if (scene.shot && !scene.shot.acceptedAssetId && !keyframe) {
       const shotNo = doc.scenes.filter((x) => x.shot).findIndex((x) => x.id === scene.id) + 1;
       const label = scene.shot.status === "failed" ? "generation failed" : scene.shot.status === "generating" ? "generating…" : "awaiting footage";
       warnings.push(`Shot ${shotNo} (“${scene.purpose}”) has no footage yet (${label}).`);

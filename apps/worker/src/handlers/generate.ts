@@ -52,13 +52,14 @@ async function updateGen(id: string, patch: Partial<GenRow>) {
 }
 
 /** Provider input for a shot: prompt + continuity + character notes, optional reference image. */
-async function buildInput(ctx: JobContext, doc: ProjectDocument, scene: Scene, maxDurationSec?: number): Promise<Record<string, unknown>> {
+async function buildInput(ctx: JobContext, doc: ProjectDocument, scene: Scene, kind: "image" | "video", maxDurationSec?: number): Promise<Record<string, unknown>> {
   const shot = scene.shot!;
   const chars = doc.characters.filter((c) => shot.characterIds.includes(c.id));
   const prompt = [shot.prompt, shot.continuity && `Continuity: ${shot.continuity}`, ...chars.map((c) => `${c.name}: ${c.notes || `${c.species} character, body ${c.palette.body}, accent ${c.palette.accent}`}`)].filter(Boolean).join("\n");
   const input: Record<string, unknown> = { prompt: prompt.slice(0, 2000), aspect_ratio: doc.format.aspect };
-  if (shot.kind === "video") input.duration = Math.max(1, Math.min(maxDurationSec ?? 5, Math.round(scene.durationFrames / doc.format.fps)));
-  const refId = shot.referenceAssetIds[0] ?? chars.flatMap((c) => c.referenceAssetIds)[0];
+  if (kind === "video") input.duration = Math.max(1, Math.min(maxDurationSec ?? 5, Math.round(scene.durationFrames / doc.format.fps)));
+  // Image-to-video: an approved keyframe is the first frame; otherwise the first reference.
+  const refId = (kind === "video" ? shot.keyframeAssetId : undefined) ?? shot.referenceAssetIds[0] ?? chars.flatMap((c) => c.referenceAssetIds)[0];
   if (refId) {
     // References are sent inline (downscaled) so no internal URL is ever exposed to the provider.
     const ref = (await resolveAssets(ctx.job.workspaceId, [refId])).get(refId)!;
@@ -84,23 +85,29 @@ export const generateMedia: Handler = async (ctx) => {
   if (!scene?.shot) throw new JobError("invalid_input", "That scene is not a footage shot.", false);
   if (doc.acquisitionPolicy !== "generated-allowed") throw new JobError("generation_not_allowed", "This project's asset policy doesn't allow generated media.", false, "Allow generated media in the Shots panel, or supply your own footage.");
   const shot = scene.shot;
+  // Keyframe mode: an image of the intended first frame of a video shot (animatic first).
+  const keyframe = ctx.job.input.mode === "keyframe";
+  if (keyframe && shot.kind !== "video") throw new JobError("invalid_input", "Keyframes are for video shots.", false);
+  const kind: "image" | "video" = keyframe ? "image" : shot.kind;
+  // The animatic gate: once keyframes exist, video waits for the owner's approval.
+  if (kind === "video" && doc.animatic && doc.animatic.status !== "approved") throw new JobError("animatic_not_approved", "Approve the animatic before generating video.", false, "Render the animatic from the keyframes, review it, then approve it in the Shots panel.");
   const variant = Number(ctx.job.input.variant ?? shot.variant);
-  const operationId = `${ctx.job.projectId}:${sceneId}:v${variant}`;
+  const operationId = `${ctx.job.projectId}:${sceneId}:${keyframe ? "kf" : "v"}${variant}`;
   const settings = FalSettings.safeParse(await getProviderSettings(db, ctx.job.workspaceId, "fal"));
-  const model = settings.success ? settings.data[shot.kind] : undefined;
-  // Image shots may use OpenRouter (one key, many image models) when it is configured.
-  if (shot.kind === "image") {
+  const model = settings.success ? settings.data[kind] : undefined;
+  // Image shots and keyframes may use OpenRouter (one key, many image models) when it is configured.
+  if (kind === "image") {
     const or = OpenRouterSettings.safeParse(await getProviderSettings(db, ctx.job.workspaceId, "openrouter"));
     const orKey = await getProviderSecret(db, ctx.job.workspaceId, "openrouter");
-    if (or.success && or.data.image && orKey && (or.data.preferForImages || !model)) return generateViaOpenRouter(ctx, doc, scene, variant, operationId, or.data, orKey.secret);
+    if (or.success && or.data.image && orKey && (or.data.preferForImages || !model)) return generateViaOpenRouter(ctx, doc, scene, variant, operationId, or.data, orKey.secret, keyframe);
   }
-  if (!model) throw new JobError("provider_not_configured", `No fal ${shot.kind} model is configured.`, false, `Choose a ${shot.kind} model endpoint (and its price) in Settings → Providers, or supply your own footage for this shot.`);
+  if (!model) throw new JobError("provider_not_configured", `No ${kind} model is configured.`, false, `Choose a ${kind} model (and its price) in Settings → Providers, or supply your own footage for this shot.`);
   const secret = await getProviderSecret(db, ctx.job.workspaceId, "fal");
   if (!secret) throw new JobError("credentials_missing", "fal is not configured.", false, "Add a fal API key in Settings, or supply your own footage for this shot.");
   const fal = new FalQueue(secret.secret);
 
   let g = await db.query.generationRequests.findFirst({ where: and(eq(schema.generationRequests.workspaceId, ctx.job.workspaceId), eq(schema.generationRequests.operationId, operationId)) });
-  if (g?.state === "succeeded" && g.assetId) return attach(ctx, sceneId, g, g.assetId);
+  if (g?.state === "succeeded" && g.assetId) return attach(ctx, sceneId, g, g.assetId, undefined, keyframe);
   if (g?.state === "uncertain" || g?.state === "submitting") {
     if (g.state === "submitting") await updateGen(g.id, { state: "uncertain", error: { message: "The worker stopped after sending the request but before fal confirmed it." } });
     throw new JobError("provider_uncertain", "It is unknown whether fal accepted this request, so it was not sent again (it may have been billed).", false, "Check your fal dashboard. To try again anyway, use Regenerate, which creates a new, separately billed request.");
@@ -113,19 +120,19 @@ export const generateMedia: Handler = async (ctx) => {
     const estimate = estimateFor(model);
     const genId = g?.id ?? newId("gen");
     const reserved = await db.transaction(async (tx) => {
-      const r = await reserveSpend(tx, { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId!, jobId: ctx.job.id, operationId, provider: "fal", capability: `${shot.kind}-generation`, estimate });
+      const r = await reserveSpend(tx, { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId!, jobId: ctx.job.id, operationId, provider: "fal", capability: `${kind}-generation`, estimate });
       if (!r.decision.allowed) return r;
-      const values = { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId, jobId: ctx.job.id, operationId, provider: "fal", endpoint: model.endpoint, capability: shot.kind, state: "submitting" as const, input: {}, requestId: null, error: null };
+      const values = { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId, jobId: ctx.job.id, operationId, provider: "fal", endpoint: model.endpoint, capability: kind, state: "submitting" as const, input: {}, requestId: null, error: null };
       if (g) await tx.update(schema.generationRequests).set({ ...values, updatedAt: sql`now()` }).where(eq(schema.generationRequests.id, genId));
       else await tx.insert(schema.generationRequests).values({ id: genId, ...values });
       return r;
     });
     if (!reserved.decision.allowed) {
-      await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: reserved.decision.allowed ? undefined : reserved.decision.message }], "shot blocked by budget");
+      if (!keyframe) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: reserved.decision.allowed ? undefined : reserved.decision.message }], "shot blocked by budget");
       throw new JobError(reserved.decision.code, reserved.decision.message, false, reserved.decision.code === "unknown_price_unauthorized" ? "Authorise a number of unknown-price requests in the project budget, or enter the model's price in Settings." : "Raise the project budget or supply your own footage.");
     }
     await ctx.stage("preparing request");
-    const input = await buildInput(ctx, doc, scene, model.maxDurationSec);
+    const input = await buildInput(ctx, doc, scene, kind, model.maxDurationSec);
     await updateGen(genId, { input: { ...input, image_url: input.image_url ? "(inline reference image)" : undefined } });
     const base = process.env.PUBLIC_BASE_URL;
     const webhookUrl = base ? `${base.replace(/\/$/, "")}/api/providers/fal/webhook?g=${genId}&t=${webhookToken("fal", genId)}` : undefined;
@@ -144,10 +151,10 @@ export const generateMedia: Handler = async (ctx) => {
       // A definite rejection: nothing was queued, so nothing is billed.
       await updateGen(genId, { state: "failed", error: { message: err.message, retryable: err.retryable, code: err.code } });
       await releaseSpend(db, ctx.job.workspaceId, operationId);
-      if (!err.retryable) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: err.message.slice(0, 300) }], "shot generation failed");
+      if (!err.retryable && !keyframe) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: err.message.slice(0, 300) }], "shot generation failed");
       throw new JobError(err.code, err.message, err.retryable, err.code === "credentials_invalid" ? "Check the fal key in Settings." : undefined);
     }
-    await applyWithRetry(ctx, (d) => (d.scenes.find((s) => s.id === sceneId)?.shot?.status === "accepted" ? [] : [{ op: "setShotStatus", sceneId, status: "generating", variant }]), "shot generating");
+    if (!keyframe) await applyWithRetry(ctx, (d) => (d.scenes.find((s) => s.id === sceneId)?.shot?.status === "accepted" ? [] : [{ op: "setShotStatus", sceneId, status: "generating", variant }]), "shot generating");
     g = await db.query.generationRequests.findFirst({ where: eq(schema.generationRequests.id, genId) });
   } else {
     await ctx.stage("reconciling with fal");
@@ -165,7 +172,7 @@ export const generateMedia: Handler = async (ctx) => {
       payload = cur.output as Record<string, unknown>;
       break;
     }
-    if (cur.state === "failed") return failGenerated(ctx, cur, operationId, sceneId, String((cur.error as { message?: string })?.message ?? "fal reported an error."));
+    if (cur.state === "failed") return failGenerated(ctx, cur, operationId, sceneId, String((cur.error as { message?: string })?.message ?? "fal reported an error."), keyframe);
     await ctx.stage("waiting for fal");
     try {
       const st = await fal.status(model.endpoint, cur.requestId!, ctx.signal);
@@ -176,7 +183,7 @@ export const generateMedia: Handler = async (ctx) => {
       }
       if (st.state === "failed") {
         await updateGen(cur.id, { state: "failed", error: { message: String(st.raw.error ?? "fal reported an error.") } });
-        return failGenerated(ctx, cur, operationId, sceneId, String(st.raw.error ?? "fal reported an error."));
+        return failGenerated(ctx, cur, operationId, sceneId, String(st.raw.error ?? "fal reported an error."), keyframe);
       }
     } catch (e) {
       if (!(e instanceof MediaProviderError) || !e.retryable) {
@@ -191,7 +198,7 @@ export const generateMedia: Handler = async (ctx) => {
 
   // 4) Download (SSRF-guarded), normalise, register with provenance, settle.
   const file = falOutputFiles((payload as { payload?: unknown }).payload ?? payload)[0];
-  if (!file) return failGenerated(ctx, g!, operationId, sceneId, "fal finished but returned no media file.");
+  if (!file) return failGenerated(ctx, g!, operationId, sceneId, "fal finished but returned no media file.", keyframe);
   await ctx.stage("downloading result");
   let bytes: Buffer;
   try {
@@ -199,10 +206,10 @@ export const generateMedia: Handler = async (ctx) => {
   } catch (e) {
     throw new JobError(e instanceof UnsafeUrlError ? e.code : "download_failed", `The generated file could not be downloaded: ${(e as Error).message}`, !(e instanceof UnsafeUrlError) || e.code === "timeout");
   }
-  const raw = join(ctx.workDir, shot.kind === "video" ? "gen.bin" : "gen-image");
+  const raw = join(ctx.workDir, kind === "video" ? "gen.bin" : "gen-image");
   await writeFile(raw, bytes);
   let out = raw;
-  if (shot.kind === "video") {
+  if (kind === "video") {
     await ctx.stage("normalising footage");
     out = join(ctx.workDir, "shot.mp4");
     await runOk(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-y", "-i", raw, "-vf", "scale=trunc(iw/2)*2:trunc(ih/2)*2,fps=30,format=yuv420p", "-c:v", "libx264", "-preset", "veryfast", "-crf", "20", "-an", "-movflags", "+faststart", out], { timeoutMs: 600_000, signal: ctx.signal });
@@ -211,8 +218,8 @@ export const generateMedia: Handler = async (ctx) => {
     await runOk(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-y", "-i", raw, "-frames:v", "1", out], { timeoutMs: 60_000 });
   }
   const asset = await registerFile(ctx.job.workspaceId, out, {
-    kind: shot.kind,
-    originalName: `generated-${scene.purpose.replace(/\W+/g, "-").toLowerCase()}-v${variant}.${shot.kind === "video" ? "mp4" : "png"}`,
+    kind,
+    originalName: `${keyframe ? "keyframe" : "generated"}-${scene.purpose.replace(/\W+/g, "-").toLowerCase()}-v${variant}.${kind === "video" ? "mp4" : "png"}`,
     generated: true,
     provenance: { source: "generated", provider: "fal", endpoint: model.endpoint, requestId: g!.requestId, operationId, prompt: shot.prompt, referenceAssetIds: shot.referenceAssetIds, projectId: ctx.job.projectId, sceneId, generatedAt: new Date().toISOString(), outputUrl: file.url },
   });
@@ -225,15 +232,19 @@ export const generateMedia: Handler = async (ctx) => {
     await ctx.stage("checking fidelity");
     const ref = (await resolveAssets(ctx.job.workspaceId, [refId])).get(refId);
     if (ref) {
-      const dur = shot.kind === "video" ? Number((asset.media as { durationSec?: number }).durationSec ?? 0) || undefined : undefined;
+      const dur = kind === "video" ? Number((asset.media as { durationSec?: number }).durationSec ?? 0) || undefined : undefined;
       const f = await productFidelity(out, ref.path, dur);
       review = { referenceAssetId: refId, ...f, decision: "pending" };
     }
   }
-  return attach(ctx, sceneId, { ...g!, assetId: asset.id }, asset.id, review);
+  return attach(ctx, sceneId, { ...g!, assetId: asset.id }, asset.id, review, keyframe);
 };
 
-async function attach(ctx: JobContext, sceneId: string, g: GenRow, assetId: string, review?: ShotReview) {
+async function attach(ctx: JobContext, sceneId: string, g: GenRow, assetId: string, review?: ShotReview, keyframe = false) {
+  if (keyframe) {
+    await applyWithRetry(ctx, () => [{ op: "setShotKeyframe", sceneId, assetId }], "keyframe generated");
+    return { sceneId, assetId, keyframe: true, generationId: g.id, operationId: g.operationId, fidelity: review ?? null };
+  }
   await applyWithRetry(ctx, () => [{ op: "addShotCandidate", sceneId, candidate: { assetId, generationId: g.id, provider: g.provider, createdAt: new Date().toISOString(), ...(review ? { review } : {}) }, autoAccept: true }], review?.flagged ? "generated shot needs fidelity review" : "generated shot ready");
   return { sceneId, assetId, generationId: g.id, requestId: g.requestId, operationId: g.operationId, fidelity: review ?? null };
 }
@@ -259,13 +270,13 @@ async function referenceImages(ctx: JobContext, doc: ProjectDocument, scene: Sce
  * is never resent; a definite rejection releases the reservation; the ledger settles at the cost
  * OpenRouter reports when it reports one.
  */
-async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scene: Scene, variant: number, operationId: string, settings: OpenRouterSettings, key: string) {
+async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scene: Scene, variant: number, operationId: string, settings: OpenRouterSettings, key: string, keyframe = false) {
   const db = getDb();
   const sceneId = scene.id;
   const shot = scene.shot!;
   const model = settings.image!;
   let g = await db.query.generationRequests.findFirst({ where: and(eq(schema.generationRequests.workspaceId, ctx.job.workspaceId), eq(schema.generationRequests.operationId, operationId)) });
-  if (g?.state === "succeeded" && g.assetId) return attach(ctx, sceneId, g, g.assetId);
+  if (g?.state === "succeeded" && g.assetId) return attach(ctx, sceneId, g, g.assetId, undefined, keyframe);
   if (g?.state === "uncertain" || g?.state === "submitting") {
     if (g.state === "submitting") await updateGen(g.id, { state: "uncertain", error: { message: "The worker stopped while OpenRouter was generating." } });
     throw new JobError("provider_uncertain", "It is unknown whether OpenRouter completed this request, so it was not sent again (it may have been billed).", false, "Check your OpenRouter activity page. To try again anyway, use Regenerate, which creates a new, separately billed request.");
@@ -282,7 +293,7 @@ async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scen
     return r;
   });
   if (!reserved.decision.allowed) {
-    await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: reserved.decision.allowed ? undefined : reserved.decision.message }], "shot blocked by budget");
+    if (!keyframe) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: reserved.decision.allowed ? undefined : reserved.decision.message }], "shot blocked by budget");
     throw new JobError(reserved.decision.code, reserved.decision.message, false, reserved.decision.code === "unknown_price_unauthorized" ? "Authorise a number of unknown-price requests in the project budget, or enter the model's price in Settings." : "Raise the project budget or supply your own images.");
   }
   await ctx.stage("preparing references");
@@ -290,8 +301,8 @@ async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scen
   const chars = doc.characters.filter((c) => shot.characterIds.includes(c.id));
   const prompt = [shot.prompt, shot.continuity && `Continuity: ${shot.continuity}`, ...chars.map((c) => `${c.name}: ${c.notes || `${c.species} character, body ${c.palette.body}, accent ${c.palette.accent}`}`)].filter(Boolean).join("\n").slice(0, 4000);
   await updateGen(genId, { input: { model: model.model, prompt, aspectRatio: doc.format.aspect, references: refs.map((r) => r.id) } });
-  await applyWithRetry(ctx, (d) => (d.scenes.find((s) => s.id === sceneId)?.shot?.status === "accepted" ? [] : [{ op: "setShotStatus", sceneId, status: "generating", variant }]), "shot generating");
-  await ctx.stage("generating with OpenRouter");
+  if (!keyframe) await applyWithRetry(ctx, (d) => (d.scenes.find((s) => s.id === sceneId)?.shot?.status === "accepted" ? [] : [{ op: "setShotStatus", sceneId, status: "generating", variant }]), "shot generating");
+  await ctx.stage(keyframe ? "generating keyframe with OpenRouter" : "generating with OpenRouter");
   let result;
   try {
     result = await new OpenRouterImages(key).generate({ model: model.model, prompt, references: refs.map(({ mediaType, data }) => ({ mediaType, data })), aspectRatio: doc.format.aspect, signal: ctx.signal });
@@ -303,7 +314,7 @@ async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scen
     }
     await updateGen(genId, { state: "failed", error: { message: err.message, retryable: err.retryable, code: err.code } });
     await releaseSpend(db, ctx.job.workspaceId, operationId);
-    if (!err.retryable) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: err.message.slice(0, 300) }], "shot generation failed");
+    if (!err.retryable && !keyframe) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: err.message.slice(0, 300) }], "shot generation failed");
     throw new JobError(err.code, err.message, err.retryable, err.code === "credentials_invalid" ? "Check the OpenRouter key in Settings." : undefined);
   }
   await updateGen(genId, { requestId: result.id, state: "succeeded", output: { model: result.model, costUsd: result.costUsd, images: result.images.length } });
@@ -325,9 +336,9 @@ async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scen
   await runOk(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-y", "-i", raw, "-frames:v", "1", out], { timeoutMs: 60_000 });
   const asset = await registerFile(ctx.job.workspaceId, out, {
     kind: "image",
-    originalName: `generated-${scene.purpose.replace(/\W+/g, "-").toLowerCase()}-v${variant}.png`,
+    originalName: `${keyframe ? "keyframe" : "generated"}-${scene.purpose.replace(/\W+/g, "-").toLowerCase()}-v${variant}.png`,
     generated: true,
-    provenance: { source: "generated", provider: "openrouter", model: result.model ?? model.model, requestId: result.id, operationId, prompt: shot.prompt, referenceAssetIds: refs.map((r) => r.id), projectId: ctx.job.projectId, sceneId, generatedAt: new Date().toISOString(), reportedCostUsd: result.costUsd },
+    provenance: { source: "generated", provider: "openrouter", ...(keyframe ? { role: "keyframe" } : {}), model: result.model ?? model.model, requestId: result.id, operationId, prompt: shot.prompt, referenceAssetIds: refs.map((r) => r.id), projectId: ctx.job.projectId, sceneId, generatedAt: new Date().toISOString(), reportedCostUsd: result.costUsd },
   });
   // Settle at the cost OpenRouter reported; otherwise at the owner-entered price.
   await settleSpend(db, ctx.job.workspaceId, operationId, result.costUsd !== null ? Math.round(result.costUsd * 1_000_000) : model.priceMicros);
@@ -339,14 +350,14 @@ async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scen
     if (ref) review = { referenceAssetId: refs[0].id, ...(await productFidelity(out, ref.path, undefined)), decision: "pending" };
   }
   g = (await db.query.generationRequests.findFirst({ where: eq(schema.generationRequests.id, genId) }))!;
-  return attach(ctx, sceneId, g, asset.id, review);
+  return attach(ctx, sceneId, g, asset.id, review, keyframe);
 }
 
-async function failGenerated(ctx: JobContext, g: GenRow, operationId: string, sceneId: string, message: string): Promise<never> {
+async function failGenerated(ctx: JobContext, g: GenRow, operationId: string, sceneId: string, message: string, keyframe = false): Promise<never> {
   // fal failures after queueing may still be billed by fal; keep the reservation settled at
   // the estimate unless the owner reconciles it, and say so.
   await settleSpend(getDb(), ctx.job.workspaceId, operationId, null);
-  await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: message.slice(0, 300) }], "shot generation failed");
+  if (!keyframe) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: message.slice(0, 300) }], "shot generation failed");
   throw new JobError("provider_failed", message, false, "Adjust the prompt and use Regenerate, or supply your own footage. Failed provider requests may still be billed by fal.");
 }
 
