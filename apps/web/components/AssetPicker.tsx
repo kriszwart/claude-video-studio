@@ -29,6 +29,7 @@ export function AssetPicker({
   const [progress, setProgress] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const [rights, setRights] = useState(false);
+  const [linkUrl, setLinkUrl] = useState("");
   const input = useRef<HTMLInputElement>(null);
   const valueRef = useRef(value);
   valueRef.current = value;
@@ -52,6 +53,25 @@ export function AssetPicker({
     if (value.some((id) => !assets.some((a) => a.id === id))) void load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [value.join(",")]);
+  const importLink = async () => {
+    const url = linkUrl.trim();
+    if (!url || !rights || progress) return;
+    setErr(null);
+    setProgress("Importing link…");
+    try {
+      const r = await api<{ job: { id: string } }>("/api/assets/import", { method: "POST", json: { url, rightsAcknowledged: true } });
+      const done = await waitForJob(r.job.id, (j) => setProgress(`Importing link: ${j.stage}`));
+      if (done.status !== "succeeded") throw new Error(done.error?.message ?? "Import failed.");
+      await load();
+      setLinkUrl("");
+      const id = String((done.result as { assetId?: string }).assetId ?? "");
+      if (id) onChange(multiple ? [...value, id].slice(0, max) : [id]);
+    } catch (x) {
+      setErr(x instanceof ApiError || x instanceof Error ? x.message : String(x));
+    } finally {
+      setProgress(null);
+    }
+  };
   const selected = value.map((id) => assets.find((a) => a.id === id)).filter(Boolean) as UploadedAsset[];
   const toggle = (id: string) => {
     if (!multiple) return onChange(value[0] === id ? [] : [id]);
@@ -111,31 +131,28 @@ export function AssetPicker({
             {progress && <span className="text-xs text-dim" aria-live="polite">{progress}</span>}
           </div>
           {kind !== "font" && kind !== "document" && (
-            <form
-              className="mb-2 flex gap-2"
-              onSubmit={async (e) => {
-                e.preventDefault();
-                const url = String(new FormData(e.currentTarget).get("url") ?? "").trim();
-                if (!url) return;
-                setErr(null);
-                setProgress("Importing link…");
-                try {
-                  const r = await api<{ job: { id: string } }>("/api/assets/import", { method: "POST", json: { url, rightsAcknowledged: true } });
-                  const done = await waitForJob(r.job.id, (j) => setProgress(`Importing link: ${j.stage}`));
-                  if (done.status !== "succeeded") throw new Error(done.error?.message ?? "Import failed.");
-                  await load();
-                  const id = String((done.result as { assetId?: string }).assetId ?? "");
-                  if (id) onChange(multiple ? [...value, id].slice(0, max) : [id]);
-                } catch (x) {
-                  setErr(x instanceof ApiError || x instanceof Error ? x.message : String(x));
-                } finally {
-                  setProgress(null);
-                }
-              }}
-            >
-              <input name="url" type="url" className="input py-1 text-xs" placeholder="https://… (public link)" aria-label="Import from link" disabled={!rights} />
-              <button className="btn text-xs" disabled={!rights}>Import</button>
-            </form>
+            // Not a <form>: the picker is used inside other forms (e.g. New Project), and a nested
+            // form is invalid HTML — the browser drops it and Import would submit the outer form.
+            <div className="mb-2 flex gap-2" role="group" aria-label="Import from link">
+              <input
+                type="url"
+                className="input py-1 text-xs"
+                placeholder="https://… (public link)"
+                aria-label="Import from link"
+                disabled={!rights || !!progress}
+                value={linkUrl}
+                onChange={(e) => setLinkUrl(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    void importLink();
+                  }
+                }}
+              />
+              <button type="button" className="btn text-xs" disabled={!rights || !!progress || !linkUrl.trim()} onClick={() => void importLink()}>
+                Import
+              </button>
+            </div>
           )}
           {err && <p role="alert" className="mb-2 text-xs text-bad">{err}</p>}
           {assets.length === 0 ? (

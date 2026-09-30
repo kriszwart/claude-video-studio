@@ -1,5 +1,5 @@
 import { createHash, createHmac, timingSafeEqual } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
+import { createReadStream, createWriteStream, existsSync } from "node:fs";
 import { copyFile, mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join, normalize, resolve, sep } from "node:path";
 import { Readable } from "node:stream";
@@ -20,8 +20,30 @@ export interface BlobStore {
   delete(key: string): Promise<void>;
 }
 
+/**
+ * The monorepo root (the folder holding pnpm-workspace.yaml), found by walking up from the
+ * working directory. The web server runs from apps/web and the worker from the repo root, so
+ * relative paths must be anchored here — never at each process's own cwd — or the two
+ * processes read and write different folders (uploads the worker can't find).
+ */
+export function workspaceRoot(): string {
+  if (process.env.STUDIO_REPO_ROOT) return resolve(process.env.STUDIO_REPO_ROOT);
+  let dir = process.cwd();
+  for (;;) {
+    if (existsSync(join(dir, "pnpm-workspace.yaml"))) return dir;
+    const up = dirname(dir);
+    if (up === dir) return process.cwd();
+    dir = up;
+  }
+}
+
+/** Resolve a configured path: absolute as given, relative to the workspace root otherwise. */
+export function fromWorkspaceRoot(p: string): string {
+  return resolve(workspaceRoot(), p);
+}
+
 export function dataDir(): string {
-  return resolve(process.env.DATA_DIR ?? join(process.cwd(), "data"));
+  return fromWorkspaceRoot(process.env.DATA_DIR || "data");
 }
 
 function safeKey(key: string): string {
