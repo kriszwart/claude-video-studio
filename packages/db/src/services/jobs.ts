@@ -13,6 +13,7 @@ export const JOB_TYPES = [
   "plan",
   "assistant",
   "keyframes",
+  "live_preview",
   "preview",
   "export",
   "tts",
@@ -64,7 +65,7 @@ export class JobError extends Error {
 export const PAUSING_ERRORS = new Set(["usage_limit"]);
 
 /** Jobs that compile the composition and therefore need the graphics backends it uses. */
-const GRAPHICS_JOBS = new Set<string>(["preview", "export", "keyframes", "quality_review"]);
+const GRAPHICS_JOBS = new Set<string>(["preview", "export", "keyframes", "live_preview", "quality_review"]);
 
 /** Graphics backends a revision needs (FR-21 capability routing). */
 export async function graphicsRequirements(db: DbOrTx, revisionId: string): Promise<string[]> {
@@ -291,8 +292,9 @@ export async function requestCancel(db: DbOrTx, job: JobRow): Promise<JobRow> {
   return (await db.query.jobs.findFirst({ where: eq(jobs.id, job.id) }))!;
 }
 
-export async function retryJob(db: DbOrTx, job: JobRow): Promise<JobRow> {
-  if (!["failed", "canceled", "uncertain", "paused"].includes(job.status)) return job;
+/** Re-queue a finished job. `force` also re-runs a succeeded one (only for rebuildable caches, e.g. live previews). */
+export async function retryJob(db: DbOrTx, job: JobRow, opts: { force?: boolean } = {}): Promise<JobRow> {
+  if (![...["failed", "canceled", "uncertain", "paused"], ...(opts.force ? ["succeeded"] : [])].includes(job.status)) return job;
   const [row] = await db
     .update(jobs)
     .set({ status: "queued", stage: "queued", maxAttempts: job.attempts + 3, runAfter: sql`now()`, finishedAt: null, error: null, updatedAt: sql`now()` })

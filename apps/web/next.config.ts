@@ -12,9 +12,11 @@ const config: NextConfig = {
         headers: [
           { key: "X-Content-Type-Options", value: "nosniff" },
           { key: "Referrer-Policy", value: "same-origin" },
-          { key: "X-Frame-Options", value: "DENY" },
         ],
       },
+      // Nothing may be framed, except the live-preview player page by the studio itself.
+      { source: "/((?!api/projects/[^/]+/live/).*)", headers: [{ key: "X-Frame-Options", value: "DENY" }] },
+      { source: "/api/projects/:id/live/:path*", headers: [{ key: "X-Frame-Options", value: "SAMEORIGIN" }] },
     ];
   },
 };

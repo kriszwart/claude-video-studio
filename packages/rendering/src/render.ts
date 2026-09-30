@@ -164,7 +164,7 @@ export interface PreparedBundle {
  * Stage assets, mix audio and compile an immutable, self-contained bundle for a
  * revision. No network access is needed at render time.
  */
-export async function prepareBundle(req: RenderRequest, opts: { withAudio: boolean } = { withAudio: true }): Promise<PreparedBundle> {
+export async function prepareBundle(req: RenderRequest, opts: { withAudio: boolean; mixCacheDir?: string } = { withAudio: true }): Promise<PreparedBundle> {
   const timings: Record<string, number> = {};
   const mark = (k: string, since: number) => (timings[k] = Date.now() - since);
   const progress = async (stage: RenderStage, fraction: number | null, message: string) => {
@@ -209,7 +209,29 @@ export async function prepareBundle(req: RenderRequest, opts: { withAudio: boole
     await progress("mixing", null, "Mixing audio");
     ts = Date.now();
     mixFile = join(bundleDir, "audio", "mix.wav");
-    mix = await mixAudio(collectMixInputs(req, timeline), { fps: doc.format.fps, totalFrames: timeline.totalFrames, output: mixFile, signal: req.signal });
+    const inputs = collectMixInputs(req, timeline);
+    if (opts.mixCacheDir) {
+      // Live previews: the mix depends only on its inputs (asset content, placement, gains), so
+      // edits that don't touch audio or timing reuse it instead of re-mixing.
+      const key = createHash("sha256")
+        .update(stableStringify({ v: 1, fps: doc.format.fps, totalFrames: timeline.totalFrames, inputs: inputs.map(({ file, ...i }) => ({ ...i, content: [...req.assets.values()].find((a) => a.path === file)?.contentHash ?? file })) }))
+        .digest("hex")
+        .slice(0, 32);
+      const cached = join(opts.mixCacheDir, `${key}.wav`);
+      const report = join(opts.mixCacheDir, `${key}.json`);
+      try {
+        await stat(cached);
+        await linkOrCopy(cached, mixFile);
+        mix = JSON.parse(await readFile(report, "utf8")) as MixReport;
+      } catch {
+        mix = await mixAudio(inputs, { fps: doc.format.fps, totalFrames: timeline.totalFrames, output: mixFile, signal: req.signal });
+        await mkdir(opts.mixCacheDir, { recursive: true });
+        await linkOrCopy(mixFile, cached);
+        await writeFile(report, JSON.stringify(mix));
+      }
+    } else {
+      mix = await mixAudio(inputs, { fps: doc.format.fps, totalFrames: timeline.totalFrames, output: mixFile, signal: req.signal });
+    }
     mark("mixing", ts);
   }
 

@@ -61,7 +61,7 @@ function renderKind(a: AssetRow): ResolvedAssetFile["kind"] {
 }
 
 /** Materialise referenced assets locally for a render. Missing or foreign assets are errors. */
-export async function resolveAssets(workspaceId: string, ids: string[]): Promise<Map<string, ResolvedAssetFile>> {
+export async function resolveAssets(workspaceId: string, ids: string[], opts: { preferProxy?: boolean } = {}): Promise<Map<string, ResolvedAssetFile>> {
   const db = getDb();
   const store = getStore();
   const out = new Map<string, ResolvedAssetFile>();
@@ -69,8 +69,9 @@ export async function resolveAssets(workspaceId: string, ids: string[]): Promise
     const a = await db.query.assets.findFirst({ where: eq(schema.assets.id, id) });
     if (!a || a.workspaceId !== workspaceId) throw new JobError("asset_missing", `Asset ${id} is not available in this workspace.`, false, "Replace the missing media in the scene inspector.");
     if (a.status !== "ready") throw new JobError("asset_not_ready", `Asset "${a.originalName}" is still ${a.status}.`, a.status === "pending", "Wait for the upload to finish processing or replace the file.");
-    const derived = a.derived as { rasterKey?: string };
-    const key = a.kind === "svg" && derived.rasterKey ? derived.rasterKey : a.storageKey;
+    const derived = a.derived as { rasterKey?: string; proxyKey?: string };
+    // Browser previews use the H.264 proxy made at ingest (smaller, and playable in every browser).
+    const key = a.kind === "svg" && derived.rasterKey ? derived.rasterKey : opts.preferProxy && a.kind === "video" && derived.proxyKey ? derived.proxyKey : a.storageKey;
     const path = await store.materialize(key);
     if ((a.kind === "image" || a.kind === "svg") && (a.media as { opaqueLuma?: number }).opaqueLuma === undefined) {
       // Backfill for assets ingested before luminance was measured.

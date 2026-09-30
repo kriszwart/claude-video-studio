@@ -1,11 +1,49 @@
+import { readdir, rm, stat } from "node:fs/promises";
+import { join } from "node:path";
 import { and, eq, isNull, lte, sql } from "drizzle-orm";
-import { getDb, getStore, schema } from "@vs/db";
+import { dataDir, getDb, getStore, schema } from "@vs/db";
+
+let lastLivePrune = 0;
+
+/**
+ * Live-preview bundles are disposable caches (rebuilt on demand in seconds): drop bundles not
+ * built/used for LIVE_TTL_HOURS (default 48), cached mixes after 7 days, and abandoned temp dirs.
+ */
+export async function pruneLiveBundles(now = Date.now()): Promise<number> {
+  const root = join(dataDir(), "live");
+  const ttl = Number(process.env.LIVE_TTL_HOURS ?? 48) * 3600_000;
+  let removed = 0;
+  const entries = await readdir(root).catch(() => [] as string[]);
+  for (const name of entries) {
+    const p = join(root, name);
+    const st = await stat(p).catch(() => null);
+    if (!st) continue;
+    const age = now - st.mtimeMs;
+    if (name === "mix") {
+      for (const f of await readdir(p).catch(() => [] as string[])) {
+        const fs = await stat(join(p, f)).catch(() => null);
+        if (fs && now - fs.mtimeMs > 7 * 24 * 3600_000) {
+          await rm(join(p, f), { force: true });
+          removed++;
+        }
+      }
+    } else if ((name.includes(".tmp-") && age > 3600_000) || (!name.includes(".tmp-") && age > ttl)) {
+      await rm(p, { recursive: true, force: true });
+      removed++;
+    }
+  }
+  return removed;
+}
 
 /**
  * Purge projects past their recovery window. Assets referenced by any other project or
  * template are preserved; failures are retried and visible to the operator.
  */
 export async function runCleanup(): Promise<{ purged: number; failed: number }> {
+  if (Date.now() - lastLivePrune > 30 * 60_000) {
+    lastLivePrune = Date.now();
+    await pruneLiveBundles().catch(() => 0);
+  }
   const db = getDb();
   const due = await db.query.cleanupTasks.findMany({ where: and(isNull(schema.cleanupTasks.doneAt), lte(schema.cleanupTasks.runAfter, sql`now()`)), limit: 20 });
   let purged = 0;

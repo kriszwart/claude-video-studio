@@ -69,6 +69,9 @@ test.describe.serial("M1 product launch", () => {
     expect(after.doc.scenes.map((s: { id: string }) => s.id)).toEqual(before.doc.scenes.map((s: { id: string }) => s.id));
     expect(after.doc.audio).toEqual(before.doc.audio);
     await expect(page.getByRole("navigation", { name: "Scenes" }).locator("li")).toHaveCount(before.doc.scenes.length);
+    // The editor opens on the live player; the rendered draft is still there under its tab.
+    await expect(page.getByRole("button", { name: "Play" })).toBeEnabled({ timeout: 60_000 });
+    await page.getByRole("tab", { name: "Rendered draft" }).click();
     await expect(page.locator("video")).toBeVisible();
   });
 

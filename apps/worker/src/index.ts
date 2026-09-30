@@ -9,6 +9,7 @@ import { assistantEdit, planStoryboard } from "./handlers/ai";
 import { runCleanup } from "./handlers/cleanup";
 import { ingestAsset } from "./handlers/ingest";
 import { renderKeyframes } from "./handlers/keyframes";
+import { livePreview } from "./handlers/livePreview";
 import { renderRevision } from "./handlers/render";
 import { seedSample } from "./handlers/seed";
 import { extraHandlers } from "./handlers/extra";
@@ -32,6 +33,7 @@ const handlers = {
   preview: renderRevision,
   export: renderRevision,
   keyframes: renderKeyframes,
+  live_preview: livePreview,
   seed_sample: seedSample,
   ...extraHandlers,
 };
@@ -43,7 +45,8 @@ async function main() {
   // named after those backends; this worker only consumes queues it can actually run.
   const backends = (["redraw", "skia"] as const).filter((b) => caps.graphics[b]);
   const subsets = backends.reduce<string[][]>((acc, b) => [...acc, ...acc.map((x) => [...x, b])], [[]]);
-  const consumed = subsets.map((sub) => queueNameFor(QUEUE, sub));
+  // Live previews get their own queues so the editor's player never waits behind a long export.
+  const consumed = [...subsets.map((sub) => queueNameFor(QUEUE, sub)), ...subsets.map((sub) => queueNameFor(`${QUEUE}-live`, sub))];
   const queues = new Map<string, Queue>();
   const queueFor = (name: string) => {
     if (!queues.has(name)) queues.set(name, new Queue(name, { connection: newConnection() }));
@@ -56,7 +59,7 @@ async function main() {
         async (m) => {
           await runJob(String(m.data.jobId), { workerId, handlers, log });
         },
-        { connection: newConnection(), concurrency: i === 0 ? concurrency : 1, lockDuration: 120_000, removeOnComplete: { count: 1000 }, removeOnFail: { count: 1000 } },
+        { connection: newConnection(), concurrency: i === 0 ? concurrency : name.includes("-live") ? 2 : 1, lockDuration: 120_000, removeOnComplete: { count: 1000 }, removeOnFail: { count: 1000 } },
       ),
   );
   for (const w of workers) w.on("error", (e) => log("queue error", { error: String(e) }));
@@ -65,7 +68,7 @@ async function main() {
     const delay = Math.max(0, job.runAfter.getTime() - Date.now());
     const requires = ((job.input as { requires?: string[] }).requires ?? []).filter((r) => r === "redraw" || r === "skia");
     // jobId + attempt marker keeps BullMQ deduplication while allowing retries to republish.
-    await queueFor(queueNameFor(QUEUE, requires)).add(job.type, { jobId: job.id }, { jobId: `${job.id}-${Date.now()}`, delay, removeOnComplete: true, removeOnFail: true });
+    await queueFor(queueNameFor(job.type === "live_preview" ? `${QUEUE}-live` : QUEUE, requires)).add(job.type, { jobId: job.id }, { jobId: `${job.id}-${Date.now()}`, delay, removeOnComplete: true, removeOnFail: true });
   };
   let stopping = false;
   const loops: NodeJS.Timeout[] = [];
