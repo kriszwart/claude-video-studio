@@ -1,5 +1,6 @@
 import { z } from "zod";
 import { AspectRatio, SafeAreaPresetIdSchema } from "./format";
+import { Script } from "./script";
 
 /**
  * Project document schema. Every revision stores one validated document.
@@ -465,6 +466,8 @@ export const ProjectDocument = z.object({
     .object({ enabled: z.boolean().default(false), on: z.enum(["downbeat", "beat", "section"]).default("downbeat"), sectionFlash: z.boolean().default(true), strength: Unit.default(0.6) })
     .default({ enabled: false, on: "downbeat", sectionFlash: true, strength: 0.6 }),
   program: Program.optional(),
+  /** Script stage: narration and on-screen lines per beat, approved before planning. */
+  script: Script.optional(),
   beats: z.array(EditorialBeat).max(200).default([]),
   characters: z.array(Character).max(6).default([]),
   /**

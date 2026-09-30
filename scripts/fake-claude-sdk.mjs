@@ -38,7 +38,7 @@ function composeAnswer(text, props) {
   const templates = grab("templates") ?? [];
   const settings = grab("settings") ?? {};
   const attachments = grab("attachments") ?? [];
-  const request = String(grab("request") ?? "");
+  const request = String(grab("owner_request") ?? "");
   const allowed = props.templateId.enum ?? [];
   const t = templates.find((x) => allowed.includes(x.id) && x.id === "motion-reel") ?? templates.find((x) => allowed.includes(x.id)) ?? templates[0];
   const words = request.replace(/[0-9]/g, "").split(/\s+/).filter(Boolean);
@@ -64,11 +64,72 @@ function composeAnswer(text, props) {
     aspect,
     durationSec: Math.min(t.durationSec.maxSec, Math.max(t.durationSec.minSec, want)),
     narration: settings.voice === "on" && t.narration !== "none",
+    scriptStyle: settings.scriptStyle && settings.scriptStyle !== "auto" ? settings.scriptStyle : "professor",
     textInputs,
     assetInputs,
     rationale: "TEST DOUBLE: canned composer answer.",
     warnings: [],
   };
+}
+
+/** Recipe steps from a planner/scriptwriter prompt: "slot — purpose (~Ns, layout L…)". */
+function recipeSteps(text) {
+  const line = /Recipe(?: beats)? \(in order\): (.*)/.exec(text)?.[1] ?? "";
+  return line.split("; ").map((part) => {
+    const m = /^(\S+) — (.*?) \(~([\d.]+)s(.*)\)$/.exec(part.trim());
+    return m ? { slot: m[1], purpose: m[2], sec: Number(m[3]), layout: /layout ([\w-]+)/.exec(m[4])?.[1], conditional: /only if/.test(m[4]) } : null;
+  }).filter(Boolean);
+}
+
+/**
+ * Script answer. The first draft deliberately contains stock phrasing ("Let's dive in") so the
+ * studio's check-and-repair loop is exercised; the revision removes it.
+ */
+function scriptAnswer(text) {
+  const narrated = /narrated="true"/.test(text);
+  const target = Number(/targetDurationSec="([\d.]+)"/.exec(text)?.[1] ?? 20);
+  const steps = recipeSteps(text).filter((s) => !s.conditional);
+  const sum = steps.reduce((a, s) => a + s.sec, 0) || 1;
+  const revising = /Revise the script/.test(text);
+  const beats = steps.map((s, i) => ({
+    recipeSlot: s.slot,
+    purpose: s.purpose,
+    narration: narrated ? `${i === 0 && !revising ? "Let's dive in. " : ""}This beat covers ${s.purpose.toLowerCase().replace(/[^a-z ]/g, "")} in plain words.` : "",
+    onScreen: s.purpose.replace(/[0-9]/g, ""),
+    durationSec: Math.max(1, Math.round((s.sec / sum) * target * 10) / 10),
+  }));
+  return { beats, notes: "TEST DOUBLE: canned script, one beat per recipe step." };
+}
+
+/** Plan answer: follows an approved script exactly (one scene per beat), otherwise the recipe. */
+function planAnswer(text) {
+  const catalogue = (() => {
+    try {
+      return JSON.parse(/<layout_catalogue>([\s\S]*?)<\/layout_catalogue>/.exec(text)?.[1] ?? "{}");
+    } catch {
+      return {};
+    }
+  })();
+  const steps = recipeSteps(text);
+  const scriptJson = /<approved_script[^>]*>([\s\S]*?)<\/approved_script>/.exec(text)?.[1];
+  const beats = scriptJson ? JSON.parse(scriptJson) : steps.filter((s) => !s.conditional).map((s) => ({ recipeSlot: s.slot, purpose: s.purpose, narration: "", onScreen: s.purpose, durationSec: s.sec }));
+  const scenes = beats.map((b, i) => {
+    const layout = steps.find((s) => s.slot === b.recipeSlot)?.layout ?? Object.keys(catalogue)[0];
+    const slots = (catalogue[layout] ?? []).map((x) => x.replace(/ \(full frame\)$/, ""));
+    const textSlot = slots.find((x) => x === "headline") ?? slots.find((x) => !/^media|presenter/.test(x));
+    return {
+      recipeSlot: b.recipeSlot,
+      purpose: b.purpose,
+      layout,
+      durationSec: b.durationSec,
+      transition: i === 0 ? "cut" : "fade",
+      motionIntensity: 0.6,
+      narration: b.narration,
+      texts: textSlot && b.onScreen ? [{ slot: textSlot, role: "headline", text: b.onScreen, approvedFactId: null }] : [],
+      media: [],
+    };
+  });
+  return { rationale: "TEST DOUBLE: canned plan.", scenes, omitted: [], warnings: [] };
 }
 
 export function query({ prompt, options = {} }) {
@@ -101,6 +162,10 @@ export function query({ prompt, options = {} }) {
       out = { explanation: "TEST DOUBLE: set the first scene to 7 seconds.", clarificationQuestion: null, operations: sceneId ? [{ op: "setSceneDuration", sceneId, durationSec: 7 }] : [] };
     } else if ("textInputs" in props && "templateId" in props) {
       out = composeAnswer(text, props);
+    } else if ("beats" in props && "notes" in props) {
+      out = scriptAnswer(text);
+    } else if ("scenes" in props && "rationale" in props) {
+      out = planAnswer(text);
     } else {
       yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["The test double only answers assistant edits and composer requests."], usage: {}, modelUsage: {} };
       return;

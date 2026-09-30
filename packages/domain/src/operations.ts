@@ -26,6 +26,7 @@ import { AspectRatio, SafeAreaPresetIdSchema } from "./format";
 import { computeTimeline, validateTimeline } from "./timeline";
 import { varyScene } from "./variation";
 import { syncProgramScenes } from "./program";
+import { Script, ScriptBeat } from "./script";
 
 const Unit = z.number().min(0).max(1);
 
@@ -100,6 +101,9 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("fitScenesToMarkers"), kinds: z.array(z.enum(["section", "downbeat", "beat"])).min(1) }),
   z.object({ op: z.literal("setMusicLock"), enabled: z.boolean(), trackId: Id.optional() }),
   z.object({ op: z.literal("setProgram"), program: Program }),
+  z.object({ op: z.literal("setScript"), script: Script.nullable() }),
+  z.object({ op: z.literal("updateScriptBeat"), beatId: z.string().max(64), patch: z.object({ narration: z.string().max(1200), onScreen: z.string().max(220), durationSec: ScriptBeat.shape.durationSec, purpose: z.string().max(80) }).partial() }),
+  z.object({ op: z.literal("setScriptStatus"), status: z.enum(["draft", "approved"]) }),
   z.object({ op: z.literal("proposeCuts"), cuts: Program.shape.proposedCuts.unwrap() }),
   z.object({ op: z.literal("acceptCuts"), cutIds: z.array(Id).min(1) }),
   z.object({ op: z.literal("rejectCuts"), cutIds: z.array(Id).min(1) }),
@@ -584,6 +588,24 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
     case "setProgram":
       doc.program = op.program;
       return syncProgramScenes(doc);
+    case "setScript":
+      if (op.script) doc.script = op.script;
+      else delete doc.script;
+      return doc;
+    case "updateScriptBeat": {
+      if (!doc.script) throw new OperationError("not_found", "This project has no script.");
+      const beat = doc.script.beats.find((b) => b.id === op.beatId);
+      if (!beat) throw new OperationError("not_found", `Script beat ${op.beatId} does not exist.`);
+      Object.assign(beat, Object.fromEntries(Object.entries(op.patch).filter(([, v]) => v !== undefined)));
+      // Editing an approved script reopens it: approval always covers the exact words.
+      doc.script.status = "draft";
+      return doc;
+    }
+    case "setScriptStatus":
+      if (!doc.script) throw new OperationError("not_found", "This project has no script.");
+      if (op.status === "approved" && actor !== "user") throw new OperationError("approved_claim", "Only the owner can approve the script.");
+      doc.script.status = op.status;
+      return doc;
     case "proposeCuts":
       requireProgram(doc).proposedCuts = op.cuts;
       return doc;

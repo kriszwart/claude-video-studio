@@ -2,7 +2,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { claudeRequestRange, EFFORT_LEVELS, EFFORT_ORDER, type EffortLevel } from "@vs/domain";
+import { claudeRequestRange, EFFORT_LEVELS, EFFORT_ORDER, SCRIPT_STYLE_IDS, SCRIPT_STYLES, type EffortLevel, type ScriptStyle } from "@vs/domain";
 import { AssetPicker } from "@/components/AssetPicker";
 import { TemplatePoster } from "@/components/TemplatePoster";
 import { api, ApiError, waitForJob, type UploadedAsset } from "@/lib/client/api";
@@ -37,6 +37,7 @@ interface Settings {
   /** "auto", "off", or a specific voice id. */
   voice: string;
   brandKitId: string | null;
+  scriptStyle: ScriptStyle | null;
 }
 interface Proposal {
   templateId: string;
@@ -46,13 +47,14 @@ interface Proposal {
   aspect: Aspect;
   durationSec: number;
   narration: boolean;
+  scriptStyle: ScriptStyle;
   inputs: Record<string, string | number | string[]>;
   facts: { inputId: string; label: string; items: string[] }[];
   rationale: string;
   warnings: string[];
 }
 
-const AUTO: Settings = { aspect: null, durationSec: null, music: "auto", voice: "auto", brandKitId: null };
+const AUTO: Settings = { aspect: null, durationSec: null, music: "auto", voice: "auto", brandKitId: null, scriptStyle: null };
 
 /** Seconds ↔ slider position on a log scale, 5 s … 10 min. */
 const MIN_S = 5;
@@ -134,7 +136,7 @@ export function Composer({ templates, claude, onOpenForm }: { templates: Compose
         json: {
           prompt: prompt.trim(),
           templateId,
-          settings: { aspect: settings.aspect, durationSec: settings.durationSec, music: settings.music, voice: settings.voice === "auto" ? "auto" : settings.voice === "off" || (!pickedVoice && !defaultVoice) ? "off" : "on" },
+          settings: { aspect: settings.aspect, durationSec: settings.durationSec, music: settings.music, voice: settings.voice === "auto" ? "auto" : settings.voice === "off" || (!pickedVoice && !defaultVoice) ? "off" : "on", scriptStyle: settings.scriptStyle },
           effort,
           assetIds: attachedIds,
         },
@@ -175,7 +177,7 @@ export function Composer({ templates, claude, onOpenForm }: { templates: Compose
           inputs,
           brandKitId: settings.brandKitId ?? brandAuto?.id ?? undefined,
           plan: !!plan,
-          ...(plan ? { planEffort: plan } : {}),
+          ...(plan ? { planEffort: plan, script: { style: proposal.scriptStyle, narrated: proposal.narration } } : {}),
           ...(voice ? { narration: { voiceId: voice.id } } : {}),
         },
       });
@@ -296,6 +298,13 @@ export function Composer({ templates, claude, onOpenForm }: { templates: Compose
                   })}
                 </select>
               </Field>
+              <Field label="Writing style">
+                <select aria-label="Writing style" className="input h-9" value={settings.scriptStyle ?? ""} onChange={(e) => setSettings({ ...settings, scriptStyle: (e.target.value || null) as ScriptStyle | null })}>
+                  <option value="">Auto — Claude picks for the request</option>
+                  {SCRIPT_STYLE_IDS.map((id) => <option key={id} value={id}>{SCRIPT_STYLES[id].label}</option>)}
+                </select>
+                {settings.scriptStyle && <p className="mt-1 text-[11px] text-faint">{SCRIPT_STYLES[settings.scriptStyle].guide}</p>}
+              </Field>
               <Field label="Brand">
                 <select aria-label="Brand kit" className="input h-9" value={settings.brandKitId ?? ""} onChange={(e) => setSettings({ ...settings, brandKitId: e.target.value || null })}>
                   <option value="">{brandAuto ? `Auto — ${brandAuto.name}` : "Auto — studio default look"}</option>
@@ -389,7 +398,7 @@ function Review({ proposal, setProposal, templates, effort, voice, busy, err, on
               <span className="chip">{fmtLength(proposal.durationSec)}</span>
               <span className="chip">{proposal.narration ? (voice ? `Voice: ${voice.label}` : "Voiceover script only — no voice available") : "No voiceover"}</span>
               <span className="chip">{mediaCount ? `${mediaCount} attachment${mediaCount > 1 ? "s" : ""} used` : "No attachments used"}</span>
-              <span className="chip">{plan ? `Claude plans the storyboard (${EFFORT_LEVELS[effort].label})` : "Template structure as is (Quick)"}</span>
+              <span className="chip">{plan ? `Script first (${SCRIPT_STYLES[proposal.scriptStyle]?.label ?? proposal.scriptStyle}), then storyboard` : "Template structure as is (Quick)"}</span>
             </div>
           </div>
         </div>
@@ -433,7 +442,7 @@ function Review({ proposal, setProposal, templates, effort, voice, busy, err, on
           {err && <p role="alert" className="text-sm text-bad">{err}</p>}
           <div className="flex items-center gap-2">
             <button className="btn btn-primary" onClick={onCreate} disabled={busy || !proposal.title.trim()}>{busy ? "Creating…" : "Create video"}</button>
-            <span className="text-xs text-faint">{plan ? "Opens the editor while Claude plans the storyboard." : "Opens the editor with the template's scenes filled in."}</span>
+            <span className="text-xs text-faint">{plan ? "Opens the editor while Claude writes the script for you to approve." : "Opens the editor with the template's scenes filled in."}</span>
           </div>
         </div>
       </div>

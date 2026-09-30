@@ -124,7 +124,9 @@ export const planStoryboard: Handler = async (ctx) => {
   const template = TemplateDefinition.parse(version.definition);
   const client = await claudeFor(ctx.job.workspaceId, ctx.job.projectId ?? ctx.job.id);
   const assets = await assetManifest(ctx.job.workspaceId, doc, (ctx.job.input.assetIds as string[] | undefined) ?? []);
-  const target = Number(ctx.job.input.targetDurationSec ?? Math.round(doc.scenes.reduce((a, s) => a + s.durationFrames, 0) / doc.format.fps));
+  // An approved script fixes the beat lengths; otherwise use the requested (or current) length.
+  const scripted = doc.script?.status === "approved" ? doc.script.beats.reduce((a, b) => a + b.durationSec, 0) : null;
+  const target = scripted ?? Number(ctx.job.input.targetDurationSec ?? Math.round(doc.scenes.reduce((a, s) => a + s.durationFrames, 0) / doc.format.fps));
 
   await ctx.stage("planning with Claude");
   let run;

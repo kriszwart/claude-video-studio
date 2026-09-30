@@ -1,6 +1,7 @@
 import { z } from "zod";
 import { and, eq, inArray } from "drizzle-orm";
 import { AppError, enqueueJob, getDb, listTemplates, schema } from "@vs/db";
+import { SCRIPT_STYLE_IDS } from "@vs/domain";
 import { ASPECTS, EFFORT_LEVELS } from "@vs/providers";
 import { TemplateDefinition } from "@vs/templates";
 import { requireSession } from "@/lib/server/auth";
@@ -18,8 +19,9 @@ const Compose = z.object({
       durationSec: z.number().min(5).max(600).nullable().default(null),
       music: z.enum(["auto", "on", "off"]).default("auto"),
       voice: z.enum(["auto", "off", "on"]).default("auto"),
+      scriptStyle: z.enum(SCRIPT_STYLE_IDS).nullable().default(null),
     })
-    .default({ aspect: null, durationSec: null, music: "auto", voice: "auto" }),
+    .default({ aspect: null, durationSec: null, music: "auto", voice: "auto", scriptStyle: null }),
   effort: z.enum(Object.keys(EFFORT_LEVELS) as [keyof typeof EFFORT_LEVELS, ...(keyof typeof EFFORT_LEVELS)[]]).default("standard"),
   assetIds: z.array(z.string().max(64)).max(24).default([]),
 });

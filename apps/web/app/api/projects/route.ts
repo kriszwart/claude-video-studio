@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
 import { AppError, createProject, signAssetUrl, enqueueJob, getDb, getTemplateVersion, listProjects, newId, schema } from "@vs/db";
-import { AspectRatio, BrandSnapshot, type BudgetPolicy, DEFAULT_BUDGET } from "@vs/domain";
+import { AspectRatio, BrandSnapshot, type BudgetPolicy, DEFAULT_BUDGET, SCRIPT_STYLE_IDS } from "@vs/domain";
 import { DEFAULT_BRAND, instantiateTemplate, missingRequiredInputs, TemplateDefinition } from "@vs/templates";
 import { requireSession } from "@/lib/server/auth";
 import { requireClaude } from "@/lib/server/claude";
@@ -51,6 +51,8 @@ const Create = z.object({
   planEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
   /** Narrate with this voice: after planning when planning, otherwise right away. */
   narration: z.object({ voiceId: z.string().min(1).max(120) }).optional(),
+  /** Start with the script stage instead of planning: Claude writes a script for approval first. */
+  script: z.object({ style: z.enum(SCRIPT_STYLE_IDS), direction: z.string().max(400).default(""), narrated: z.boolean() }).optional(),
   budget: z.object({ projectCeilingMicros: z.number().int().min(0), operationCeilingMicros: z.number().int().min(0), unknownPriceRequestsAuthorized: z.number().int().min(0) }).partial().optional(),
 });
 
@@ -92,11 +94,14 @@ export const POST = route(async (req) => {
   }
   const budget: BudgetPolicy = { ...DEFAULT_BUDGET, ...input.budget };
   // AI planning needs a ready Claude runtime; without it, nothing is created (create without planning instead).
-  if (input.plan) await requireClaude(s.workspaceId);
+  if (input.plan || input.script) await requireClaude(s.workspaceId);
   const result = await db.transaction(async (tx) => {
     const created = await createProject(tx, { workspaceId: s.workspaceId, doc, templateId: template.id, templateVersion: template.version, family: template.family, budget, action: "created from template" });
     let job = null;
-    if (input.plan) {
+    if (input.script && !template.program && !template.musicVideo) {
+      const next = { ...(input.planEffort ? { planEffort: input.planEffort } : {}), ...(input.narration ? { voiceId: input.narration.voiceId } : {}) };
+      job = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "write_script", input: { style: input.script.style, direction: input.script.direction, narrated: input.script.narrated, targetDurationSec: input.durationSec ?? template.duration.defaultSec, next }, idempotencyKey: idem ? `script:${idem}` : null })).job;
+    } else if (input.plan) {
       job = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "plan", input: { baseRevisionId: created.revision.id, targetDurationSec: input.durationSec ?? template.duration.defaultSec, ...(input.planEffort ? { effort: input.planEffort } : {}), ...(input.narration ? { narration: input.narration } : {}) }, idempotencyKey: idem ? `plan:${idem}` : null })).job;
     } else if (input.narration && !template.program && !template.musicVideo) {
       await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "tts", input: { voiceId: input.narration.voiceId, rate: 1, fit: "extend" }, idempotencyKey: idem ? `tts:${idem}` : null });

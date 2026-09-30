@@ -10,6 +10,7 @@ import { analyzeReference } from "./reference";
 import { qualityReview } from "./quality";
 import { captureScreenshot } from "./screenshot";
 import { composeBrief } from "./compose";
+import { writeScript } from "./script";
 
 /** Additional handlers registered by later milestones (TTS, transcription, QA, generation…). */
 export const extraHandlers: Record<string, Handler> = {
@@ -26,4 +27,5 @@ export const extraHandlers: Record<string, Handler> = {
   quality_review: qualityReview,
   screenshot_capture: captureScreenshot,
   compose: composeBrief,
+  write_script: writeScript,
 };

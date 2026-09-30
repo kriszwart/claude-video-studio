@@ -50,6 +50,7 @@ export const composeBrief: Handler = async (ctx) => {
     aspect: run.output.aspect,
     durationSec: run.output.durationSec,
     narration: run.output.narration,
+    scriptStyle: run.output.scriptStyle,
     inputs: run.inputs,
     facts,
     rationale: run.output.rationale,

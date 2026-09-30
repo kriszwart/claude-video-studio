@@ -21,6 +21,7 @@ const good = (over: Partial<ComposeOutput> = {}): ComposeOutput => ({
   aspect: "16:9",
   durationSec: 20,
   narration: false,
+  scriptStyle: "professor",
   textInputs: [
     { inputId: "headline", value: "Plan less, ship more", items: [] },
     { inputId: "brandName", value: "Tidewave", items: [] },

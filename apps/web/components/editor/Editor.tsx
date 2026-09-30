@@ -16,9 +16,10 @@ import { ShotsPanel } from "./ShotsPanel";
 import { ProjectPanel } from "./ProjectPanel";
 import { SceneInspector } from "./SceneInspector";
 import { SceneList } from "./SceneList";
+import { ScriptPanel } from "./ScriptPanel";
 import { useProject } from "./useProject";
 
-type Tab = "scene" | "transcript" | "shots" | "assistant" | "audio" | "export" | "project";
+type Tab = "script" | "scene" | "transcript" | "shots" | "assistant" | "audio" | "export" | "project";
 
 export function Editor({ projectId }: { projectId: string }) {
   const p = useProject(projectId);
@@ -43,6 +44,16 @@ export function Editor({ projectId }: { projectId: string }) {
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
   }, [p]);
+  // Open the Script tab once when a script is being written or waits for approval.
+  const scriptOpened = useRef(false);
+  useEffect(() => {
+    if (scriptOpened.current || !p.doc || !p.view) return;
+    const writing = p.view.jobs.some((j) => j.type === "write_script" && ["queued", "running"].includes(j.status));
+    if (writing || p.doc.script?.status === "draft") {
+      scriptOpened.current = true;
+      setTab("script");
+    }
+  }, [p.doc, p.view]);
   const blocking = useMemo(() => (p.doc ? validateTimeline(p.doc).filter((i) => i.severity === "error").map((i) => i.message) : []), [p.doc]);
 
   if (p.loadError && !p.doc) return <main className="p-8 text-bad">{p.loadError}</main>;
@@ -74,6 +85,12 @@ export function Editor({ projectId }: { projectId: string }) {
         <div role="status" className="flex items-center gap-2 border-b border-line bg-accent/10 px-3 py-1 text-xs">
           {p.notice}
           <button className="ml-auto underline" onClick={p.clearNotice}>Dismiss</button>
+        </div>
+      )}
+      {doc.script?.status === "draft" && !planning && tab !== "script" && (
+        <div role="status" className="flex items-center gap-2 border-b border-line bg-warn/10 px-3 py-1 text-xs">
+          The script is waiting for your approval; the storyboard is planned from it.
+          <button className="ml-auto underline" onClick={() => setTab("script")}>Review the script</button>
         </div>
       )}
       {planning && (
@@ -111,7 +128,7 @@ export function Editor({ projectId }: { projectId: string }) {
         </div>
         <aside className="order-3 flex min-h-0 flex-col border-line bg-panel/40 lg:order-none lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:border-l">
           <div role="tablist" aria-label="Inspector" className="flex gap-0.5 overflow-x-auto border-b border-line px-2 py-1.5">
-            {([...(doc.program ? ["transcript"] : []), "scene", ...(doc.scenes.some((s) => s.shot) ? ["shots"] : []), "assistant", "audio", "export", "project"] as Tab[]).map((t) => (
+            {([...(doc.program ? ["transcript"] : []), ...(!doc.program && doc.template.family !== "music-video" ? ["script"] : []), "scene", ...(doc.scenes.some((s) => s.shot) ? ["shots"] : []), "assistant", "audio", "export", "project"] as Tab[]).map((t) => (
               <button key={t} role="tab" aria-selected={tab === t} className={`seg shrink-0 capitalize ${tab === t ? "seg-on" : ""}`} onClick={() => setTab(t)}>
                 {t === "assistant" ? "Assistant" : t}
               </button>
@@ -120,6 +137,7 @@ export function Editor({ projectId }: { projectId: string }) {
           <div className="min-h-0 flex-1 overflow-y-auto p-3" role="tabpanel">
             {tab === "transcript" && doc.program && <ProgramPanel projectId={projectId} doc={doc} view={view} apply={p.apply} onChanged={() => p.refresh()} />}
             {tab === "shots" && <ShotsPanel projectId={projectId} doc={doc} jobs={view.jobs} apply={p.apply} />}
+            {tab === "script" && <ScriptPanel projectId={projectId} doc={doc} jobs={view.jobs} apply={p.apply} revRef={p.revRef} claudeReady={!!claudeStatus?.readiness.available} />}
             {tab === "scene" && <SceneInspector doc={doc} scene={scene} apply={p.apply} />}
             {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claude={claudeStatus?.readiness ?? null} />}
             {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}

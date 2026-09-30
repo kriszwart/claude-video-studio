@@ -12,6 +12,7 @@ export const JOB_TYPES = [
   "import_url",
   "plan",
   "compose",
+  "write_script",
   "assistant",
   "keyframes",
   "live_preview",

@@ -4,6 +4,7 @@ export * from "./claude/schema";
 export * from "./claude/planner";
 export * from "./claude/editor";
 export * from "./claude/composer";
+export * from "./claude/scriptwriter";
 export * from "./tts/types";
 export * from "./tts/local";
 export * from "./tts/elevenlabs";

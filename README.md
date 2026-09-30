@@ -19,6 +19,7 @@ exactly as you left them, and can be saved as reusable templates.
 | Bounded render–review–repair with a stored quality report; product-fidelity check for generated shots; website screenshots through the SSRF guard | A22, A23, FR-15 |
 | Capability routing to workers that can run Redraw/Skia; per-scene render cache | A29, A30 |
 | Composer: one prompt (+ optional template chip, attachments) → Claude proposes template, settings and inputs → you review claims and title → project; settings default to Auto; one effort dial (Quick/Standard/High/Max) | Tested against the Claude SDK test double (composer spec); live Claude output unverified here |
+| Script stage: Claude writes narration + on-screen line per beat in a chosen style (University professor, Plain, Conversational, Documentary, Energetic); deterministic check for stock AI phrasing, pace (words per beat vs. style's words-per-minute), dashes and invented figures, repaired automatically and shown live while you edit; you approve the exact words, then planning builds one scene per beat with the narration verbatim | script-stage spec (SDK test double) and unit tests; live Claude output unverified here |
 | Live in-browser player and a multi-track timeline (scenes, voice, music, captions, markers) with trim and zoom | live-preview and timeline specs |
 | Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
 | Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
@@ -113,6 +114,16 @@ effort. The bar shows roughly how many Claude requests a run makes; on the defau
 runtime these use your Claude plan, not an API key. Auto voiceover picks a free voice (OmniVoice,
 then built-in); ElevenLabs is used only when you pick one of its voices. Each template's **Form**
 link still opens the full manual form, which works without Claude.
+
+At Standard effort and above the project starts with the **script stage**. Claude writes the
+narration and the main on-screen line for each beat in the chosen writing style (Auto lets Claude
+choose; *University professor* is the default for explainers). Every draft is checked for stock
+AI phrasing ("delve", "unlock", "seamless", "it isn't X — it's Y", "let's dive in" and so on),
+for pace against the style's words per minute, and for figures that are not in your brief; Claude
+repairs what it can, and the Script tab shows anything left as you edit. Ask for a rewrite with a
+note, or edit lines yourself, then **Approve script & plan storyboard**: the planner builds one
+scene per beat and must keep your narration word for word; the voiceover is recorded after that.
+Editing an approved line reopens it for approval.
 
 ### ElevenLabs voices
 
