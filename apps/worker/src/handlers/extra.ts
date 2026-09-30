@@ -13,6 +13,7 @@ import { composeBrief } from "./compose";
 import { writeScript } from "./script";
 import { critique } from "./critique";
 import { exportOtio } from "./otio";
+import { generateMusic } from "./music.gen";
 
 /** Additional handlers registered by later milestones (TTS, transcription, QA, generation…). */
 export const extraHandlers: Record<string, Handler> = {
@@ -32,4 +33,5 @@ export const extraHandlers: Record<string, Handler> = {
   write_script: writeScript,
   critique,
   export_otio: exportOtio,
+  generate_music: generateMusic,
 };

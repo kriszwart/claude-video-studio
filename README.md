@@ -24,6 +24,7 @@ exactly as you left them, and can be saved as reusable templates.
 | Per-scene voice direction: pace, energy and a delivery note per line (written by the scriptwriter, editable in the Script and Scene tabs); pace works on every voice (Pico via pitch-preserving tempo), energy maps to ElevenLabs stability/style, energy and notes go to OmniVoice as instructions; only parts a voice uses affect its cache, so changing an ignored note never re-records | voice-direction spec with real Pico audio; provider request tests |
 | Visual critic: Claude reviews real rendered frames (a settled frame per scene plus transitions, up to 16) with the script, narration timings and measured checks; scores story/visuals/readability/pacing, lists prioritised findings with evidence frames, and turns fixable ones into scoped assistant requests you select and apply (locks and approved claims stay protected); review again to compare scores | critic spec (SDK test double; verifies the frames reach Claude as images) |
 | OpenTimelineIO export: a rendered version packages as .otioz (timeline + media) — program cut per scene, voiceover/music/footage tracks where the renderer places them, music markers, scene text and narration as metadata | otio spec, validated by reading the bundle with the reference OpenTimelineIO library |
+| ElevenLabs music: compose a bed from a description (3 s–10 min, instrumental by default) in the Audio tab; budget-gated like other paid generation (owner-entered price per minute, or an authorised unknown-price request), runs once, placed on the timeline with fades and ducking | music-gen spec against a local ElevenLabs stand-in; the live API is unverified here |
 | Live in-browser player and a multi-track timeline (scenes, voice, music, captions, markers) with trim and zoom | live-preview and timeline specs |
 | Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
 | Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
@@ -157,6 +158,16 @@ that shows it, most important first. Findings the assistant can act on carry a s
 tick the ones you want and **Apply** sends them as one scoped assistant request, so locked scenes
 and approved claims stay protected. Review again to see the scores move. The critic only sees
 stills: motion between frames and the sound itself are not judged.
+
+### ElevenLabs music
+
+With an ElevenLabs key configured, the Audio tab can **compose music** from a description
+(instrumental by default, length defaults to the video's). It's paid: each request is checked
+against the project's generation budget before anything is sent — enter your ElevenLabs music
+price per minute in Settings to track it, or authorise a bounded number of unknown-price requests
+in the project budget. A request runs once and is never retried automatically; a provider error
+releases the reservation. The new bed replaces the current music, with fades and ducking under
+narration, and its real length is measured from the audio.
 
 ### ElevenLabs voices
 

@@ -49,6 +49,11 @@ export class ElevenLabsTts implements TtsProvider {
     private fetchImpl: typeof fetch = fetch,
   ) {}
 
+  /** Authenticated request to the ElevenLabs API (used by music as well as speech). */
+  request(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
+    return this.req(path, init, timeoutMs);
+  }
+
   private async req(path: string, init: RequestInit, timeoutMs: number): Promise<Response> {
     const ac = new AbortController();
     const t = setTimeout(() => ac.abort(), timeoutMs);
@@ -113,4 +118,39 @@ export function elevenLabsVoiceSettings(opts: SynthesizeOptions): Record<string,
   if (opts.energy === "calm") Object.assign(s, { stability: 0.75, style: 0 });
   if (opts.energy === "lively") Object.assign(s, { stability: 0.3, style: 0.45 });
   return Object.keys(s).length ? s : null;
+}
+
+/** Music (Eleven Music): 3 s to 10 min per request (POST /v1/music). */
+export const MUSIC_LIMITS = { minSec: 3, maxSec: 600 } as const;
+
+export interface ComposeMusicOptions {
+  /** No vocals; sent only when asked. */
+  instrumental?: boolean;
+  /** Model id when the owner pinned one in Settings; otherwise the API's default. */
+  modelId?: string;
+  signal?: AbortSignal;
+}
+
+/**
+ * Compose music from a prompt. Returns the MP3 file; the length the model produced is measured
+ * by the caller from the audio, never assumed from the request.
+ */
+export async function composeMusic(tts: ElevenLabsTts, prompt: string, lengthSec: number, out: string, opts: ComposeMusicOptions = {}): Promise<{ file: string }> {
+  const ms = Math.round(Math.min(MUSIC_LIMITS.maxSec, Math.max(MUSIC_LIMITS.minSec, lengthSec)) * 1000);
+  const r = await tts.request(
+    "/v1/music?output_format=mp3_44100_128",
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json", Accept: "audio/mpeg" },
+      body: JSON.stringify({ prompt: prompt.slice(0, 2000), music_length_ms: ms, ...(opts.instrumental ? { force_instrumental: true } : {}), ...(opts.modelId ? { model_id: opts.modelId } : {}) }),
+      signal: opts.signal,
+    },
+    10 * 60_000,
+  );
+  if (!r.ok) throw await classify(r);
+  const buf = Buffer.from(await r.arrayBuffer());
+  if (!(buf.subarray(0, 3).toString("ascii") === "ID3" || (buf[0] === 0xff && (buf[1]! & 0xe0) === 0xe0))) throw new ElevenLabsError("server_error", "ElevenLabs returned something that isn't MP3 audio.");
+  const file = out.replace(/\.[a-z0-9]+$/i, "") + ".mp3";
+  await writeFile(file, buf);
+  return { file };
 }

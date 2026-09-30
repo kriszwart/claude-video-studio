@@ -9,12 +9,18 @@ import { projects, usageLedger } from "../schema";
  * duplicate events or retries resolve to the same row, so totals stay consistent.
  * Committed spend = reserved (in flight) + settled actuals; released rows don't count.
  */
+/**
+ * Paid media operations that count against the project's generation budget. Claude usage rows
+ * share the ledger for reporting but are not generation spend.
+ */
+export const PAID_MEDIA_CAPABILITIES = ["image-generation", "video-generation", "music-generation"] as const;
+
 export async function projectTotals(db: DbOrTx, projectId: string): Promise<LedgerTotals> {
   const r = await db.execute(sql`
     select
       coalesce(sum(case when status = 'reserved' then coalesce(reserved_micros, 0) when status = 'settled' then coalesce(actual_micros, estimated_micros, 0) else 0 end), 0)::bigint as committed,
       count(*) filter (where status = 'unknown_price' or (status = 'settled' and estimated_micros is null and actual_micros is null))::int as unknown_used
-    from usage_ledger where project_id = ${projectId} and capability in ('image-generation', 'video-generation')`);
+    from usage_ledger where project_id = ${projectId} and capability in (${sql.join(PAID_MEDIA_CAPABILITIES.map((c) => sql`${c}`), sql`, `)})`);
   const row = r.rows[0] as { committed: string | number; unknown_used: number };
   return { committedMicros: Number(row.committed), unknownPriceRequestsUsed: Number(row.unknown_used) };
 }

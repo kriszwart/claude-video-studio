@@ -21,3 +21,20 @@ export function estimateFor(model: z.infer<typeof GenerationModel> | undefined):
   if (model.priceMicros === null) return { kind: "unknown", reason: `no price entered for ${model.endpoint}` };
   return { kind: "known", micros: model.priceMicros, priceTimestamp: model.priceCheckedAt ?? "owner-entered", basis: `owner-entered price for ${model.endpoint}` };
 }
+
+/**
+ * ElevenLabs settings beyond the key. Music is billed from the owner's ElevenLabs plan; its price
+ * is whatever the owner enters from their plan page. Without one, each request is an
+ * unknown-price request that the project budget must explicitly authorise.
+ */
+export const ElevenLabsSettings = z.object({
+  musicPriceMicrosPerMinute: z.number().int().min(0).max(100_000_000).nullable().default(null),
+  priceCheckedAt: z.string().max(40).optional(),
+  musicModel: z.string().max(60).regex(/^[a-z0-9._-]*$/i).optional(),
+});
+export type ElevenLabsSettings = z.infer<typeof ElevenLabsSettings>;
+
+export function musicEstimate(settings: ElevenLabsSettings, lengthSec: number): Estimate {
+  if (settings.musicPriceMicrosPerMinute === null) return { kind: "unknown", reason: "no ElevenLabs music price entered in Settings" };
+  return { kind: "known", micros: Math.ceil((settings.musicPriceMicrosPerMinute * lengthSec) / 60), priceTimestamp: settings.priceCheckedAt ?? "owner-entered", basis: `owner-entered ElevenLabs music price per minute × ${Math.round(lengthSec)} s` };
+}

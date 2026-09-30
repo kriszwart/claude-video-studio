@@ -1,6 +1,6 @@
 "use client";
 import { useEffect, useState } from "react";
-import { DIRECTION_SUPPORT, voiceKind } from "@vs/domain";
+import { computeTimeline, DIRECTION_SUPPORT, voiceKind } from "@vs/domain";
 import type { AudioTrack, Operation, ProjectDocument } from "@vs/domain";
 import { AssetPicker } from "@/components/AssetPicker";
 import { api, ApiError } from "@/lib/client/api";
@@ -9,7 +9,7 @@ import { newClientId } from "./ids";
 import { MarkersPanel } from "./MarkersPanel";
 import type { JobDTO } from "./types";
 
-export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string; doc: ProjectDocument; apply: (ops: Operation[]) => Promise<boolean>; jobs: { type: string; status: string; stage: string; progress: number | null; result: Record<string, unknown> | null; error: { message: string } | null }[] }) {
+export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string; doc: ProjectDocument; apply: (ops: Operation[]) => Promise<boolean>; jobs: { type: string; status: string; stage: string; progress: number | null; result: Record<string, unknown> | null; error: { message: string; recovery?: string } | null }[] }) {
   const music = doc.audio.filter((t) => t.kind === "music");
   return (
     <div className="space-y-4">
@@ -35,7 +35,60 @@ export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string;
           }}
         />
       </div>
+      <MusicGenerator projectId={projectId} doc={doc} jobs={jobs} hasMusic={music.length > 0} />
     </div>
+  );
+}
+
+/** Compose a bed with ElevenLabs Music: paid, budget-checked, and placed on the timeline (replacing the current music). */
+function MusicGenerator({ projectId, doc, jobs, hasMusic }: { projectId: string; doc: ProjectDocument; jobs: { type: string; status: string; stage: string; result: Record<string, unknown> | null; error: { message: string; recovery?: string } | null }[]; hasMusic: boolean }) {
+  const total = Math.ceil(computeTimeline(doc).totalFrames / doc.format.fps);
+  const [configured, setConfigured] = useState<boolean | null>(null);
+  const [prompt, setPrompt] = useState(() => `${doc.brand.tone ? `${doc.brand.tone}, ` : ""}modern instrumental bed for a ${doc.template.family.replace(/-/g, " ")} video about ${doc.brand.name || doc.title}. Steady tempo, clean mix that sits under a voiceover, builds slightly towards the end.`);
+  const [length, setLength] = useState(Math.max(3, total + 1));
+  const [instrumental, setInstrumental] = useState(true);
+  const [err, setErr] = useState<string | null>(null);
+  useEffect(() => {
+    api<{ elevenlabs: { configured: boolean } }>("/api/voices").then((r) => setConfigured(r.elevenlabs.configured)).catch(() => setConfigured(false));
+  }, []);
+  const job = jobs.find((j) => j.type === "generate_music");
+  const active = job && ["queued", "running"].includes(job.status);
+  return (
+    <section className="card space-y-2 p-2.5 text-xs" aria-label="Generate music">
+      <h4 className="font-medium">Generate music (ElevenLabs)</h4>
+      {configured === false ? (
+        <p className="text-faint">Add your ElevenLabs key in Settings → Provider keys to compose music from a description.</p>
+      ) : (
+        <>
+          <textarea className="input min-h-16" aria-label="Music description" maxLength={2000} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+          <div className="flex flex-wrap items-center gap-3">
+            <label className="flex items-center gap-1.5">
+              Length
+              <input className="input h-7 w-16 px-2 py-0" type="number" min={3} max={600} aria-label="Music length (seconds)" value={length} onChange={(e) => setLength(Number(e.target.value))} />s
+            </label>
+            <label className="flex items-center gap-1.5"><input type="checkbox" checked={instrumental} onChange={(e) => setInstrumental(e.target.checked)} /> Instrumental</label>
+            <button
+              className="btn btn-primary ml-auto px-3 text-xs"
+              disabled={!!active || prompt.trim().length < 3 || !(length >= 3 && length <= 600)}
+              onClick={async () => {
+                setErr(null);
+                try {
+                  await api(`/api/projects/${projectId}/music`, { method: "POST", idempotent: true, json: { prompt: prompt.trim(), durationSec: length, instrumental, replace: true } });
+                } catch (e) {
+                  setErr(e instanceof ApiError ? `${e.message}${e.recovery ? ` — ${e.recovery}` : ""}` : String(e));
+                }
+              }}
+            >
+              {active ? `Composing… ${job!.stage}` : hasMusic ? "Compose & replace music" : "Compose music"}
+            </button>
+          </div>
+          <p className="text-faint">Billed by ElevenLabs from your plan and checked against this project&apos;s budget first (enter your price per minute in Settings, or authorise unknown-price requests in the Project tab). Runs once — never retried automatically. Length is measured from the returned audio.</p>
+          {job?.status === "succeeded" && <p className="text-ok" data-testid="music-result">Added {Number(job.result?.measuredSec ?? 0).toFixed(1)}s of music to the timeline.</p>}
+          {job?.status === "failed" && <p className="text-bad" role="alert">{job.error?.message} {job.error?.recovery}</p>}
+          {err && <p className="text-bad" role="alert">{err}</p>}
+        </>
+      )}
+    </section>
   );
 }
 

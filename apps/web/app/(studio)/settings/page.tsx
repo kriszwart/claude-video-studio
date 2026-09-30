@@ -51,6 +51,7 @@ export default function Settings() {
               {p.source === "settings" && <button type="button" className="btn btn-danger" onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "PUT", json: { provider: p.provider, secret: null } }))}>Remove</button>}
             </form>
             {p.provider === "omnivoice" && <OmniVoiceSettingsForm settings={(p.settings ?? {}) as OmniSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "omnivoice", settings } }))} />}
+            {p.provider === "elevenlabs" && p.configured && <ElevenLabsMusic settings={(p.settings ?? {}) as ElMusicSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "elevenlabs", settings } }))} />}
             {p.provider === "fal" && <FalModels settings={(p.settings ?? {}) as FalModelSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "fal", settings } }))} />}
             {(msg[p.provider] || p.lastCheck) && <p className="mt-2 text-xs text-dim" role="status">{msg[p.provider] ?? `Last check ${new Date(p.lastCheck!.at).toLocaleString()}: ${p.lastCheck!.ok ? "✓" : "✗"} ${p.lastCheck!.message}`}</p>}
           </li>
@@ -64,6 +65,33 @@ type Model = { endpoint: string; priceMicros: number | null; priceCheckedAt?: st
 type FalModelSettings = { image?: Model; video?: Model };
 
 /** Owner-entered fal models: endpoint ids and prices come from fal's own pages, not from the studio. */
+interface ElMusicSettings {
+  musicPriceMicrosPerMinute?: number | null;
+  priceCheckedAt?: string;
+  musicModel?: string;
+}
+
+/** ElevenLabs music: the owner's price per minute from their plan (optional) and a pinned model. */
+function ElevenLabsMusic({ settings, onSave }: { settings: ElMusicSettings; onSave: (s: ElMusicSettings) => void }) {
+  const [price, setPrice] = useState(settings.musicPriceMicrosPerMinute != null ? String(settings.musicPriceMicrosPerMinute / 1_000_000) : "");
+  const [model, setModel] = useState(settings.musicModel ?? "");
+  return (
+    <form
+      className="mt-3 grid grid-cols-1 gap-2 border-t border-line pt-3 text-xs sm:grid-cols-3"
+      aria-label="ElevenLabs music"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ musicPriceMicrosPerMinute: price.trim() ? Math.round(Number(price) * 1_000_000) : null, priceCheckedAt: new Date().toISOString().slice(0, 10), ...(model.trim() ? { musicModel: model.trim() } : {}) });
+      }}
+    >
+      <p className="text-faint sm:col-span-3">Music generation (Audio tab) is billed by ElevenLabs from your plan. Enter what a minute of music costs you so the project budget can track it; leave it empty and each request needs an explicit unknown-price authorisation in the project budget.{settings.priceCheckedAt ? ` Price last entered ${settings.priceCheckedAt}.` : ""}</p>
+      <label className="flex flex-col gap-1">Music price per minute ($)<input className="input" inputMode="decimal" aria-label="Music price per minute" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
+      <label className="flex flex-col gap-1">Music model (optional)<input className="input" placeholder="API default" value={model} onChange={(e) => setModel(e.target.value)} /></label>
+      <button className="btn self-end">Save music settings</button>
+    </form>
+  );
+}
+
 function FalModels({ settings, onSave }: { settings: FalModelSettings; onSave: (s: FalModelSettings) => void }) {
   const [form, setForm] = useState(() => ({
     imageEndpoint: settings.image?.endpoint ?? "",

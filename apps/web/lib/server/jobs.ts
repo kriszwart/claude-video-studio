@@ -12,7 +12,7 @@ export async function enqueueProjectJob(
   revisionId: string | undefined,
   input: Record<string, unknown>,
   idem: string | null,
-  opts: { requiresClaude?: boolean } = {},
+  opts: { requiresClaude?: boolean; maxAttempts?: number } = {},
 ) {
   const db = getDb();
   const { project } = await getProject(db, projectId, s.workspaceId);
@@ -20,7 +20,7 @@ export async function enqueueProjectJob(
   const rev = await getRevision(db, projectId, revisionId ?? project.currentRevisionId!);
   if (opts.requiresClaude) await requireClaude(s.workspaceId);
   const { job, created } = await db.transaction(async (tx) => {
-    const r = await enqueueJob(tx, { workspaceId: s.workspaceId, projectId, revisionId: rev.id, type, input, idempotencyKey: idem ? `${type}:${idem}` : null });
+    const r = await enqueueJob(tx, { workspaceId: s.workspaceId, projectId, revisionId: rev.id, type, input, idempotencyKey: idem ? `${type}:${idem}` : null, ...(opts.maxAttempts ? { maxAttempts: opts.maxAttempts } : {}) });
     if (r.created) await tx.insert(schema.analyticsEvents).values({ workspaceId: s.workspaceId, name: `${type}_requested`, props: { projectId } });
     return r;
   });
