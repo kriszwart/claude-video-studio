@@ -95,6 +95,14 @@ AI actions show a setup link, everything else keeps working, and the Assistant t
 **Claude Code handoff**: download the project file, ask Claude Code for the change in your own
 terminal, and import the `operations.json` it writes (validated like any assistant edit).
 
+### ElevenLabs voices
+
+With an ElevenLabs key (**Settings → ElevenLabs**, stored encrypted, or `ELEVENLABS_API_KEY`),
+**Audio → Voice** lists your account's voices, including your own clones, under "ElevenLabs
+(billed per character by ElevenLabs)". Each narration run reports how many characters it sent;
+unchanged scripts are reused and cost nothing. A rejected key, exhausted quota or missing voice
+is reported with what to do; a quota error is not retried.
+
 ### OmniVoice narration (runs on your Mac)
 
 [OmniVoice](https://github.com/k2-fsa/OmniVoice) is an open-source text-to-speech model with
@@ -164,7 +172,7 @@ the browser.
 `HYPERFRAMES_CHROME_PATH`, `RENDER_WORKERS`, `WORKER_CONCURRENCY`, `PREVIEW_SCALE`,
 `MAX_UPLOAD_BYTES`, `MAX_SOURCE_SECONDS`, `FFMPEG_PATH`, `FFPROBE_PATH`, `DB_POOL_MAX`,
 `QUEUE_NAME`, `DELETE_RECOVERY_DAYS`, `KEEP_WORK_DIRS`, `SKIP_PROXIES`,
-`ALLOW_BUILTIN_TEMPLATE_REWRITE`; test-only: `VS_TEST_TRUSTED_OUTPUT`, `FAKE_FAL_PORT`, `STUDIO_CLAUDE_SDK_DOUBLE`, `STUDIO_CLAUDE_SDK_DOUBLE_STATE`, `FOOTAGE_IA_BASE_URL`, `FOOTAGE_WIKIMEDIA_BASE_URL`, `FOOTAGE_PEXELS_BASE_URL`, `FOOTAGE_PIXABAY_BASE_URL`, `FAKE_FOOTAGE_PORT`, `FAKE_OMNIVOICE_PORT`,
+`ALLOW_BUILTIN_TEMPLATE_REWRITE`; test-only: `VS_TEST_TRUSTED_OUTPUT`, `FAKE_FAL_PORT`, `STUDIO_CLAUDE_SDK_DOUBLE`, `STUDIO_CLAUDE_SDK_DOUBLE_STATE`, `FOOTAGE_IA_BASE_URL`, `FOOTAGE_WIKIMEDIA_BASE_URL`, `FOOTAGE_PEXELS_BASE_URL`, `FOOTAGE_PIXABAY_BASE_URL`, `FAKE_FOOTAGE_PORT`, `FAKE_OMNIVOICE_PORT`, `ELEVENLABS_BASE_URL`,
 `PW_CHROMIUM`, `E2E_BASE_URL`, `E2E_PROD_URL`. Descriptions are in `.env.example`.
 
 ### Redraw (licensed)
@@ -195,6 +203,7 @@ download, probe and inspect the exported MP4s (frames under `artifacts/e2e/`):
 | `generation` | A08, A09, A13 against the TEST-ONLY fake fal queue (`scripts/fake-fal.ts`) |
 | `reliability` | A06 missing credentials, A07 worker SIGKILL mid-export |
 | `footage` | Footage search/import from all four sources, licence gating, dedupe keeps licence records, project credits, picker flow — against the TEST-ONLY API stand-in (`scripts/fake-footage.ts`) |
+| `elevenlabs` | ElevenLabs voices in the picker (rejected key reported, clones listed), narration with character count, reuse, quota error — against the TEST-ONLY stand-in (`scripts/fake-omnivoice.ts` under `/el`, `ELEVENLABS_BASE_URL`) |
 | `omnivoice` | OmniVoice setup in Settings, voice listing, narration with a designed voice, cache/re-synthesis, server-down and unknown-voice errors — against the TEST-ONLY stand-in (`scripts/fake-omnivoice.ts`) |
 | `asset-picker` | "Import from link" inside the New Project form doesn't submit it |
 | `claude-runtime` | A31–A33 and the Claude Code handoff against the TEST-ONLY Agent SDK double (`scripts/fake-claude-sdk.mjs`) |

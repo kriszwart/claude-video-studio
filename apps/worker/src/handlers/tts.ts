@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { join } from "node:path";
 import { applyProjectOperations, AppError, getDb, getProject, getOmniVoiceConfig, getProviderSecret, JobError, newId } from "@vs/db";
 import { captionChunks, secondsToFrames, timeChunks, type AudioTrack, type CaptionCue, type Operation } from "@vs/domain";
-import { ElevenLabsTts, LocalTts, OmniVoiceError, OmniVoiceTts, type TtsProvider } from "@vs/providers";
+import { ElevenLabsError, ElevenLabsTts, LocalTts, OmniVoiceError, OmniVoiceTts, type TtsProvider } from "@vs/providers";
 import { probeMedia } from "@vs/rendering";
 import { registerFile, type Handler } from "../context";
 
@@ -17,7 +17,22 @@ async function providerFor(voiceId: string, workspaceId: string): Promise<TtsPro
   if (voiceId.startsWith("elevenlabs:")) {
     const s = await getProviderSecret(getDb(), workspaceId, "elevenlabs");
     if (!s) throw new JobError("credentials_missing", "ElevenLabs is not configured.", false, "Add an ElevenLabs key in Settings or choose a local voice.");
-    return new ElevenLabsTts(s.secret);
+    const el = new ElevenLabsTts(s.secret);
+    return {
+      id: el.id,
+      kind: el.kind,
+      voices: () => el.voices(),
+      synthesize: async (text, v, out, opts) => {
+        try {
+          return await el.synthesize(text, v, out, opts);
+        } catch (e) {
+          if (!(e instanceof ElevenLabsError)) throw e;
+          const retry = e.code === "rate_limited" || e.code === "unreachable" || e.code === "server_error";
+          const recovery = { auth: "Check the ElevenLabs key in Settings.", quota: "Add characters to your ElevenLabs plan, or choose an OmniVoice or built-in voice.", unknown_voice: "Pick another voice in the Audio tab.", rate_limited: "It will retry automatically.", unreachable: "Check your internet connection; it will retry.", server_error: "It will retry automatically." }[e.code];
+          throw new JobError(`elevenlabs_${e.code}`, e.message, retry, recovery);
+        }
+      },
+    };
   }
   if (voiceId.startsWith("omnivoice:")) {
     const cfg = await getOmniVoiceConfig(getDb(), workspaceId);
@@ -59,6 +74,7 @@ export const synthesizeNarration: Handler = async (ctx) => {
 
   const ops: Operation[] = [];
   const report: { sceneId: string; reused: boolean; durationSec: number; extendedBySec?: number; warning?: string }[] = [];
+  let charactersSynthesized = 0;
   for (const [i, scene] of scenes.entries()) {
     await ctx.stage(`narrating scene ${i + 1} of ${scenes.length}`, i / scenes.length);
     const text = scene.script.narration.trim();
@@ -74,6 +90,7 @@ export const synthesizeNarration: Handler = async (ctx) => {
     } else {
       const out = join(ctx.workDir, `vo-${scene.id}.wav`);
       const r = await provider.synthesize(text, voiceId, out, { rate, signal: ctx.signal });
+      charactersSynthesized += text.length;
       const probe = await probeMedia(r.file);
       durationSec = probe.durationSec ?? 0;
       if (!durationSec) throw new JobError("tts_failed", `Narration for "${scene.purpose}" produced no audio.`, true);
@@ -139,7 +156,8 @@ export const synthesizeNarration: Handler = async (ctx) => {
         base = cur.revision.id;
       }
       const r = await db.transaction((tx) => applyProjectOperations(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId: base, ops, actor: "system", author: "system", action: `narration (${voiceId})` }));
-      return { revisionId: r.revision.id, scenes: report, voiceId, provider: provider.id, engine: provider.kind };
+      // Hosted voices bill per character: report exactly how many were sent this run (reused scenes cost nothing).
+      return { revisionId: r.revision.id, scenes: report, voiceId, provider: provider.id, engine: provider.kind, charactersSynthesized };
     } catch (e) {
       if (e instanceof AppError && e.status === 409 && attempt === 0) continue;
       throw e;

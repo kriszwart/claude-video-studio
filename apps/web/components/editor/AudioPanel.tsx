@@ -83,13 +83,16 @@ function TrackEditor({ t, doc, apply }: { t: AudioTrack; doc: ProjectDocument; a
 function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: ProjectDocument; jobs: { type: string; status: string; stage: string; progress: number | null; result: Record<string, unknown> | null; error: { message: string } | null }[] }) {
   const [voices, setVoices] = useState<{ id: string; label: string; kind?: string }[]>([]);
   const [omni, setOmni] = useState<{ configured: boolean; reachable?: boolean; message?: string } | null>(null);
+  const [eleven, setEleven] = useState<{ configured: boolean; reachable?: boolean; message?: string } | null>(null);
   const [voice, setVoice] = useState("");
   const [rate, setRate] = useState(1);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    api<{ voices: { id: string; label: string; kind?: string }[]; omnivoice?: { configured: boolean; reachable?: boolean; message?: string } }>("/api/voices").then((r) => {
+    type Status = { configured: boolean; reachable?: boolean; message?: string };
+    api<{ voices: { id: string; label: string; kind?: string }[]; omnivoice?: Status; elevenlabs?: Status }>("/api/voices").then((r) => {
       setVoices(r.voices);
       setOmni(r.omnivoice ?? null);
+      setEleven(r.elevenlabs ?? null);
       setVoice((v) => v || r.voices[0]?.id || "");
     });
   }, []);
@@ -102,6 +105,8 @@ function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: P
       <h4 className="font-medium">Narration</h4>
       <p className="text-faint">{scripted.length} scene(s) have a script; {scripted.filter((s) => voiced.has(s.id)).length} have narration audio. Edited scripts are re-synthesised; unchanged ones are reused.</p>
       {omni?.configured && omni.reachable === false && <p className="text-warn">OmniVoice voices are unavailable: {omni.message}</p>}
+      {eleven?.configured && eleven.reachable === false && <p className="text-warn">ElevenLabs voices are unavailable: {eleven.message}</p>}
+      {voice.startsWith("elevenlabs:") && <p className="text-faint">ElevenLabs bills your ElevenLabs account per character; scenes whose script hasn&apos;t changed are reused and cost nothing.</p>}
       {voices.length === 0 ? (
         <p className="text-warn">No voices available: no worker with local TTS is online and no hosted TTS provider is configured.</p>
       ) : (
@@ -114,8 +119,13 @@ function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: P
                   {voices.filter((v) => v.kind === "omnivoice").map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
                 </optgroup>
               )}
+              {voices.some((v) => v.kind === "elevenlabs") && (
+                <optgroup label="ElevenLabs (billed per character by ElevenLabs)">
+                  {voices.filter((v) => v.kind === "elevenlabs").map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                </optgroup>
+              )}
               <optgroup label="Built-in">
-                {voices.filter((v) => v.kind !== "omnivoice").map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                {voices.filter((v) => v.kind !== "omnivoice" && v.kind !== "elevenlabs").map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
               </optgroup>
             </select>
           </label>
@@ -140,7 +150,10 @@ function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: P
         </div>
       )}
       <p className="text-faint">Built-in voices run on your worker (compute, no provider bill) and sound synthetic; OmniVoice voices also run on your computer, through your OmniVoice server. Captions are timed to the measured narration per phrase, not per word.</p>
-      {last?.status === "failed" && <p className="text-bad">{last.error?.message}</p>}
+      {last?.status === "failed" && <p className="text-bad">{last.error?.message} {(last.error as { recovery?: string } | null)?.recovery && <span className="text-dim">{(last.error as { recovery?: string }).recovery}</span>}</p>}
+      {last?.status === "succeeded" && last.result?.provider === "elevenlabs" && (
+        <p className="text-dim">{Number(last.result.charactersSynthesized ?? 0).toLocaleString()} characters sent to ElevenLabs in the last run.</p>
+      )}
       {last?.status === "succeeded" && Array.isArray(last.result?.scenes) && (
         <ul className="text-faint">
           {(last.result!.scenes as { sceneId: string; durationSec: number; reused: boolean; extendedBySec?: number; warning?: string }[]).map((r) => (

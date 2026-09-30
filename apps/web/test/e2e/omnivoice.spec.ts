@@ -43,6 +43,7 @@ test.describe.serial("OmniVoice voices", () => {
     await page.getByRole("tab", { name: "Audio" }).click();
     await page.getByLabel("Voice").selectOption("omnivoice:studio_designed");
     await page.screenshot({ path: join(ART, "omnivoice-audio-panel.png") });
+    const seenBefore = ((await (await request.get(`${OV}/__requests`)).json()) as unknown[]).length;
     const t0 = Date.now();
     await page.getByRole("button", { name: /Generate narration/ }).click();
     const tts = await waitForJobs(request, id, "tts", t0);
@@ -50,7 +51,8 @@ test.describe.serial("OmniVoice voices", () => {
     expect(tts.job.result).toMatchObject({ provider: "omnivoice", engine: "local", voiceId: "omnivoice:studio_designed" });
     const vo = tts.view.doc.audio.filter((t: { kind: string }) => t.kind === "voiceover");
     expect(vo.length).toBe(tts.view.doc.scenes.filter((s: { script: { narration: string } }) => s.script.narration.trim()).length);
-    const reqs = (await (await request.get(`${OV}/__requests`)).json()) as { voice: string; instructions?: string; response_format: string }[];
+    // Only this run's requests (the stand-in keeps a log across runs).
+    const reqs = ((await (await request.get(`${OV}/__requests`)).json()) as { voice: string; instructions?: string; response_format: string }[]).slice(seenBefore);
     const mine = reqs.filter((r) => r.voice === "studio_designed");
     expect(mine.length).toBe(vo.length);
     expect(mine.every((r) => r.instructions === "calm, warm, mid-pitch narrator" && r.response_format === "wav")).toBe(true);
