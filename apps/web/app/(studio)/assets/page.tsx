@@ -91,7 +91,7 @@ export default function Assets() {
         <span className="text-xs text-faint">Public pages only; the capture keeps the address and date. Public availability is not a usage right.</span>
       </form>
       <details className="card mb-3 p-3" id="footage">
-        <summary className="cursor-pointer text-sm font-medium">Find free footage and images (Internet Archive, Wikimedia Commons, Pexels, Pixabay)</summary>
+        <summary className="cursor-pointer text-sm font-medium">Find free footage and images (Internet Archive, Wikimedia Commons, Pexels, Pixabay, Moving Image Archive)</summary>
         <div className="mt-3">
           <FootageSearch onImported={() => void load()} />
         </div>

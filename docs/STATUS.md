@@ -27,7 +27,7 @@ spectrum and level measurements (this environment has no speakers — "listened"
 | FR-13 | Transcript-first editorial pipeline | ✅ subtitles / 🟡 STT | A11, A17; ElevenLabs STT & whisper.cpp model blocked |
 | FR-14 | Editorial beat sheet & placement | ✅ | A17, A24 |
 | FR-15 | Asset research & shot sourcing (policy, provenance, screenshots, image→video chain) | ✅ / 🟡 generation | acquisition policy, `/api/projects/:id/asset-requests`, screenshot capture (`m6-screenshot.spec.ts`); fal live blocked |
-| FR-15b | Free footage search & import (Internet Archive, Wikimedia Commons, Pexels, Pixabay) with per-item licence, credits | 🟡 | `packages/providers/src/footage/*` + `footage.test.ts` (20 cases); `footage.spec.ts` (4) against the API stand-in; **live APIs blocked here** |
+| FR-15b | Free footage search & import (Internet Archive, Wikimedia Commons, Pexels, Pixabay; Moving Image Archive assisted, no automated access) with per-item licence, credits | 🟡 | `packages/providers/src/footage/*` + `footage.test.ts` (20 cases); `footage.spec.ts` (4) against the API stand-in; **live APIs blocked here** |
 | FR-16 | Multi-recording event collections | ✅ | A19, A20; `docs/BENCHMARK.md` |
 | FR-17 | Creative profiles & reference analysis | ✅ | A21 |
 | FR-18 | Bounded render–review–repair | ✅ | A22 |

@@ -106,6 +106,12 @@ editor) searches four sources and imports clips or images as assets:
 | Wikimedia Commons | none | per file (public domain, CC0, CC BY/BY-SA, …); WebM video, JPEG/PNG/WebP images |
 | Pexels | free key (`PEXELS_API_KEY` or Settings) | Pexels License |
 | Pixabay | free key (`PIXABAY_API_KEY` or Settings) | Pixabay Content License |
+| Moving Image Archive | none — **assisted** | public domain as marked on each shot's page |
+
+Moving Image Archive (movingimagearchive.com) has no public API and the studio makes no automated
+requests to it: open the site from its tab, download a shot (or copy its direct file link), then
+record it with the shot's page address and title and confirm the page marks it public domain.
+The file and its licence record are then tracked like any other footage.
 
 Every result shows the licence its source reports. Non-commercial / no-derivatives items can't be
 imported; items with no stated licence need an explicit "I checked" confirmation. The server

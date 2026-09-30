@@ -14,8 +14,10 @@ export async function footageSources(workspaceId: string) {
   const out = [];
   for (const s of FOOTAGE_SOURCES) {
     const configured = !s.needsKey || !!(await getProviderSecret(getDb(), workspaceId, s.keyProvider!));
-    out.push({ id: s.id, label: s.label, needsKey: s.needsKey, available: configured, setup: configured ? null : `Add a free ${s.label} API key in Settings → Provider keys.` });
+    out.push({ id: s.id as string, label: s.label, needsKey: s.needsKey, available: configured, assisted: false, setup: configured ? null : `Add a free ${s.label} API key in Settings → Provider keys.` });
   }
+  // No API: you browse and download on the site; the studio records the shot's licence and page.
+  out.push({ id: "moving_image_archive", label: "Moving Image Archive", needsKey: false, available: true, assisted: true, setup: null });
   return out;
 }
 

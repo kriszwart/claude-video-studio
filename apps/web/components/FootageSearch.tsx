@@ -1,10 +1,10 @@
 "use client";
 import { useEffect, useState } from "react";
-import { api, ApiError, waitForJob } from "@/lib/client/api";
+import { api, ApiError, uploadFile, waitForJob } from "@/lib/client/api";
 
-type Source = "internet_archive" | "wikimedia" | "pexels" | "pixabay";
+type Source = "internet_archive" | "wikimedia" | "pexels" | "pixabay" | "moving_image_archive";
 type Kind = "video" | "image";
-interface SourceInfo { id: Source; label: string; needsKey: boolean; available: boolean; setup: string | null }
+interface SourceInfo { id: Source; label: string; needsKey: boolean; available: boolean; assisted?: boolean; setup: string | null }
 interface License { status: string; name: string; url: string | null; attributionRequired: boolean; attribution: string | null }
 interface Item { source: Source; id: string; kind: Kind; title: string; creator: string | null; pageUrl: string; thumbUrl: string | null; previewUrl: string | null; width?: number; height?: number; durationSec?: number; license: License }
 interface Result { items: Item[]; total: number | null; page: number; nextPage: number | null }
@@ -88,7 +88,9 @@ export function FootageSearch({ kind: fixedKind, onImported }: { kind?: Kind; on
           </button>
         ))}
       </div>
-      {current && !current.available ? (
+      {current?.assisted ? (
+        <AssistedImport kind={kind} onImported={onImported} />
+      ) : current && !current.available ? (
         <p className="text-dim">{current.setup} <a className="text-accent underline" href="/settings">Open Settings</a></p>
       ) : (
         <>
@@ -183,4 +185,76 @@ function Thumb({ item }: { item: Item }) {
   }
   // eslint-disable-next-line @next/next/no-img-element
   return item.thumbUrl ? <img className={box} src={item.thumbUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onMouseEnter={() => setHover(true)} /> : <div className={`${box} flex items-center justify-center text-faint`} onMouseEnter={() => setHover(true)}>{item.kind}</div>;
+}
+
+/**
+ * Moving Image Archive has no API, and the studio makes no automated requests to it. The owner
+ * finds and downloads a shot on the site, then records it here with the shot's page and title so
+ * its licence and credit are tracked like any other footage.
+ */
+function AssistedImport({ kind, onImported }: { kind: Kind; onImported?: (assetId: string) => void }) {
+  const [pageUrl, setPageUrl] = useState("");
+  const [title, setTitle] = useState("");
+  const [fileUrl, setFileUrl] = useState("");
+  const [file, setFile] = useState<File | null>(null);
+  const [pd, setPd] = useState(false);
+  const [msg, setMsg] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const validPage = /^https:\/\/(www\.)?movingimagearchive\.com\/\S+$/i.test(pageUrl.trim());
+  const ready = validPage && title.trim() && pd && (!!file || /^https?:\/\//i.test(fileUrl.trim())) && !busy;
+
+  const submit = async () => {
+    setBusy(true);
+    setMsg(null);
+    const base = { source: "moving_image_archive", pageUrl: pageUrl.trim(), title: title.trim(), confirmPublicDomain: true, rightsAcknowledged: true };
+    try {
+      let assetId = "";
+      if (file) {
+        const a = await uploadFile(file, { rightsAcknowledged: true, onProgress: (p, st) => setMsg(st === "uploading" ? `Uploading ${Math.round(p * 100)}%` : st) });
+        await api("/api/footage/manual", { method: "POST", json: { ...base, assetId: a.id } });
+        assetId = a.id;
+      } else {
+        const r = await api<{ job: { id: string } }>("/api/footage/manual", { method: "POST", idempotent: true, json: { ...base, fileUrl: fileUrl.trim() } });
+        const done = await waitForJob(r.job.id, (j) => setMsg(j.stage));
+        if (done.status !== "succeeded") throw new Error(done.error?.message ?? "Import failed.");
+        assetId = String((done.result as { assetId?: string }).assetId ?? "");
+      }
+      setMsg("Recorded ✓ — licence and source page saved on the asset.");
+      setPageUrl("");
+      setTitle("");
+      setFileUrl("");
+      setFile(null);
+      setPd(false);
+      if (assetId) onImported?.(assetId);
+    } catch (e) {
+      setMsg(`✗ ${e instanceof ApiError || e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="space-y-2" role="group" aria-label="Moving Image Archive import">
+      <p className="text-dim">
+        Moving Image Archive has no public API, so the studio doesn&apos;t search it for you. Find a shot on the site, download it (or copy its direct file link), then record it here — the studio keeps the shot&apos;s page and public-domain status with the file.
+      </p>
+      <a className="btn inline-block text-xs" href="https://www.movingimagearchive.com/" target="_blank" rel="noreferrer noopener">Open movingimagearchive.com ↗</a>
+      <label className="flex flex-col gap-1">Shot page address<input className="input py-1 text-xs" type="url" placeholder="https://www.movingimagearchive.com/…" value={pageUrl} onChange={(e) => setPageUrl(e.target.value)} /></label>
+      <label className="flex flex-col gap-1">Title<input className="input py-1 text-xs" value={title} maxLength={160} onChange={(e) => setTitle(e.target.value)} /></label>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="btn text-xs">
+          {file ? `File: ${file.name}` : `Choose downloaded ${kind === "image" ? "image" : "clip"}`}
+          <input type="file" className="sr-only" accept={kind === "image" ? "image/*" : "video/*"} onChange={(e) => { setFile(e.target.files?.[0] ?? null); if (e.target.files?.[0]) setFileUrl(""); }} />
+        </label>
+        <span className="text-faint">or</span>
+        <input className="input min-w-40 flex-1 py-1 text-xs" type="url" aria-label="Direct file link" placeholder="direct file link (https://…mp4)" value={fileUrl} disabled={!!file} onChange={(e) => setFileUrl(e.target.value)} />
+      </div>
+      <label className="flex items-center gap-1 text-dim">
+        <input type="checkbox" checked={pd} onChange={(e) => setPd(e.target.checked)} /> The shot&apos;s page marks it as public domain, and I checked it for logos, music or people that need their own clearance
+      </label>
+      <button type="button" className="btn text-xs" disabled={!ready} onClick={submit}>{busy ? "Working…" : "Add to assets"}</button>
+      {pageUrl && !validPage && <p className="text-warn">Use the shot&apos;s page address on movingimagearchive.com.</p>}
+      {msg && <p role="status" className={msg.startsWith("✗") ? "text-bad" : "text-dim"}>{msg}</p>}
+    </div>
+  );
 }

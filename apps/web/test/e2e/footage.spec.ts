@@ -157,4 +157,45 @@ test.describe.serial("footage search and import", () => {
     await expect(page).toHaveURL(/\/projects\/new/);
     await expect(page.getByRole("button", { name: /Remove Lighthouse/ }).first()).toBeVisible();
   });
+
+  test("Moving Image Archive (assisted, no automated access): record a direct link or an uploaded file with the shot's page", async ({ request, page }) => {
+    const shot = "https://www.movingimagearchive.com/shots/harbour-cranes-1952";
+    const base = { source: "moving_image_archive", pageUrl: shot, title: "Harbour cranes, 1952", confirmPublicDomain: true, rightsAcknowledged: true };
+    // Validation: must be a movingimagearchive.com page, confirmed public domain, and one of file/link.
+    expect((await request.post("/api/footage/manual", { data: { ...base, pageUrl: "https://example.com/x", fileUrl: `${STUB}/files/harbour.mp4` } })).status()).toBe(400);
+    expect((await request.post("/api/footage/manual", { data: { ...base, confirmPublicDomain: false, fileUrl: `${STUB}/files/harbour.mp4` } })).status()).toBe(400);
+    expect((await request.post("/api/footage/manual", { data: base })).status()).toBe(400);
+    // Its tab is listed as an assisted source (no search requests are made to the site).
+    const sources = (await (await request.get("/api/footage/sources")).json()).sources;
+    expect(sources.find((x: { id: string }) => x.id === "moving_image_archive")).toMatchObject({ assisted: true, available: true });
+    expect((await request.get("/api/footage/search?source=moving_image_archive&q=harbour")).status()).toBe(400);
+
+    // Direct file link → imported through the guarded path, with the shot's record.
+    const r = await request.post("/api/footage/manual", { data: { ...base, fileUrl: `${STUB}/files/street.mp4` } });
+    expect(r.status(), await r.text()).toBe(202);
+    const j = await waitJob(request, (await r.json()).job.id);
+    expect(j.status, JSON.stringify(j.error)).toBe("succeeded");
+    const p1 = (await asset(request, j.result.assetId)).provenance;
+    // street.mp4 may already exist from the Pexels import (same bytes): then the record is kept alongside.
+    const rec = p1.footageSource === "moving_image_archive" ? p1 : p1.alsoFrom.find((x: { footageSource: string }) => x.footageSource === "moving_image_archive");
+    expect(rec).toMatchObject({ pageUrl: shot, licenseStatus: "public_domain", licenseConfirmedByOwner: true, title: "Harbour cranes, 1952" });
+
+    // UI: upload a downloaded clip and record it.
+    await page.goto("/assets");
+    await page.getByText(/Find free footage and images/).click();
+    const panel = page.getByLabel("Find footage");
+    await panel.getByRole("tab", { name: "Moving Image Archive" }).click();
+    const g = panel.getByRole("group", { name: "Moving Image Archive import" });
+    await expect(g.getByRole("link", { name: /Open movingimagearchive\.com/ })).toHaveAttribute("href", "https://www.movingimagearchive.com/");
+    await g.getByLabel("Shot page address").fill("https://www.movingimagearchive.com/shots/night-city-1958");
+    await g.getByLabel("Title").fill("Night city, 1958");
+    await g.locator('input[type="file"]').setInputFiles(join(import.meta.dirname, "..", "..", "..", "..", "fixtures", "sample", "anime-night.mp4"));
+    await g.getByLabel(/marks it as public domain/).check();
+    await g.getByRole("button", { name: "Add to assets" }).click();
+    await expect(g.getByRole("status")).toContainText("Recorded ✓", { timeout: 120_000 });
+    await page.screenshot({ path: join(ART, "footage-mia.png") });
+    const list = (await (await request.get("/api/assets?kind=video")).json()).assets as { provenance: Record<string, unknown> & { alsoFrom?: Record<string, unknown>[] } }[];
+    const hit = list.flatMap((a) => [a.provenance, ...(a.provenance.alsoFrom ?? [])]).find((p) => p.pageUrl === "https://www.movingimagearchive.com/shots/night-city-1958");
+    expect(hit).toMatchObject({ footageSource: "moving_image_archive", licenseStatus: "public_domain", attribution: expect.stringContaining("Moving Image Archive") });
+  });
 });
