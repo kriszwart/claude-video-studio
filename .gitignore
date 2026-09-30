@@ -15,3 +15,4 @@ playwright-report/
 /vendor/redraw*
 **/redraw-*.tgz
 data/
+dump.rdb
