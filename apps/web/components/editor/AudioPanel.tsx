@@ -81,13 +81,15 @@ function TrackEditor({ t, doc, apply }: { t: AudioTrack; doc: ProjectDocument; a
 }
 
 function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: ProjectDocument; jobs: { type: string; status: string; stage: string; progress: number | null; result: Record<string, unknown> | null; error: { message: string } | null }[] }) {
-  const [voices, setVoices] = useState<{ id: string; label: string }[]>([]);
+  const [voices, setVoices] = useState<{ id: string; label: string; kind?: string }[]>([]);
+  const [omni, setOmni] = useState<{ configured: boolean; reachable?: boolean; message?: string } | null>(null);
   const [voice, setVoice] = useState("");
   const [rate, setRate] = useState(1);
   const [err, setErr] = useState<string | null>(null);
   useEffect(() => {
-    api<{ voices: { id: string; label: string }[] }>("/api/voices").then((r) => {
+    api<{ voices: { id: string; label: string; kind?: string }[]; omnivoice?: { configured: boolean; reachable?: boolean; message?: string } }>("/api/voices").then((r) => {
       setVoices(r.voices);
+      setOmni(r.omnivoice ?? null);
       setVoice((v) => v || r.voices[0]?.id || "");
     });
   }, []);
@@ -99,6 +101,7 @@ function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: P
     <section className="card space-y-2 p-2.5 text-xs">
       <h4 className="font-medium">Narration</h4>
       <p className="text-faint">{scripted.length} scene(s) have a script; {scripted.filter((s) => voiced.has(s.id)).length} have narration audio. Edited scripts are re-synthesised; unchanged ones are reused.</p>
+      {omni?.configured && omni.reachable === false && <p className="text-warn">OmniVoice voices are unavailable: {omni.message}</p>}
       {voices.length === 0 ? (
         <p className="text-warn">No voices available: no worker with local TTS is online and no hosted TTS provider is configured.</p>
       ) : (
@@ -106,7 +109,14 @@ function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: P
           <label>
             <span className="label">Voice</span>
             <select className="input" value={voice} onChange={(e) => setVoice(e.target.value)}>
-              {voices.map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+              {voices.some((v) => v.kind === "omnivoice") && (
+                <optgroup label="OmniVoice (on this computer)">
+                  {voices.filter((v) => v.kind === "omnivoice").map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+                </optgroup>
+              )}
+              <optgroup label="Built-in">
+                {voices.filter((v) => v.kind !== "omnivoice").map((v) => <option key={v.id} value={v.id}>{v.label}</option>)}
+              </optgroup>
             </select>
           </label>
           <label>
@@ -129,7 +139,7 @@ function NarrationControls({ projectId, doc, jobs }: { projectId: string; doc: P
           </button>
         </div>
       )}
-      <p className="text-faint">Local voices run on your worker (compute, no provider bill) and sound synthetic. Captions are timed to the measured narration per phrase, not per word.</p>
+      <p className="text-faint">Built-in voices run on your worker (compute, no provider bill) and sound synthetic; OmniVoice voices also run on your computer, through your OmniVoice server. Captions are timed to the measured narration per phrase, not per word.</p>
       {last?.status === "failed" && <p className="text-bad">{last.error?.message}</p>}
       {last?.status === "succeeded" && Array.isArray(last.result?.scenes) && (
         <ul className="text-faint">

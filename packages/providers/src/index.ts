@@ -6,6 +6,7 @@ export * from "./claude/editor";
 export * from "./tts/types";
 export * from "./tts/local";
 export * from "./tts/elevenlabs";
+export * from "./tts/omnivoice";
 export * from "./transcription/types";
 export * from "./transcription/elevenlabs";
 export * from "./transcription/whisper-cpp";

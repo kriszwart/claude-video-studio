@@ -50,6 +50,7 @@ export default function Settings() {
               <button type="button" className="btn" disabled={!p.configured} onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "POST", json: { provider: p.provider } }))}>Test connection</button>
               {p.source === "settings" && <button type="button" className="btn btn-danger" onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "PUT", json: { provider: p.provider, secret: null } }))}>Remove</button>}
             </form>
+            {p.provider === "omnivoice" && <OmniVoiceSettingsForm settings={(p.settings ?? {}) as OmniSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "omnivoice", settings } }))} />}
             {p.provider === "fal" && <FalModels settings={(p.settings ?? {}) as FalModelSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "fal", settings } }))} />}
             {(msg[p.provider] || p.lastCheck) && <p className="mt-2 text-xs text-dim" role="status">{msg[p.provider] ?? `Last check ${new Date(p.lastCheck!.at).toLocaleString()}: ${p.lastCheck!.ok ? "✓" : "✗"} ${p.lastCheck!.message}`}</p>}
           </li>
@@ -168,5 +169,45 @@ function ClaudeRuntime() {
       )}
       {err && <p className="text-bad">{err}</p>}
     </section>
+  );
+}
+
+type OmniVoice = { name: string; label?: string; instructions?: string; language?: string };
+type OmniSettings = { baseUrl?: string; model?: string; voices?: OmniVoice[] };
+
+/**
+ * OmniVoice runs on this computer (an OpenAI-compatible OmniVoice server). Voices listed by the
+ * server appear automatically; add names here for cloned voices it doesn't list, or designed
+ * voices described in words.
+ */
+function OmniVoiceSettingsForm({ settings, onSave }: { settings: OmniSettings; onSave: (s: OmniSettings) => void }) {
+  const [baseUrl, setBaseUrl] = useState(settings.baseUrl ?? "");
+  const [model, setModel] = useState(settings.model ?? "");
+  const [voices, setVoices] = useState<OmniVoice[]>(settings.voices ?? []);
+  const upd = (i: number, patch: Partial<OmniVoice>) => setVoices((v) => v.map((x, k) => (k === i ? { ...x, ...patch } : x)));
+  return (
+    <div className="mt-3 space-y-2 border-t border-line pt-3 text-xs">
+      <p className="text-faint">
+        Run an OmniVoice server on this computer (for example <code>omnivoice-server</code> or OmniVoice-local), then enter its address. The API key above is only needed if your server requires one. Only clone voices you have permission to use.
+      </p>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <label className="flex flex-col gap-1">Server address<input className="input" placeholder="http://127.0.0.1:8000" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} /></label>
+        <label className="flex flex-col gap-1">Model (optional)<input className="input" placeholder="omnivoice" value={model} onChange={(e) => setModel(e.target.value)} /></label>
+      </div>
+      <p className="font-medium">Voices</p>
+      {voices.length === 0 && <p className="text-faint">None added — voices the server lists are used automatically.</p>}
+      {voices.map((v, i) => (
+        <div key={i} className="grid grid-cols-1 gap-2 rounded border border-line p-2 sm:grid-cols-[1fr_1fr_2fr_auto]">
+          <input className="input" aria-label="Voice name on the server" placeholder="name on server (e.g. my_voice)" value={v.name} onChange={(e) => upd(i, { name: e.target.value })} />
+          <input className="input" aria-label="Display label" placeholder="label (optional)" value={v.label ?? ""} onChange={(e) => upd(i, { label: e.target.value || undefined })} />
+          <input className="input" aria-label="Voice description" placeholder="design description (optional), e.g. warm female voice, British accent, calm" value={v.instructions ?? ""} onChange={(e) => upd(i, { instructions: e.target.value || undefined })} />
+          <button type="button" className="btn btn-ghost" onClick={() => setVoices((x) => x.filter((_, k) => k !== i))}>Remove</button>
+        </div>
+      ))}
+      <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn" onClick={() => setVoices((x) => [...x, { name: "" }])}>Add voice</button>
+        <button type="button" className="btn btn-primary" onClick={() => onSave({ baseUrl: baseUrl.trim(), model: model.trim() || undefined, voices: voices.filter((v) => v.name.trim()).map((v) => ({ ...v, name: v.name.trim() })) })}>Save OmniVoice settings</button>
+      </div>
+    </div>
   );
 }

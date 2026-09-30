@@ -20,7 +20,7 @@ spectrum and level measurements (this environment has no speakers — "listened"
 | FR-06 | Scene editor (layers, timing, locks, transitions, media) | ✅ | `components/editor/*`; A02 |
 | FR-07 | Creative Assistant (typed ops, base revision, guards) | 🟡 | `packages/providers/src/claude/editor.ts`; guard/stale logic tested; runs through the subscription runtime (SDK test double in `claude-runtime.spec.ts`); **live Claude blocked** |
 | FR-08 | Asset management (content sniffing, dedupe, provenance, resumable upload) | ✅ | `/assets`; A20 resumable chunks |
-| FR-09 | Audio & captions (TTS, mix, ducking, loudness, SRT/VTT) | ✅ local TTS / 🟡 ElevenLabs | M2 T4; ElevenLabs TTS blocked |
+| FR-09 | Audio & captions (TTS, mix, ducking, loudness, SRT/VTT) | ✅ local TTS / 🟡 ElevenLabs, OmniVoice | M2 T4; ElevenLabs TTS blocked |
 | FR-10 | Draft preview & verified export | ✅ | `packages/rendering/src/verify.ts`; all exports |
 | FR-11 | Save as template (independence check, variables) | ✅ | A04; A30 template reuse |
 | FR-12 | Jobs & costs (outbox, leases, retries, ledger) | ✅ | A06–A09 |
@@ -139,6 +139,7 @@ against test doubles only. They are **not** claimed as verified.
 | ElevenLabs TTS and Scribe STT | No key; `elevenlabs.io` unreachable | Add a key in Settings; create a T4 with an ElevenLabs voice; transcribe a T5 without subtitles |
 | fal image/video generation, webhooks | No key; `fal.run` unreachable; webhooks need a public URL | Configure fal key + model endpoints/prices in Settings; set `PUBLIC_BASE_URL`; generate a T7 shot |
 | whisper.cpp local STT | Model download (Hugging Face) blocked | Set `WHISPER_CPP_BIN` and `WHISPER_MODEL`; transcribe a T5 without subtitles |
+| OmniVoice (local server) | No OmniVoice model/server in this environment (the model needs downloads from blocked hosts); the adapter follows the OpenAI speech API and is tested against `scripts/fake-omnivoice.ts` | On your Mac: start an OmniVoice server, set its address in Settings → OmniVoice, Test connection, then generate narration with an OmniVoice voice |
 | Footage APIs (Internet Archive, Wikimedia Commons, Pexels, Pixabay) | All four hosts are blocked by this environment's network policy; parsers follow each API's documented response format and are tested against `scripts/fake-footage.ts` | Assets → Find free footage: search "harbour" on Internet Archive and Wikimedia Commons (no key), add free Pexels/Pixabay keys in Settings and search there; import one item from each and check the licence on the asset and Export → Footage credits |
 | Segmentation provider (background removal) | Not integrated (no verified provider contract) | — (templates never require it) |
 | Redraw on hardware GPU | Only SwiftShader software WebGPU here (~4 s/frame at 540p) | Run `scripts/clean-worker-check.sh` on a GPU worker |

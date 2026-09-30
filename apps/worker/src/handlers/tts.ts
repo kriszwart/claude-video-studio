@@ -1,16 +1,16 @@
 import { createHash } from "node:crypto";
 import { join } from "node:path";
-import { applyProjectOperations, AppError, getDb, getProject, getProviderSecret, JobError, newId } from "@vs/db";
+import { applyProjectOperations, AppError, getDb, getProject, getOmniVoiceConfig, getProviderSecret, JobError, newId } from "@vs/db";
 import { captionChunks, secondsToFrames, timeChunks, type AudioTrack, type CaptionCue, type Operation } from "@vs/domain";
-import { ElevenLabsTts, LocalTts, type TtsProvider } from "@vs/providers";
+import { ElevenLabsTts, LocalTts, OmniVoiceError, OmniVoiceTts, type TtsProvider } from "@vs/providers";
 import { probeMedia } from "@vs/rendering";
 import { registerFile, type Handler } from "../context";
 
 const LEAD_IN_FRAMES = 6;
 const TAIL_FRAMES = 12;
 
-export function narrationHash(text: string, voiceId: string, rate: number): string {
-  return createHash("sha256").update(JSON.stringify([text.trim(), voiceId, rate])).digest("hex").slice(0, 24);
+export function narrationHash(text: string, voiceId: string, rate: number, salt = ""): string {
+  return createHash("sha256").update(JSON.stringify(salt ? [text.trim(), voiceId, rate, salt] : [text.trim(), voiceId, rate])).digest("hex").slice(0, 24);
 }
 
 async function providerFor(voiceId: string, workspaceId: string): Promise<TtsProvider> {
@@ -18,6 +18,26 @@ async function providerFor(voiceId: string, workspaceId: string): Promise<TtsPro
     const s = await getProviderSecret(getDb(), workspaceId, "elevenlabs");
     if (!s) throw new JobError("credentials_missing", "ElevenLabs is not configured.", false, "Add an ElevenLabs key in Settings or choose a local voice.");
     return new ElevenLabsTts(s.secret);
+  }
+  if (voiceId.startsWith("omnivoice:")) {
+    const cfg = await getOmniVoiceConfig(getDb(), workspaceId);
+    if (!cfg) throw new JobError("credentials_missing", "OmniVoice is not set up.", false, "Add your OmniVoice server address in Settings → OmniVoice, or choose another voice.");
+    const omni = new OmniVoiceTts(cfg.settings, cfg.apiKey);
+    return {
+      id: omni.id,
+      kind: omni.kind,
+      voices: () => omni.voices(),
+      cacheSalt: (v) => omni.cacheSalt(v),
+      synthesize: async (text, v, out, opts) => {
+        try {
+          return await omni.synthesize(text, v, out, opts);
+        } catch (e) {
+          if (!(e instanceof OmniVoiceError)) throw e;
+          // A stopped server is transient (start it and the job retries); a wrong voice needs a fix.
+          throw new JobError(`omnivoice_${e.code}`, e.message, e.code === "unreachable" || e.code === "server_error", e.code === "unknown_voice" ? "Pick a voice the OmniVoice server has, or add it there." : "Start the OmniVoice server on this computer, then retry.");
+        }
+      },
+    };
   }
   return new LocalTts();
 }
@@ -42,7 +62,7 @@ export const synthesizeNarration: Handler = async (ctx) => {
   for (const [i, scene] of scenes.entries()) {
     await ctx.stage(`narrating scene ${i + 1} of ${scenes.length}`, i / scenes.length);
     const text = scene.script.narration.trim();
-    const hash = narrationHash(text, voiceId, rate);
+    const hash = narrationHash(text, voiceId, rate, provider.cacheSalt?.(voiceId) ?? "");
     const existing = doc.audio.find((t) => t.kind === "voiceover" && t.anchor.type === "scene" && t.anchor.sceneId === scene.id);
     let track: AudioTrack;
     let durationSec: number;

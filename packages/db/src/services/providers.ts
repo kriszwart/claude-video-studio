@@ -10,6 +10,7 @@ export const PROVIDERS = {
   elevenlabs: { env: "ELEVENLABS_API_KEY", label: "ElevenLabs", capabilities: ["tts", "transcription"] },
   fal: { env: "FAL_KEY", label: "fal", capabilities: ["image-generation", "video-generation"] },
   pexels: { env: "PEXELS_API_KEY", label: "Pexels (free stock footage key)", capabilities: ["footage-search"] },
+  omnivoice: { env: "OMNIVOICE_API_KEY", label: "OmniVoice (local voice server)", capabilities: ["tts"] },
   pixabay: { env: "PIXABAY_API_KEY", label: "Pixabay (free stock footage key)", capabilities: ["footage-search"] },
 } as const;
 export type ProviderId = keyof typeof PROVIDERS;
@@ -47,7 +48,9 @@ export async function providerStatus(db: DbOrTx, workspaceId: string) {
   const rows = await db.query.providerConfigs.findMany({ where: eq(providerConfigs.workspaceId, workspaceId) });
   return (Object.keys(PROVIDERS) as ProviderId[]).map((p) => {
     const row = rows.find((r) => r.provider === p);
-    const source = row?.encryptedSecret ? "settings" : process.env[PROVIDERS[p].env] ? "env" : null;
+    // OmniVoice is configured by its server address; an API key is optional.
+    const omni = p === "omnivoice" ? ((row?.settings as { baseUrl?: string } | undefined)?.baseUrl ? "settings" : process.env.OMNIVOICE_BASE_URL ? "env" : null) : undefined;
+    const source = omni !== undefined ? omni : row?.encryptedSecret ? "settings" : process.env[PROVIDERS[p].env] ? "env" : null;
     return {
       provider: p,
       label: PROVIDERS[p].label,
@@ -83,4 +86,14 @@ export async function setProviderSettings(db: DbOrTx, workspaceId: string, provi
 export async function getProviderSettings(db: DbOrTx, workspaceId: string, provider: ProviderId): Promise<Record<string, unknown>> {
   const row = await db.query.providerConfigs.findFirst({ where: and(eq(providerConfigs.workspaceId, workspaceId), eq(providerConfigs.provider, provider)) });
   return (row?.settings as Record<string, unknown>) ?? {};
+}
+
+/** OmniVoice server settings (address, model, voices) with env fallback, plus the optional key. */
+export async function getOmniVoiceConfig(db: DbOrTx, workspaceId: string): Promise<{ settings: { baseUrl: string; model?: string; voices?: { name: string; label?: string; instructions?: string; language?: string }[] }; apiKey?: string } | null> {
+  const row = await db.query.providerConfigs.findFirst({ where: and(eq(providerConfigs.workspaceId, workspaceId), eq(providerConfigs.provider, "omnivoice")) });
+  const st = (row?.settings ?? {}) as { baseUrl?: string; model?: string; voices?: { name: string; label?: string; instructions?: string; language?: string }[] };
+  const baseUrl = st.baseUrl || process.env.OMNIVOICE_BASE_URL;
+  if (!baseUrl) return null;
+  const key = await getProviderSecret(db, workspaceId, "omnivoice");
+  return { settings: { baseUrl, model: st.model || process.env.OMNIVOICE_MODEL || undefined, voices: st.voices ?? [] }, apiKey: key?.secret };
 }
