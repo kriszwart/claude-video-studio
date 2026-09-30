@@ -15,6 +15,13 @@
       "when": 1790671233479,
       "tag": "0001_generation_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790761453192,
+      "tag": "0002_critiques",
+      "breakpoints": true
     }
   ]
 }

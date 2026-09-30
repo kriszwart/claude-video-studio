@@ -3,7 +3,7 @@ import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { query as sdkQuery, type AccountInfo, type Options, type Query, type SDKMessage, type SDKUserMessage } from "@anthropic-ai/claude-agent-sdk";
-import { CLAUDE_CONFIG, parseJson, ProviderError, type ChatTurn, type ClaudeBackend, type RateLimitSnapshot, type StructuredCall, type StructuredResult } from "./client";
+import { CLAUDE_CONFIG, imageBlocks, parseJson, ProviderError, type ChatTurn, type ClaudeBackend, type RateLimitSnapshot, type StructuredCall, type StructuredResult } from "./client";
 
 /**
  * Subscription-first Claude runtime (PRD §28). Calls go through the official Claude Agent SDK,
@@ -265,7 +265,8 @@ export function subscriptionBackend(o: SubscriptionRuntimeOptions = {}): ClaudeB
         if (cls.observed !== "subscription") throw mismatch(cls.observed, cls.plan);
 
         // 2) Send the request and read the stream until the result.
-        input.send({ type: "user", message: { role: "user", content: renderTurns(call.messages) }, parent_tool_use_id: null });
+        const text = renderTurns(call.messages);
+        input.send({ type: "user", message: { role: "user", content: call.images?.length ? [{ type: "text", text }, ...imageBlocks(call.images)] : text }, parent_tool_use_id: null });
         let result: Extract<SDKMessage, { type: "result" }> | null = null;
         for await (const m of q) {
           if (m.type === "system" && m.subtype === "init") {

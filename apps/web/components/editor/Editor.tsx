@@ -17,10 +17,11 @@ import { ProjectPanel } from "./ProjectPanel";
 import { SceneInspector } from "./SceneInspector";
 import { SceneList } from "./SceneList";
 import { ScriptPanel } from "./ScriptPanel";
+import { CriticPanel } from "./CriticPanel";
 import { ShotPlanReview } from "./ShotPlanReview";
 import { useProject } from "./useProject";
 
-type Tab = "script" | "scene" | "transcript" | "shots" | "assistant" | "audio" | "export" | "project";
+type Tab = "script" | "critic" | "scene" | "transcript" | "shots" | "assistant" | "audio" | "export" | "project";
 
 export function Editor({ projectId }: { projectId: string }) {
   const p = useProject(projectId);
@@ -154,7 +155,7 @@ export function Editor({ projectId }: { projectId: string }) {
         </div>
         <aside className="order-3 flex min-h-0 flex-col border-line bg-panel/40 lg:order-none lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:border-l">
           <div role="tablist" aria-label="Inspector" className="flex gap-0.5 overflow-x-auto border-b border-line px-2 py-1.5">
-            {([...(doc.program ? ["transcript"] : []), ...(!doc.program && doc.template.family !== "music-video" ? ["script"] : []), "scene", ...(doc.scenes.some((s) => s.shot) ? ["shots"] : []), "assistant", "audio", "export", "project"] as Tab[]).map((t) => (
+            {([...(doc.program ? ["transcript"] : []), ...(!doc.program && doc.template.family !== "music-video" ? ["script"] : []), "scene", ...(doc.scenes.some((s) => s.shot) ? ["shots"] : []), "assistant", "critic", "audio", "export", "project"] as Tab[]).map((t) => (
               <button key={t} role="tab" aria-selected={tab === t} className={`seg shrink-0 capitalize ${tab === t ? "seg-on" : ""}`} onClick={() => setTab(t)}>
                 {t === "assistant" ? "Assistant" : t}
               </button>
@@ -164,6 +165,20 @@ export function Editor({ projectId }: { projectId: string }) {
             {tab === "transcript" && doc.program && <ProgramPanel projectId={projectId} doc={doc} view={view} apply={p.apply} onChanged={() => p.refresh()} />}
             {tab === "shots" && <ShotsPanel projectId={projectId} doc={doc} jobs={view.jobs} apply={p.apply} />}
             {tab === "script" && <ScriptPanel projectId={projectId} doc={doc} jobs={view.jobs} apply={p.apply} revRef={p.revRef} revisionId={p.revisionId} refresh={() => p.refresh()} claudeReady={!!claudeStatus?.readiness.available} />}
+            {tab === "critic" && (
+              <CriticPanel
+                projectId={projectId}
+                doc={doc}
+                revisionId={p.revisionId}
+                jobs={view.jobs}
+                revRef={p.revRef}
+                claudeReady={!!claudeStatus?.readiness.available}
+                onJump={(sceneId, t) => {
+                  setSelected(sceneId);
+                  previewRef.current?.seek(t);
+                }}
+              />
+            )}
             {tab === "scene" && <SceneInspector doc={doc} scene={scene} apply={p.apply} />}
             {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claude={claudeStatus?.readiness ?? null} />}
             {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}

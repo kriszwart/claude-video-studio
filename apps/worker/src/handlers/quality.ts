@@ -39,11 +39,11 @@ function sampleTimes(doc: ProjectDocument, extra: number[]): number[] {
   return [...new Set([...t, ...extra].map((x) => Math.round(Math.min(tl.totalFrames / fps - 0.05, Math.max(0, x)) * 100) / 100))].sort((a, b) => a - b).slice(0, 40);
 }
 
-async function visualPass(ctx: JobContext, doc: ProjectDocument, dir: string, extraTimes: number[]) {
+export async function visualPass(ctx: JobContext, doc: ProjectDocument, dir: string, extraTimes: number[], exactTimes?: number[]) {
   await mkdir(dir, { recursive: true });
   const assets = await resolveAssets(ctx.job.workspaceId, referencedAssetIds(doc));
   const b = await prepareBundle({ doc, assets, workDir: dir, output: join(dir, "unused.mp4"), scale: 0.5, quality: "draft", signal: ctx.signal, graphics: await graphicsCompilerFor(doc, ctx), webgpu: needsWebGpu(doc), extraMix: programMixInputs(doc, assets) }, { withAudio: false });
-  const times = sampleTimes(doc, extraTimes);
+  const times = exactTimes ?? sampleTimes(doc, extraTimes);
   const stills = await captureStills({ bundleDir: b.bundleDir, width: b.width, height: b.height, times, outPath: (i) => join(dir, `s${String(i).padStart(2, "0")}.jpg`), signal: ctx.signal, webgpu: needsWebGpu(doc) });
   return { times, files: stills.files, report: stills.report, height: b.height };
 }
@@ -51,7 +51,7 @@ async function visualPass(ctx: JobContext, doc: ProjectDocument, dir: string, ex
 /** Smallest readable text: 26 px on a 1080-line frame (≈2.4% of frame height). */
 const MIN_READABLE_PX_1080 = 26;
 
-function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight: number): QualityIssue[] {
+export function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight: number): QualityIssue[] {
   const tl = computeTimeline(doc);
   const fps = doc.format.fps;
   const at = (sceneId: string) => {
@@ -215,7 +215,7 @@ export const qualityReview: Handler = async (ctx) => {
   const remaining = best.issues;
   const audio = { loudness: render.verification.loudness, speechIntervals: render.mix.speechIntervals, truePeakOk: (render.verification.loudness?.truePeakDb ?? -99) <= -1 };
   const limitations = [
-    "No model-based visual review in this pass; all checks are measured.",
+    "No model-based visual review in this pass; all checks are measured. For Claude's visual review, use the Critic tab.",
     "Contrast, presenter coverage and asset fidelity are not scored automatically; review the evidence frames.",
     "Audio: decode, duration, loudness, peaks and ducking are measured; the naturalness of speech edits is not.",
     "Smooth motion is not proven by stills; transition strips are provided for review.",

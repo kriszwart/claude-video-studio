@@ -68,9 +68,19 @@ export interface ChatTurn {
   content: string;
 }
 
+/** An image shown to Claude with the first message, introduced by its label. */
+export interface CallImage {
+  label: string;
+  mediaType: "image/jpeg" | "image/png";
+  /** Base64-encoded bytes. */
+  data: string;
+}
+
 export interface StructuredCall {
   system: string;
   messages: ChatTurn[];
+  /** Images attached to the first user message (vision), each after its label. */
+  images?: CallImage[];
   schema: Record<string, unknown>;
   maxTokens?: number;
   effort?: ClaudeEffort;
@@ -134,7 +144,7 @@ export async function callStructured(client: Anthropic, call: StructuredCall): P
         max_tokens: call.maxTokens ?? CLAUDE_CONFIG.maxTokens,
         ...(CLAUDE_CONFIG.fallbacks ? { betas: ["server-side-fallback-2026-07-01"], fallbacks: "default" as const } : {}),
         system: [{ type: "text", text: call.system, cache_control: { type: "ephemeral" } }],
-        messages: call.messages,
+        messages: call.messages.map((m, i) => (i === 0 && call.images?.length ? { role: m.role, content: [{ type: "text" as const, text: m.content }, ...imageBlocks(call.images)] } : m)),
         output_config: { effort: call.effort ?? CLAUDE_CONFIG.effort, format: { type: "json_schema", schema: call.schema } },
       },
       { signal: call.signal },
@@ -164,6 +174,14 @@ export async function callStructured(client: Anthropic, call: StructuredCall): P
   } catch (e) {
     throw classifyClaudeError(e);
   }
+}
+
+/** Label + image content blocks, in order (same shape for the API and the Claude Code runtime). */
+export function imageBlocks(images: CallImage[]) {
+  return images.flatMap((im) => [
+    { type: "text" as const, text: im.label },
+    { type: "image" as const, source: { type: "base64" as const, media_type: im.mediaType, data: im.data } },
+  ]);
 }
 
 export function parseJson(text: string): unknown {

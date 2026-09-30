@@ -22,6 +22,7 @@ exactly as you left them, and can be saved as reusable templates.
 | Script stage: Claude writes narration + on-screen line per beat in a chosen style (University professor, Plain, Conversational, Documentary, Energetic); deterministic check for stock AI phrasing, pace (words per beat vs. style's words-per-minute), dashes and invented figures, repaired automatically and shown live while you edit; you approve the exact words, then planning builds one scene per beat with the narration verbatim | script-stage spec (SDK test double) and unit tests; live Claude output unverified here |
 | Shot-plan review: the planned storyboard as real frames (one card per shot with timing, transition, on-screen text, narration, missing media); revise a single shot with a note, replan everything with a note, or approve — approval records the voiceover or renders a draft; approval only covers the version on screen | shot-plan spec (SDK test double) |
 | Per-scene voice direction: pace, energy and a delivery note per line (written by the scriptwriter, editable in the Script and Scene tabs); pace works on every voice (Pico via pitch-preserving tempo), energy maps to ElevenLabs stability/style, energy and notes go to OmniVoice as instructions; only parts a voice uses affect its cache, so changing an ignored note never re-records | voice-direction spec with real Pico audio; provider request tests |
+| Visual critic: Claude reviews real rendered frames (a settled frame per scene plus transitions, up to 16) with the script, narration timings and measured checks; scores story/visuals/readability/pacing, lists prioritised findings with evidence frames, and turns fixable ones into scoped assistant requests you select and apply (locks and approved claims stay protected); review again to compare scores | critic spec (SDK test double; verifies the frames reach Claude as images) |
 | Live in-browser player and a multi-track timeline (scenes, voice, music, captions, markers) with trim and zoom | live-preview and timeline specs |
 | Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
 | Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
@@ -143,6 +144,18 @@ pace; ElevenLabs maps energy to its stability and style settings; OmniVoice rece
 the note as spoken instructions (whether its server honours them depends on the voice). Only the
 parts a voice actually uses count as a change, so editing a note on a built-in voice never
 re-records, and with ElevenLabs never re-bills.
+
+### Critic (Claude's visual review)
+
+The **Critic** tab asks Claude to review the current version the way an editor would. The studio
+renders a settled frame of every scene (and the middle of visible transitions, up to 16 frames)
+through the same runtime as the export, and sends them as images together with the script,
+narration timings and the measured checks from Quality review. Claude scores story, visuals,
+readability and pacing, names what works, and lists findings — each tied to a scene and the frame
+that shows it, most important first. Findings the assistant can act on carry a short instruction;
+tick the ones you want and **Apply** sends them as one scoped assistant request, so locked scenes
+and approved claims stay protected. Review again to see the scores move. The critic only sees
+stills: motion between frames and the sound itself are not judged.
 
 ### ElevenLabs voices
 

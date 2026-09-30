@@ -133,6 +133,28 @@ function planAnswer(text) {
   return { rationale: "TEST DOUBLE: canned plan.", scenes, omitted: [], warnings: [] };
 }
 
+/** Critic answer: one fixable finding on scene 1 (with its frame), one note that needs the owner. */
+function criticAnswer(text, images) {
+  const frames = (() => {
+    try {
+      return JSON.parse(/<frames>([\s\S]*?)<\/frames>/.exec(text)?.[1] ?? "[]");
+    } catch {
+      return [];
+    }
+  })();
+  const f1 = frames.find((f) => f.scene === 1);
+  const locked = /"scene":1,[^}]*"locked":true/.test(/<scenes>([\s\S]*?)<\/scenes>/.exec(text)?.[1] ?? "");
+  return {
+    summary: `TEST DOUBLE: canned review of ${images} frame(s).`,
+    scores: { story: 3, visuals: 3, readability: 2, pacing: 4 },
+    strengths: ["TEST DOUBLE: consistent colour across shots."],
+    findings: [
+      { scene: 1, frame: f1?.image ?? 0, category: "readability", severity: "fix", observation: "TEST DOUBLE: the opening line is on screen too briefly.", suggestion: "Hold the opening shot longer.", request: locked ? "" : "Make this scene 7 seconds long." },
+      { scene: 0, frame: 0, category: "story", severity: "nit", observation: "TEST DOUBLE: no product footage.", suggestion: "Add real product footage.", request: "" },
+    ],
+  };
+}
+
 export function query({ prompt, options = {} }) {
   const sc = scenario();
   const log = (event, extra = {}) =>
@@ -143,9 +165,18 @@ export function query({ prompt, options = {} }) {
   log("start");
   const gen = (async function* () {
     let text = "";
+    let images = 0;
     if (typeof prompt === "string") text = prompt;
-    else for await (const m of prompt) { text = String(m.message.content); break; }
-    log("prompt", { promptChars: text.length });
+    else
+      for await (const m of prompt) {
+        const c = m.message.content;
+        if (Array.isArray(c)) {
+          text = c.filter((b) => b.type === "text").map((b) => b.text).join("\n");
+          images = c.filter((b) => b.type === "image" && b.source?.type === "base64" && b.source.data?.length > 100).length;
+        } else text = String(c);
+        break;
+      }
+    log("prompt", { promptChars: text.length, images });
     const model = options.model ?? "claude-opus-5-5";
     yield { type: "system", subtype: "init", model, apiKeySource: "none", tools: ["StructuredOutput"], cwd: options.cwd };
     const reset = Math.floor(Date.now() / 1000) + 2 * 3600;
@@ -163,6 +194,8 @@ export function query({ prompt, options = {} }) {
       out = { explanation: "TEST DOUBLE: set the first scene to 7 seconds.", clarificationQuestion: null, operations: sceneId ? [{ op: "setSceneDuration", sceneId, durationSec: 7 }] : [] };
     } else if ("textInputs" in props && "templateId" in props) {
       out = composeAnswer(text, props);
+    } else if ("findings" in props && "scores" in props) {
+      out = criticAnswer(text, images);
     } else if ("beats" in props && "notes" in props) {
       out = scriptAnswer(text);
     } else if ("scenes" in props && "rationale" in props) {

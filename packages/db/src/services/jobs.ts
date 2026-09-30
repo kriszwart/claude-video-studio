@@ -13,6 +13,7 @@ export const JOB_TYPES = [
   "plan",
   "compose",
   "write_script",
+  "critique",
   "assistant",
   "keyframes",
   "live_preview",
@@ -67,7 +68,7 @@ export class JobError extends Error {
 export const PAUSING_ERRORS = new Set(["usage_limit"]);
 
 /** Jobs that compile the composition and therefore need the graphics backends it uses. */
-const GRAPHICS_JOBS = new Set<string>(["preview", "export", "keyframes", "live_preview", "quality_review"]);
+const GRAPHICS_JOBS = new Set<string>(["preview", "export", "keyframes", "live_preview", "quality_review", "critique"]);
 
 /** Graphics backends a revision needs (FR-21 capability routing). */
 export async function graphicsRequirements(db: DbOrTx, revisionId: string): Promise<string[]> {

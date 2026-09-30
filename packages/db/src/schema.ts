@@ -443,6 +443,21 @@ export const qualityReports = pgTable("quality_reports", {
   createdAt: createdAt(),
 });
 
+/** Claude's visual critique of a revision (Phase 3): findings with evidence frames and suggested fixes. */
+export const critiques = pgTable(
+  "critiques",
+  {
+    id: text("id").primaryKey(),
+    workspaceId: text("workspace_id").notNull(),
+    projectId: text("project_id").notNull(),
+    revisionId: text("revision_id").notNull(),
+    jobId: text("job_id").notNull(),
+    report: jsonb("report").notNull(),
+    createdAt: createdAt(),
+  },
+  (t) => [index("critiques_project_idx").on(t.projectId, t.createdAt)],
+);
+
 export const graphicsCache = pgTable("graphics_cache", {
   key: text("key").primaryKey(),
   workspaceId: text("workspace_id").notNull(),
