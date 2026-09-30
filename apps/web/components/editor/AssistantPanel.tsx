@@ -3,11 +3,12 @@ import Link from "next/link";
 import { useState } from "react";
 import type { ProjectDocument } from "@vs/domain";
 import { api, ApiError } from "@/lib/client/api";
+import type { ClaudeStatus } from "@/lib/client/claude";
 import type { JobDTO } from "./types";
 
 const EXAMPLES = ["Slow down scene three by two seconds.", "Make the typography calmer and a little smaller.", "Make a portrait version and keep the existing wording.", "Use a fade into every scene."];
 
-export function AssistantPanel({ projectId, doc, revisionId, selected, jobs, claudeConfigured }: { projectId: string; doc: ProjectDocument; revisionId: string; selected: string | null; jobs: JobDTO[]; claudeConfigured: boolean }) {
+export function AssistantPanel({ projectId, doc, revisionId, selected, jobs, claude }: { projectId: string; doc: ProjectDocument; revisionId: string; selected: string | null; jobs: JobDTO[]; claude: ClaudeStatus["readiness"] | null }) {
   const [text, setText] = useState("");
   const [scope, setScope] = useState<"selected" | "project">("selected");
   const [err, setErr] = useState<string | null>(null);
@@ -32,12 +33,19 @@ export function AssistantPanel({ projectId, doc, revisionId, selected, jobs, cla
     }
   };
 
-  if (!claudeConfigured) {
+  if (!claude) return <p className="text-sm text-dim">Checking Claude…</p>;
+  if (!claude.available) {
     return (
-      <div className="space-y-2 text-sm">
-        <p className="text-dim">The Creative Assistant needs a Claude API key on the server.</p>
-        <Link href="/settings" className="btn">Set up Claude</Link>
+      <div className="space-y-3 text-sm">
+        <div>
+          <p className="font-medium">Integrated assistant: blocked</p>
+          <p className="text-dim">{claude.message}</p>
+          {claude.recovery && <p className="text-xs text-faint">{claude.recovery}</p>}
+        </div>
+        <Link href={claude.setupUrl} className="btn">Set up Claude</Link>
         <p className="text-xs text-faint">Everything else — scene editing, uploads, rendering and exports — keeps working without it.</p>
+        <Handoff projectId={projectId} revisionId={revisionId} />
+        <History jobs={history} />
       </div>
     );
   }
@@ -70,24 +78,65 @@ export function AssistantPanel({ projectId, doc, revisionId, selected, jobs, cla
         </div>
         {err && <p role="alert" className="mt-2 text-xs text-bad">{err}</p>}
       </div>
-      <ol className="min-h-0 space-y-2 overflow-y-auto">
-        {history.map((j) => (
-          <li key={j.id} className="rounded-md border border-line bg-bg p-2 text-xs">
-            <div className="mb-1 flex items-center gap-2 text-faint">
-              <span>{j.type === "plan" ? "Storyboard plan" : "Assistant"}</span>
-              <span>· {j.status === "running" || j.status === "queued" ? j.stage : j.status}</span>
-            </div>
-            <AssistantResult job={j} />
-          </li>
-        ))}
-      </ol>
+      <p className="text-xs text-faint">{claude.mode === "api" ? "Using the Claude API key (billed separately)." : "Using your Claude plan through Claude Code (counts toward your plan's usage limits)."}</p>
+      <History jobs={history} />
+      <Handoff projectId={projectId} revisionId={revisionId} />
     </div>
+  );
+}
+
+function History({ jobs }: { jobs: JobDTO[] }) {
+  if (!jobs.length) return null;
+  return (
+    <ol className="min-h-0 space-y-2 overflow-y-auto">
+      {jobs.map((j) => (
+        <li key={j.id} className="rounded-md border border-line bg-bg p-2 text-xs">
+          <div className="mb-1 flex items-center gap-2 text-faint">
+            <span>{j.type === "plan" ? "Storyboard plan" : "Assistant"}</span>
+            <span>· {j.status === "running" || j.status === "queued" ? j.stage : j.status}</span>
+          </div>
+          <AssistantResult job={j} />
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+/** Claude Code project-file handoff: export a snapshot, edit with Claude Code in a terminal, import typed operations. */
+function Handoff({ projectId, revisionId }: { projectId: string; revisionId: string }) {
+  const [msg, setMsg] = useState<string | null>(null);
+  const onFile = async (f: File | undefined) => {
+    if (!f) return;
+    setMsg(null);
+    try {
+      const parsed = JSON.parse(await f.text()) as { baseRevisionId?: string; ops?: unknown[] };
+      const r = await api<{ changedSceneIds: string[]; noop: boolean }>(`/api/projects/${projectId}/handoff`, { method: "POST", json: { baseRevisionId: parsed.baseRevisionId, ops: parsed.ops } });
+      setMsg(r.noop ? "Imported: nothing changed." : `Imported and applied (${r.changedSceneIds.length} scene${r.changedSceneIds.length === 1 ? "" : "s"} changed). Undo is available.`);
+    } catch (e) {
+      setMsg(e instanceof ApiError ? `Not applied: ${e.message}${e.recovery ? ` ${e.recovery}` : ""}` : e instanceof SyntaxError ? "Not applied: the file is not valid JSON." : String(e));
+    }
+  };
+  return (
+    <details className="rounded-md border border-line p-2 text-xs">
+      <summary className="cursor-pointer text-dim">Claude Code handoff (edit in your terminal)</summary>
+      <p className="mt-2 text-faint">Download this revision, ask Claude Code for a change in its folder, then import the <code>operations.json</code> it writes. Imports are checked like assistant edits (locks, approved claims, creative mode, base revision).</p>
+      <div className="mt-2 flex flex-wrap items-center gap-2">
+        <a className="btn text-xs" href={`/api/projects/${projectId}/handoff`} download>Download project file</a>
+        <label className="btn text-xs">
+          Import operations file
+          <input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => { void onFile(e.target.files?.[0]); e.target.value = ""; }} />
+        </label>
+        <span className="text-faint">Current revision: <code>{revisionId}</code></span>
+      </div>
+      {msg && <p role="status" className="mt-2">{msg}</p>}
+    </details>
   );
 }
 
 function AssistantResult({ job }: { job: JobDTO }) {
   const r = job.result as Record<string, unknown> | null;
   if (job.status === "failed") return <p className="text-bad">{job.error?.message} {job.error?.recovery && <span className="text-dim">{job.error.recovery}</span>}</p>;
+  if (job.status === "paused") return <PausedJob job={job} />;
   if (!r) return <p className="text-dim">Waiting…</p>;
   const status = String(r.status ?? "");
   if (status === "clarify") return <p><span className="text-warn">Question:</span> {String(r.question)}</p>;
@@ -108,5 +157,22 @@ function AssistantResult({ job }: { job: JobDTO }) {
       {r.rebased ? <span className="text-faint"> (rebased onto your newer edits)</span> : null}
       {status === "applied" && <span className="text-ok"> Applied — undo is available.</span>}
     </p>
+  );
+}
+
+/** A job paused at a plan usage limit: the owner resumes it explicitly (never an automatic paid fallback). */
+function PausedJob({ job }: { job: JobDTO }) {
+  const [err, setErr] = useState<string | null>(null);
+  const act = (path: string) => api(`/api/jobs/${job.id}/${path}`, { method: "POST" }).catch((e) => setErr(e instanceof ApiError ? e.message : String(e)));
+  return (
+    <div className="space-y-1">
+      <p className="text-warn">{job.error?.message}</p>
+      {job.error?.recovery && <p className="text-dim">{job.error.recovery}</p>}
+      <div className="flex gap-2">
+        <button className="btn text-xs" onClick={() => act("retry")}>Resume</button>
+        <button className="btn btn-ghost text-xs" onClick={() => act("cancel")}>Cancel</button>
+      </div>
+      {err && <p className="text-bad">{err}</p>}
+    </div>
   );
 }

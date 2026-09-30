@@ -59,7 +59,7 @@ export async function runJob(jobId: string, deps: RunnerDeps): Promise<"done" | 
     }
     const je = toJobError(e);
     log("job failed", { code: je.code, message: redact(je.message), retryable: je.retryable });
-    await failJob(jobId, deps.workerId, { code: je.code, message: redact(je.message), retryable: je.retryable, recovery: je.recovery });
+    await failJob(jobId, deps.workerId, { code: je.code, message: redact(je.message), retryable: je.retryable, recovery: je.recovery, ...(je.details ? { details: je.details } : {}) });
   } finally {
     clearInterval(hb);
     await cleanupWorkDir(jobId);

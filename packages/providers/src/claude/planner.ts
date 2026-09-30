@@ -1,8 +1,7 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import { LAYOUTS } from "@vs/compositor";
 import { secondsToFrames, Scene, type Layer, type ProjectDocument } from "@vs/domain";
 import type { TemplateDefinition } from "@vs/templates";
-import { callStructured, ProviderError, type StructuredResult } from "./client";
+import { ProviderError, type ChatTurn, type ClaudeBackend, type StructuredResult } from "./client";
 import { arr, enm, nullable, num, obj, str } from "./schema";
 
 export interface AssetManifestEntry {
@@ -257,14 +256,14 @@ export interface PlannerRun {
  * Plan with at most two repair attempts after the first invalid response (section 10).
  * Throws when no valid plan is produced; callers keep the last good revision.
  */
-export async function runPlanner(client: Anthropic, ctx: PlanContext, opts: { signal?: AbortSignal; maxRepairs?: number } = {}): Promise<PlannerRun> {
+export async function runPlanner(backend: ClaudeBackend, ctx: PlanContext, opts: { signal?: AbortSignal; maxRepairs?: number } = {}): Promise<PlannerRun> {
   const schema = planSchema(ctx.template);
-  const messages: Anthropic.Beta.BetaMessageParam[] = [{ role: "user", content: buildPlannerPrompt(ctx) }];
+  const messages: ChatTurn[] = [{ role: "user", content: buildPlannerPrompt(ctx) }];
   const usage: StructuredResult["usage"][] = [];
   const repairs: PlanIssue[][] = [];
   const maxRepairs = opts.maxRepairs ?? 2;
   for (let attempt = 0; attempt <= maxRepairs; attempt++) {
-    const res = await callStructured(client, { system: SYSTEM, messages, schema, signal: opts.signal, effort: "high" });
+    const res = await backend.structured({ system: SYSTEM, messages, schema, signal: opts.signal, effort: "high" });
     usage.push(res.usage);
     const plan = res.json as PlanOutput;
     const issues = shapeIssues(plan) ?? validatePlan(plan, ctx);
@@ -272,7 +271,7 @@ export async function runPlanner(client: Anthropic, ctx: PlanContext, opts: { si
       return { plan, scenes: planToScenes(plan, ctx), attempts: attempt + 1, usage, repairs };
     }
     repairs.push(issues);
-    messages.push({ role: "assistant", content: res.message.content as Anthropic.Beta.BetaContentBlockParam[] });
+    messages.push({ role: "assistant", content: res.text });
     messages.push({
       role: "user",
       content: `The plan failed validation. Fix exactly these problems and return the complete corrected plan:\n${issues.map((i) => `- ${i.path}: ${i.message}`).join("\n")}`,

@@ -18,7 +18,7 @@ spectrum and level measurements (this environment has no speakers — "listened"
 | FR-04 | Brand kits (versioned, applied as snapshot) | ✅ | `/brand-kits`; A01 |
 | FR-05 | Storyboard with real frames | ✅ | keyframes job (per-scene cache, A30) |
 | FR-06 | Scene editor (layers, timing, locks, transitions, media) | ✅ | `components/editor/*`; A02 |
-| FR-07 | Creative Assistant (typed ops, base revision, guards) | 🟡 | `packages/providers/src/claude/editor.ts`; guard/stale logic tested; **live Claude blocked** |
+| FR-07 | Creative Assistant (typed ops, base revision, guards) | 🟡 | `packages/providers/src/claude/editor.ts`; guard/stale logic tested; runs through the subscription runtime (SDK test double in `claude-runtime.spec.ts`); **live Claude blocked** |
 | FR-08 | Asset management (content sniffing, dedupe, provenance, resumable upload) | ✅ | `/assets`; A20 resumable chunks |
 | FR-09 | Audio & captions (TTS, mix, ducking, loudness, SRT/VTT) | ✅ local TTS / 🟡 ElevenLabs | M2 T4; ElevenLabs TTS blocked |
 | FR-10 | Draft preview & verified export | ✅ | `packages/rendering/src/verify.ts`; all exports |
@@ -87,6 +87,9 @@ spectrum and level measurements (this environment has no speakers — "listened"
 | A28 | Mixed composition | ✅ | `m7-graphics.spec.ts` → `m7-preview-vs-export.json` |
 | A29 | Unsupported runtime / device loss | ✅ | `m7-graphics.spec.ts` (Redraw-less worker; job waits, nothing blank), device-loss proof |
 | A30 | Reuse and deployment | ✅ | `m7-graphics.spec.ts` → `m7-cache.json`; `scripts/clean-worker-check.sh` |
+| A31 | Subscription-first local AI (no API key; observed mode reported) | 🟡 | `claude-runtime.spec.ts` (SDK test double: plan "max" → assistant edit applied, ledger `claude_subscription` / $0, no API-key env, scoped tooling) → `a31-report.json`, `a31-settings-claude.png`. Real runtime here: refused before sending (see below). **Live check with a real subscription login blocked** |
+| A32 | Limit/runtime failure → paused, recoverable, no paid fallback | ✅ (double) | `claude-runtime.spec.ts`: rejected 5-hour window → job `paused` with reset time, revision unchanged, no ledger rows, not auto-retried; Resume from the editor → applied; paused job cancel → `a32-report.json`, `a32-paused.png`; unit tests in `packages/providers/test/subscription.test.ts` |
+| A33 | Loopback/origin/session protection; scoped tooling; no subscription secrets in browser/DB/logs | ✅ | `claude-runtime.spec.ts` (cross-origin/`null`/cross-site writes → 403, same-origin OK, non-loopback Host → 403, server listens on 127.0.0.1 only, override values absent from API/DB/logs); `security.spec.ts` (password mode never offers or starts the subscription runtime) |
 
 ## Final test run (2026-09-29, committed code)
 
@@ -109,6 +112,20 @@ spectrum and level measurements (this environment has no speakers — "listened"
 | `scripts/clean-worker-check.sh` (A25/A30) | fresh clone of commit `5cffc1c`, `pnpm install --frozen-lockfile --offline`, Redraw tarball sha256 verified; Skia proof 1920×1080 export OK (18.4 s); Redraw proof 480×270 export OK (215 s); repeated, out-of-order and post-device-loss frames byte-identical |
 | Collection benchmark | 400 files / 10 h source indexed; see [BENCHMARK.md](BENCHMARK.md) |
 
+## §28 test run (2026-09-30, subscription-first runtime)
+
+| Suite | Result |
+| --- | --- |
+| Unit/integration (`pnpm test`) incl. `subscription.test.ts` (10 cases: scoped options, env allowlist, API-login refusal before sending, limit → `usage_limit`, login loss, cancel, status check without a prompt) | 82 passed |
+| Typecheck (all packages + web + worker) | clean |
+| `claude-runtime` (A31, A32, handoff, A33; SDK test double) | 4 passed |
+| `security` (A14, A15, A33 password mode) vs password-mode production build | 5 passed |
+| `m1-product-launch` (A01–A05, A10), `reliability` (A06 with the new `claude_unavailable` setup error, A07) | 8 passed |
+| Real runtime status check in this container (no prompt sent) | `billing_mismatch` — observed `api_key` ("Claude API"); refused as designed |
+
+Suites not re-run for §28 (no code path they cover changed beyond the job-state enum and API
+origin check): `m2`–`m7`, `generation`, `a16-templates`; their results above stand.
+
 ## Blocked live checks (exact reasons)
 
 These integrations are implemented against the providers' official SDK/REST contracts and tested
@@ -116,12 +133,21 @@ against test doubles only. They are **not** claimed as verified.
 
 | Integration | Blocker here | To verify |
 | --- | --- | --- |
-| Anthropic Claude (planner, assistant, feedback wording) | No `ANTHROPIC_API_KEY` for this app (the session's own credentials must not be used) | Add a key in Settings → Providers, then create a project with AI planning and use the Assistant tab; request/response validation is unit-tested in `packages/providers/test` |
+| Claude subscription runtime (A31 live; planner, assistant) | This container's Claude Code is not the owner's subscription: the real runtime reports `subscriptionType: "Claude API"` (API-billed), and the studio correctly refuses it before sending anything (`state: billing_mismatch`, observed `api_key`). The session's own credentials must not be used for the app. | On your computer: sign in to Claude Code with your Pro/Max plan (`claude`, `/login`), open Settings → Claude → Check runtime (expect "signed in with a Claude subscription (max)"), then create a project with "Create and plan storyboard with Claude" and use the Assistant tab. Settings shows the observed mode; the ledger rows read `claude_subscription`. |
+| Claude API mode (optional) | No API key for this app | Settings → Claude → API key, add the key, then as above |
 | ElevenLabs TTS and Scribe STT | No key; `elevenlabs.io` unreachable | Add a key in Settings; create a T4 with an ElevenLabs voice; transcribe a T5 without subtitles |
 | fal image/video generation, webhooks | No key; `fal.run` unreachable; webhooks need a public URL | Configure fal key + model endpoints/prices in Settings; set `PUBLIC_BASE_URL`; generate a T7 shot |
 | whisper.cpp local STT | Model download (Hugging Face) blocked | Set `WHISPER_CPP_BIN` and `WHISPER_MODEL`; transcribe a T5 without subtitles |
 | Segmentation provider (background removal) | Not integrated (no verified provider contract) | — (templates never require it) |
 | Redraw on hardware GPU | Only SwiftShader software WebGPU here (~4 s/frame at 540p) | Run `scripts/clean-worker-check.sh` on a GPU worker |
+
+### Note on one unintended call
+
+While probing the logged-out behaviour of the Agent SDK during §28 work, one diagnostic call
+("Say hi as JSON", ~$0.004) was answered using this container's host-managed credentials,
+which reach Claude Code through the environment's proxy rather than environment variables.
+No further live calls were made; the app's own checks use `accountInfo()` only (no prompt),
+and e2e tests use the SDK test double.
 
 ## Known limitations
 

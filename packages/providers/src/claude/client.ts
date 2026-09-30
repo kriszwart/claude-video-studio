@@ -9,12 +9,33 @@ export const CLAUDE_CONFIG = {
   maxTokens: Number(process.env.CLAUDE_MAX_TOKENS ?? 32000),
 };
 
+export type ProviderErrorCode =
+  | "credentials_missing"
+  | "provider_auth"
+  | "rate_limited"
+  | "provider_unavailable"
+  | "invalid_output"
+  | "refused"
+  | "bad_request"
+  | "network"
+  /** Subscription usage limit reached: the job pauses; it is never moved to paid API billing. */
+  | "usage_limit"
+  /** The local Claude Code runtime is not signed in. */
+  | "runtime_login_required"
+  /** The local Claude Code runtime could not be started. */
+  | "runtime_unavailable"
+  /** Subscription mode was selected but the runtime would bill an API key/Console account. */
+  | "billing_mode_mismatch"
+  | "canceled";
+
 export class ProviderError extends Error {
   constructor(
-    public code: "credentials_missing" | "provider_auth" | "rate_limited" | "provider_unavailable" | "invalid_output" | "refused" | "bad_request" | "network",
+    public code: ProviderErrorCode,
     message: string,
     public retryable: boolean,
     public recovery?: string,
+    /** Extra machine-readable details (e.g. when a usage limit resets). Never secrets. */
+    public details?: Record<string, unknown>,
   ) {
     super(message);
   }
@@ -22,7 +43,7 @@ export class ProviderError extends Error {
 
 export function claudeClient(apiKey: string | undefined): Anthropic {
   if (!apiKey) {
-    throw new ProviderError("credentials_missing", "Claude is not configured, so AI planning and assistant edits are unavailable.", false, "Add an Anthropic API key in Settings → Providers (or set ANTHROPIC_API_KEY on the server). Manual editing and rendering still work.");
+    throw new ProviderError("credentials_missing", "Claude API mode is selected but no Anthropic API key is configured.", false, "Add an API key in Settings → Claude, or switch back to the Claude Code subscription runtime. Manual editing and rendering still work.");
   }
   // Explicit key only: the app never picks up ambient CLI credentials.
   return new Anthropic({ apiKey, baseURL: process.env.STUDIO_ANTHROPIC_BASE_URL || "https://api.anthropic.com", maxRetries: 2, timeout: 10 * 60_000 });
@@ -41,25 +62,69 @@ export function classifyClaudeError(e: unknown): ProviderError {
   return new ProviderError("provider_unavailable", e instanceof Error ? e.message : String(e), true);
 }
 
+/** One conversation turn. Content is plain text: prompts are built as strings. */
+export interface ChatTurn {
+  role: "user" | "assistant";
+  content: string;
+}
+
 export interface StructuredCall {
   system: string;
-  messages: Anthropic.Beta.BetaMessageParam[];
+  messages: ChatTurn[];
   schema: Record<string, unknown>;
   maxTokens?: number;
-  effort?: CLAUDE_EFFORT;
+  effort?: ClaudeEffort;
   signal?: AbortSignal;
 }
-type CLAUDE_EFFORT = (typeof CLAUDE_CONFIG)["effort"];
+export type ClaudeEffort = (typeof CLAUDE_CONFIG)["effort"];
+
+/** Which billing path served a call: the owner's Claude subscription, or a separately billed API key. */
+export type ClaudeRuntimeKind = "subscription" | "api";
+
+export interface StructuredUsage {
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  model: string;
+  runtime: ClaudeRuntimeKind;
+  /** Plan usage-window status as reported by the runtime (subscription only; never estimated). */
+  limit?: RateLimitSnapshot | null;
+}
+
+export interface RateLimitSnapshot {
+  status: "allowed" | "allowed_warning" | "rejected";
+  rateLimitType?: string;
+  resetsAt?: string;
+  utilization?: number;
+  at: string;
+}
 
 export interface StructuredResult {
   json: unknown;
-  message: Anthropic.Beta.BetaMessage;
-  usage: { inputTokens: number; outputTokens: number; cacheReadTokens: number; model: string };
+  /** The raw JSON text the model produced (fed back verbatim on repair attempts). */
+  text: string;
+  usage: StructuredUsage;
 }
 
 /**
- * One structured-output request. Streams (long outputs), constrains the response to the
- * JSON schema, and surfaces refusals / truncation as typed errors.
+ * A way to make one schema-constrained Claude call. Planner and assistant code depend only on
+ * this, so the subscription runtime (Claude Agent SDK, default) and the optional API-key runtime
+ * are interchangeable — and the choice is always explicit, never an automatic fallback.
+ */
+export interface ClaudeBackend {
+  kind: ClaudeRuntimeKind;
+  structured(call: StructuredCall): Promise<StructuredResult>;
+}
+
+/** Separately billed Claude API backend. Used only when the owner selects API mode. */
+export function apiBackend(apiKey: string | undefined): ClaudeBackend {
+  const client = claudeClient(apiKey);
+  return { kind: "api", structured: (call) => callStructured(client, call) };
+}
+
+/**
+ * One structured-output request on the Claude API. Streams (long outputs), constrains the
+ * response to the JSON schema, and surfaces refusals / truncation as typed errors.
  */
 export async function callStructured(client: Anthropic, call: StructuredCall): Promise<StructuredResult> {
   try {
@@ -85,24 +150,27 @@ export async function callStructured(client: Anthropic, call: StructuredCall): P
       .filter((b): b is Anthropic.Beta.BetaTextBlock => b.type === "text")
       .map((b) => b.text)
       .join("");
-    let json: unknown;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      throw new ProviderError("invalid_output", "Claude returned malformed JSON.", true);
-    }
     return {
-      json,
-      message,
+      json: parseJson(text),
+      text,
       usage: {
         inputTokens: message.usage.input_tokens,
         outputTokens: message.usage.output_tokens,
         cacheReadTokens: message.usage.cache_read_input_tokens ?? 0,
         model: message.model,
+        runtime: "api",
       },
     };
   } catch (e) {
     throw classifyClaudeError(e);
+  }
+}
+
+export function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    throw new ProviderError("invalid_output", "Claude returned malformed JSON.", true);
   }
 }
 

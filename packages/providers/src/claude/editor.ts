@@ -1,7 +1,6 @@
-import type Anthropic from "@anthropic-ai/sdk";
 import { LAYOUTS } from "@vs/compositor";
 import { AspectRatio, secondsToFrames, type BrandSnapshot, type Operation, type ProjectDocument } from "@vs/domain";
-import { callStructured, type StructuredResult } from "./client";
+import { type ClaudeBackend, type StructuredResult } from "./client";
 import type { AssetManifestEntry } from "./planner";
 import { arr, bool, constant, enm, int, nullable, num, obj, str, type JsonSchema } from "./schema";
 
@@ -275,8 +274,8 @@ export function toDomainOps(out: EditOutput, ctx: EditContext): Operation[] {
   return ops;
 }
 
-export async function runEditor(client: Anthropic, ctx: EditContext, signal?: AbortSignal): Promise<{ output: EditOutput; ops: Operation[]; usage: StructuredResult["usage"] }> {
-  const res = await callStructured(client, { system: SYSTEM, messages: [{ role: "user", content: buildEditorPrompt(ctx) }], schema: EDITOR_SCHEMA, signal, maxTokens: 16000 });
+export async function runEditor(backend: ClaudeBackend, ctx: EditContext, signal?: AbortSignal): Promise<{ output: EditOutput; ops: Operation[]; usage: StructuredResult["usage"] }> {
+  const res = await backend.structured({ system: SYSTEM, messages: [{ role: "user", content: buildEditorPrompt(ctx) }], schema: EDITOR_SCHEMA, signal, maxTokens: 16000 });
   const output = res.json as EditOutput;
   if (output.clarificationQuestion) return { output: { ...output, operations: [] }, ops: [], usage: res.usage };
   return { output, ops: toDomainOps(output, ctx), usage: res.usage };

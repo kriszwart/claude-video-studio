@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { useClaudeStatus } from "@/lib/client/claude";
 import { api, ApiError, waitForJob } from "@/lib/client/api";
 
 interface ProjectItem {
@@ -12,12 +13,11 @@ interface ProjectItem {
   variantLabel: string | null;
   thumbnailAssetId: string | null;
 }
-interface ProviderStatus { provider: string; label: string; configured: boolean }
 
 export default function Projects() {
   const [tab, setTab] = useState<"active" | "archived">("active");
   const [projects, setProjects] = useState<ProjectItem[] | null>(null);
-  const [providers, setProviders] = useState<ProviderStatus[]>([]);
+  const [claudeStatus] = useClaudeStatus();
   const [busy, setBusy] = useState<string | null>(null);
   const [err, setErr] = useState<string | null>(null);
 
@@ -27,7 +27,6 @@ export default function Projects() {
   }, [tab]);
   useEffect(() => {
     void load();
-    api<{ providers: ProviderStatus[] }>("/api/settings/providers").then((r) => setProviders(r.providers)).catch(() => {});
   }, [load]);
 
   const act = async (label: string, fn: () => Promise<unknown>) => {
@@ -42,7 +41,7 @@ export default function Projects() {
       setBusy(null);
     }
   };
-  const claude = providers.find((p) => p.provider === "anthropic");
+  const claudeReady = !!claudeStatus?.readiness.available;
 
   return (
     <main className="mx-auto max-w-7xl px-4 py-6">
@@ -63,11 +62,11 @@ export default function Projects() {
       {projects && projects.length === 0 && tab === "active" && (
         <section className="card mb-6 p-5">
           <h2 className="mb-1 font-semibold">Get started</h2>
-          <p className="mb-4 text-sm text-dim">A short setup checklist. Everything except AI planning works without external keys.</p>
+          <p className="mb-4 text-sm text-dim">A short setup checklist. Everything except AI planning works without Claude; AI uses your Claude plan through Claude Code — no API key needed.</p>
           <ol className="mb-4 space-y-2 text-sm">
             <li>
-              {claude?.configured ? "✓" : "○"} Claude API key for storyboard planning and the Creative Assistant —{" "}
-              <Link className="text-accent underline" href="/settings">{claude?.configured ? "configured" : "add in Settings"}</Link>
+              {claudeReady ? "✓" : "○"} Claude for storyboard planning and the Creative Assistant (sign in to Claude Code with your plan) —{" "}
+              <Link className="text-accent underline" href="/settings#claude">{claudeReady ? "ready" : claudeStatus ? "set up" : "checking…"}</Link>
             </li>
             <li>○ Create a brand kit with your colours, fonts and logo — <Link className="text-accent underline" href="/brand-kits">Brand Kits</Link></li>
             <li>○ Upload screenshots, logos and music — <Link className="text-accent underline" href="/assets">Assets</Link></li>

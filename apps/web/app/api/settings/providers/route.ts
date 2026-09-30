@@ -19,7 +19,7 @@ export const PUT = route(async (req) => {
   return json({ providers: await providerStatus(getDb(), s.workspaceId) });
 });
 
-/** Live credential check (a real API call to the provider). */
+/** Live credential check (a real API call to the provider; for Claude this checks the optional API key only). */
 export const POST = route(async (req) => {
   const s = await requireOwner();
   const b = await body(req, z.object({ provider: Provider }));

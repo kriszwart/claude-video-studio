@@ -1,6 +1,7 @@
 # Implementation plan
 
-Source of truth: `CLAUDE-VIDEO-STUDIO-PRD.md` v1.2 (including §21–27). Status per requirement and
+Source of truth: `CLAUDE-VIDEO-STUDIO-PRD.md` v1.3 (including §21–27 and the controlling §28,
+*Max-plan-first operation*). Status per requirement and
 acceptance gate is tracked in [STATUS.md](STATUS.md); this file records how the work was sequenced
 and why.
 
@@ -41,6 +42,30 @@ ffmpeg-decoded frames over `<video>` elements (the export path already does this
 | M5 | T7 anime opening + P6 spec ad: shot lists, fal queue adapter (webhooks, recovery), budgets/ledger, reliability, security | Done with fake provider — A06–A09, A13–A16; live fal blocked |
 | M6 | Collections (resumable ingest, hash reuse, search), P3 Event Sizzle, creative profiles from references, bounded review–repair, product fidelity, benchmark | Done — A19–A23; benchmark in `docs/BENCHMARK.md` |
 | M7 | Graphics library completion: capability routing, per-scene render cache, mixed composition, clean-worker reproduction | Done — A25–A30 (software WebGPU only) |
+| §28 | Subscription-first Claude runtime: Agent SDK adapter (default) with the API key as an explicit option, pause-at-limit jobs with Resume, runtime status/overrides in Settings, Claude Code project-file handoff, same-origin protection | Done against the SDK test double — A31–A33; live subscription check blocked here |
+
+## §28 design notes
+
+- **Adapter.** `packages/providers/src/claude/subscription.ts` calls the official
+  `@anthropic-ai/claude-agent-sdk` `query()` (pinned 0.3.285) with `tools: []`,
+  `settingSources: []`, `persistSession: false`, `permissionMode: "dontAsk"`, strict empty MCP
+  config, a JSON-schema `outputFormat`, a per-project scratch `cwd` that is deleted afterwards,
+  an `AbortController` wired to job cancellation, and an allowlisted environment (billing
+  overrides such as `ANTHROPIC_API_KEY` are never passed). Prompts are SDK arguments, never
+  shell strings.
+- **No silent billing change.** Before anything is sent, the adapter asks the runtime which
+  account it is signed in with (`accountInfo()`); only a positively identified Claude plan is
+  used. An API-key/Console, third-party or unknown login is refused with nothing sent. API mode
+  is a separate backend chosen only in Settings; there is no fallback between them.
+- **Limits.** A rejected `rate_limit_event` (or a rate-limit/billing error) becomes a
+  `usage_limit` error, which pauses the job (`paused`) instead of failing or retrying; the owner
+  resumes or cancels it. Settings shows only usage-window data the runtime reported, otherwise
+  "unavailable".
+- **Scope.** The subscription runtime is allowed only in local mode (personal studio); the
+  official Agent SDK guidance says third-party products may not offer claude.ai login or rate
+  limits to their users without approval, so password mode requires API mode.
+- The planner/editor code depends on a small `ClaudeBackend` interface, so both runtimes share
+  prompts, schemas, validation and repair rounds.
 
 ## Remaining requirements
 
@@ -52,6 +77,8 @@ listed in STATUS → "Blocked live checks", with the exact command to run once a
 - HyperFrames, GSAP, CanvasKit and the licensed Redraw 1.3.3 package documentation/type
   definitions (pinned versions above); `@fal-ai/client` 1.10.1 and `@elevenlabs/elevenlabs-js`
   2.70.0 type definitions for the provider contracts (their hosts are unreachable from here).
+- Claude Agent SDK overview and the pinned SDK's type definitions (`sdk.d.ts`: `query`,
+  `Options`, `accountInfo`, `SDKRateLimitEvent`, result subtypes), rechecked 2026-09-30.
 - HyperFrames Student Kit (public repository): MIT-licensed code, brand assets excluded. Read as a
   reference for transcript cutting, EDL review, captions and a style library. None of its files
   were copied, and its agent instructions (`SKILL.md`/prompts) are not used as runtime

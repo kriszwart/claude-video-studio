@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
+import { useClaudeStatus } from "@/lib/client/claude";
 import { api, ApiError } from "@/lib/client/api";
 
 interface TemplateSummary {
@@ -53,14 +54,14 @@ function NewProject() {
   const [duration, setDuration] = useState(30);
   const [brandKits, setBrandKits] = useState<BrandKit[]>([]);
   const [brandKitId, setBrandKitId] = useState("");
-  const [claude, setClaude] = useState(false);
+  const [claudeStatus] = useClaudeStatus();
+  const claude = !!claudeStatus?.readiness.available;
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
   useEffect(() => {
     api<{ templates: TemplateSummary[] }>("/api/templates").then((r) => setTemplates(r.templates));
     api<{ brandKits: BrandKit[] }>("/api/brand-kits").then((r) => setBrandKits(r.brandKits));
-    api<{ providers: { provider: string; configured: boolean }[] }>("/api/settings/providers").then((r) => setClaude(!!r.providers.find((p) => p.provider === "anthropic")?.configured)).catch(() => {});
   }, []);
   const tpl = templates.find((t) => t.id === templateId);
   useEffect(() => {
@@ -177,12 +178,21 @@ function NewProject() {
           <ul className="space-y-1 text-dim">
             <li>{missing.length ? <span className="text-warn">Missing required inputs: {missing.join(", ")}</span> : "All required inputs are filled."}</li>
             <li>Paid operations: {tpl.tags.generatedMedia === "none" ? "none — rendering happens on your own worker." : "optional generated media is only submitted after you approve a budget."}</li>
-            <li>AI planning uses your Claude API account ({claude ? "configured" : "not configured"}); usage is recorded in the project ledger.</li>
+            <li>
+              AI planning{" "}
+              {!claudeStatus
+                ? "— checking Claude…"
+                : claudeStatus.readiness.mode === "api"
+                  ? `uses the separately billed Claude API key (${claude ? "configured" : "not configured"}).`
+                  : claudeStatus.readiness.mode === "off"
+                    ? "is turned off."
+                    : `uses your Claude plan through Claude Code (${claude ? "ready" : "not ready"}); it counts toward your plan's usage limits and never falls back to paid API billing.`}
+            </li>
           </ul>
         </section>
         {err && <p role="alert" className="text-sm text-bad">{err}</p>}
         <div className="flex flex-wrap gap-2">
-          <button type="button" className="btn btn-primary" disabled={busy || missing.length > 0 || !claude} onClick={() => create(true)} title={claude ? "" : "Add a Claude key in Settings to enable AI planning"}>
+          <button type="button" className="btn btn-primary" disabled={busy || missing.length > 0 || !claude} onClick={() => create(true)} title={claude ? "" : claudeStatus?.readiness.message ?? "Checking Claude…"}>
             Create and plan storyboard with Claude
           </button>
           <button type="button" className="btn" disabled={busy || missing.length > 0} onClick={() => create(false)}>
@@ -190,7 +200,7 @@ function NewProject() {
           </button>
           {!claude && (
             <span className="self-center text-xs text-faint">
-              Claude isn’t configured — <Link href="/settings" className="text-accent underline">set it up</Link> or build manually.
+              {claudeStatus?.readiness.message ?? "Checking Claude…"} <Link href={claudeStatus?.readiness.setupUrl ?? "/settings#claude"} className="text-accent underline">Set up Claude</Link> or build manually.
             </span>
           )}
         </div>

@@ -18,10 +18,48 @@ export function errorResponse(e: unknown) {
 
 type Ctx<P> = { params: Promise<P> };
 
+const SAFE_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+/**
+ * Cross-site request protection for every state-changing API call (PRD §28/A33). A browser
+ * always sends Origin (and Sec-Fetch-Site) on cross-origin writes, so a page on another site
+ * cannot submit prompts, edits or jobs to a studio running on this machine. Requests without
+ * those headers come from non-browser clients (CLI, server webhooks) and are authorised by the
+ * session/signature checks as usual.
+ */
+export function assertSameOrigin(req: Request) {
+  if (SAFE_METHODS.has(req.method)) return;
+  const origin = req.headers.get("origin");
+  const site = req.headers.get("sec-fetch-site");
+  const host = req.headers.get("host");
+  const allowed = new Set<string>();
+  if (host) allowed.add(host.toLowerCase());
+  for (const u of [process.env.PUBLIC_BASE_URL, ...(process.env.STUDIO_ALLOWED_ORIGINS ?? "").split(",")]) {
+    try {
+      if (u?.trim()) allowed.add(new URL(u.trim()).host.toLowerCase());
+    } catch {
+      /* ignore malformed */
+    }
+  }
+  if (origin && origin !== "null") {
+    let h = "";
+    try {
+      h = new URL(origin).host.toLowerCase();
+    } catch {
+      /* invalid origin → rejected below */
+    }
+    if (allowed.has(h)) return;
+  } else if (!origin && (!site || site === "same-origin" || site === "none")) {
+    return;
+  }
+  throw new AppError(403, "cross_origin_request", "Requests from other websites are not accepted.", "Use the studio from its own address. If it is served behind another hostname, add that origin to STUDIO_ALLOWED_ORIGINS.");
+}
+
 /** Wrap a route handler with structured error responses. */
 export function route<P = Record<string, string>>(fn: (req: Request, params: P) => Promise<Response>) {
   return async (req: Request, ctx: Ctx<P>) => {
     try {
+      assertSameOrigin(req);
       return await fn(req, (await ctx?.params) ?? ({} as P));
     } catch (e) {
       return errorResponse(e);

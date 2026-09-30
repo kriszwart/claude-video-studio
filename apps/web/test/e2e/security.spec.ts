@@ -174,6 +174,16 @@ test.describe.serial("security (A14, A15)", () => {
     expect(orig.headers()["content-security-policy"]).toContain("sandbox");
   });
 
+  test("A33: a multi-user (password-mode) studio never offers the Claude subscription runtime; cross-site writes refused", async () => {
+    const st = await (await alice.get("/api/settings/claude")).json();
+    expect(st.runtime.subscriptionAllowed).toBe(false);
+    expect(st.readiness.available).toBe(false);
+    expect(st.readiness.message).toMatch(/personal local studio/);
+    expect(st.runtime.lastCheck).toBeNull(); // Claude Code was never started
+    const x = await alice.post("/api/projects", { data: { templateId: "motion-reel", title: "x", inputs: {} }, headers: { origin: "https://evil.example" } });
+    expect(x.status()).toBe(403);
+  });
+
   test("local mode refuses non-loopback hosts", async () => {
     const dev = await pwRequest.newContext({ baseURL: DEV });
     const r = await dev.get("/api/projects", { headers: { host: "studio.example.com" } });

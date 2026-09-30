@@ -208,7 +208,7 @@ export const jobs = pgTable(
     projectId: text("project_id"),
     revisionId: text("revision_id"),
     type: text("type").notNull(),
-    status: text("status", { enum: ["queued", "running", "waiting_provider", "cancel_requested", "succeeded", "failed", "canceled", "uncertain"] })
+    status: text("status", { enum: ["queued", "running", "waiting_provider", "cancel_requested", "succeeded", "failed", "canceled", "uncertain", "paused"] })
       .notNull()
       .default("queued"),
     stage: text("stage").notNull().default("queued"),
@@ -218,7 +218,7 @@ export const jobs = pgTable(
     maxAttempts: integer("max_attempts").notNull().default(3),
     input: jsonb("input").$type<Record<string, unknown>>().notNull(),
     result: jsonb("result").$type<Record<string, unknown>>(),
-    error: jsonb("error").$type<{ code: string; message: string; retryable?: boolean; recovery?: string }>(),
+    error: jsonb("error").$type<{ code: string; message: string; retryable?: boolean; recovery?: string; details?: Record<string, unknown> }>(),
     idempotencyKey: text("idempotency_key"),
     providerRequestId: text("provider_request_id"),
     parentJobId: text("parent_job_id"),

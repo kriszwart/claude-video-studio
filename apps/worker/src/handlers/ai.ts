@@ -4,41 +4,63 @@ import {
   applyProjectOperations,
   getDb,
   getProject,
+  getClaudeRuntime,
+  subscriptionRuntimeAllowed,
+  SUBSCRIPTION_NOT_PERSONAL,
   getProviderSecret,
   getRevision,
   getTemplateVersion,
   JobError,
   newId,
+  recordClaudeLimit,
   replaceDocument,
   sceneHashes,
   schema,
 } from "@vs/db";
 import { applyOperations, OperationError, ProjectDocument, type Operation } from "@vs/domain";
 import {
-  claudeClient,
+  apiBackend,
   CLAUDE_CONFIG,
   estimateClaudeCostMicros,
   ProviderError,
   runEditor,
   runPlanner,
+  subscriptionBackend,
   type AssetManifestEntry,
+  type ClaudeBackend,
   type StructuredResult,
 } from "@vs/providers";
 import { fitDuration, TemplateDefinition } from "@vs/templates";
 import type { Handler } from "../context";
 
-async function claudeFor(workspaceId: string) {
-  const secret = await getProviderSecret(getDb(), workspaceId, "anthropic");
+/**
+ * The Claude backend for a workspace, exactly as the owner selected it (PRD §28): the Claude
+ * Code subscription runtime by default, the API key only in explicit API mode. A failure in one
+ * never falls through to the other.
+ */
+export async function claudeFor(workspaceId: string, scope: string): Promise<ClaudeBackend> {
+  const rt = await getClaudeRuntime(getDb(), workspaceId);
   try {
-    return claudeClient(secret?.secret);
+    if (rt.mode === "off") throw new ProviderError("credentials_missing", "Claude is turned off for this studio, so AI actions are unavailable.", false, "Turn it on in Settings → Claude. Manual editing and rendering keep working.");
+    if (rt.mode === "api") return apiBackend((await getProviderSecret(getDb(), workspaceId, "anthropic"))?.secret);
+    if (!subscriptionRuntimeAllowed()) throw new ProviderError("credentials_missing", SUBSCRIPTION_NOT_PERSONAL, false, "Switch Settings → Claude to API mode and add an API key.");
+    return subscriptionBackend({ scope });
   } catch (e) {
     throw toJobError(e);
   }
 }
 
+/** Keep the last usage-window status the runtime reported (shown in Settings; never estimated). */
+async function noteLimit(workspaceId: string, e: unknown, usage: StructuredResult["usage"][] = []) {
+  const fromUsage = usage.map((u) => u.limit).filter(Boolean).at(-1);
+  const details = e instanceof ProviderError && e.code === "usage_limit" ? e.details : null;
+  const limit = fromUsage ?? (details ? { status: "rejected" as const, ...(details.rateLimitType ? { rateLimitType: String(details.rateLimitType) } : {}), ...(details.resetsAt ? { resetsAt: String(details.resetsAt) } : {}), at: new Date().toISOString() } : null);
+  if (limit) await recordClaudeLimit(getDb(), workspaceId, limit).catch(() => {});
+}
+
 export function toJobError(e: unknown): JobError {
   if (e instanceof JobError) return e;
-  if (e instanceof ProviderError) return new JobError(e.code, e.message, e.retryable, e.recovery);
+  if (e instanceof ProviderError) return new JobError(e.code, e.message, e.retryable, e.recovery, e.details);
   if (e instanceof AppError) return new JobError(e.code, e.message, false, e.recovery);
   if (e instanceof OperationError) return new JobError(e.code, e.message, false);
   // Unexpected errors: log details server-side, show a safe message to the user.
@@ -50,7 +72,9 @@ export function toJobError(e: unknown): JobError {
 async function recordUsage(workspaceId: string, projectId: string | null, jobId: string, usage: StructuredResult["usage"][], capability: string) {
   const db = getDb();
   for (const [i, u] of usage.entries()) {
-    const micros = estimateClaudeCostMicros(u.model, u.inputTokens, u.outputTokens);
+    // Subscription calls draw on the owner's plan limits: no per-call charge is invented for them.
+    const subscription = u.runtime === "subscription";
+    const micros = subscription ? 0 : estimateClaudeCostMicros(u.model, u.inputTokens, u.outputTokens);
     await db
       .insert(schema.usageLedger)
       .values({
@@ -59,13 +83,15 @@ async function recordUsage(workspaceId: string, projectId: string | null, jobId:
         projectId,
         jobId,
         operationId: `${jobId}:${capability}:${i}`,
-        provider: "anthropic",
+        provider: subscription ? "claude_subscription" : "anthropic",
         capability,
         status: micros === null ? "unknown_price" : "settled",
         estimatedMicros: micros,
         actualMicros: micros,
-        priceTimestamp: "list price 2026-09-25",
-        priceBasis: `${u.model}: ${u.inputTokens} in / ${u.outputTokens} out tokens (list-price estimate)`,
+        priceTimestamp: subscription ? null : "list price 2026-09-25",
+        priceBasis: subscription
+          ? `${u.model}: ${u.inputTokens} in / ${u.outputTokens} out tokens via Claude Code on the owner's Claude plan (counts toward plan usage limits; no API charge)`
+          : `${u.model}: ${u.inputTokens} in / ${u.outputTokens} out tokens (list-price estimate)`,
       })
       .onConflictDoNothing();
   }
@@ -94,7 +120,7 @@ export const planStoryboard: Handler = async (ctx) => {
   const doc = ProjectDocument.parse(base.document);
   const { version } = await getTemplateVersion(db, ctx.job.workspaceId, doc.template.templateId, doc.template.version);
   const template = TemplateDefinition.parse(version.definition);
-  const client = await claudeFor(ctx.job.workspaceId);
+  const client = await claudeFor(ctx.job.workspaceId, ctx.job.projectId ?? ctx.job.id);
   const assets = await assetManifest(ctx.job.workspaceId, doc, (ctx.job.input.assetIds as string[] | undefined) ?? []);
   const target = Number(ctx.job.input.targetDurationSec ?? Math.round(doc.scenes.reduce((a, s) => a + s.durationFrames, 0) / doc.format.fps));
 
@@ -103,10 +129,10 @@ export const planStoryboard: Handler = async (ctx) => {
   try {
     run = await runPlanner(client, { template, doc, assets, targetDurationSec: target, newId }, { signal: ctx.signal });
   } catch (e) {
+    await noteLimit(ctx.job.workspaceId, e);
     throw toJobError(e);
-  } finally {
-    // Usage is recorded even when planning fails validation.
   }
+  await noteLimit(ctx.job.workspaceId, null, run.usage);
   await recordUsage(ctx.job.workspaceId, ctx.job.projectId, ctx.job.id, run.usage, "plan");
 
   await ctx.stage("validating storyboard");
@@ -114,7 +140,7 @@ export const planStoryboard: Handler = async (ctx) => {
   const next = fitDuration(replaced, target);
   try {
     const revision = await db.transaction((tx) => replaceDocument(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId, doc: next, author: "planner", action: `storyboard planned (${run.attempts} attempt${run.attempts > 1 ? "s" : ""})` }));
-    return { revisionId: revision.id, rationale: run.plan.rationale, omitted: run.plan.omitted, warnings: run.plan.warnings, attempts: run.attempts, repairs: run.repairs, model: CLAUDE_CONFIG.model };
+    return { revisionId: revision.id, rationale: run.plan.rationale, omitted: run.plan.omitted, warnings: run.plan.warnings, attempts: run.attempts, repairs: run.repairs, model: run.usage.at(-1)?.model ?? CLAUDE_CONFIG.model, runtime: client.kind };
   } catch (e) {
     if (e instanceof AppError && e.status === 409) {
       // Never overwrite newer user edits with a stale plan.
@@ -152,7 +178,7 @@ export const assistantEdit: Handler = async (ctx) => {
   const baseRevisionId = String(ctx.job.input.baseRevisionId ?? ctx.job.revisionId);
   const base = await getRevision(db, ctx.job.projectId!, baseRevisionId);
   const doc = ProjectDocument.parse(base.document);
-  const client = await claudeFor(ctx.job.workspaceId);
+  const client = await claudeFor(ctx.job.workspaceId, ctx.job.projectId ?? ctx.job.id);
   const kits = await db.query.brandKits.findMany({ where: and(eq(schema.brandKits.workspaceId, ctx.job.workspaceId), eq(schema.brandKits.archived, false)) });
   const assets = await assetManifest(ctx.job.workspaceId, doc, (ctx.job.input.assetIds as string[] | undefined) ?? []);
 
@@ -172,8 +198,10 @@ export const assistantEdit: Handler = async (ctx) => {
       ctx.signal,
     );
   } catch (e) {
+    await noteLimit(ctx.job.workspaceId, e);
     throw toJobError(e);
   }
+  await noteLimit(ctx.job.workspaceId, null, [res.usage]);
   await recordUsage(ctx.job.workspaceId, ctx.job.projectId, ctx.job.id, [res.usage], "assistant");
   if (res.output.clarificationQuestion) return { status: "clarify", question: res.output.clarificationQuestion, explanation: res.output.explanation };
   if (res.ops.length === 0) return { status: "no_change", explanation: res.output.explanation };

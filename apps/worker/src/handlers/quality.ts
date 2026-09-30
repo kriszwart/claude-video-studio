@@ -1,7 +1,7 @@
 import { execFileSync } from "node:child_process";
 import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
-import { AppError, applyProjectOperations, getDb, getProviderSecret, getRevision, JobError, newId, schema } from "@vs/db";
+import { AppError, applyProjectOperations, getDb, getRevision, JobError, newId, schema } from "@vs/db";
 import { LAYOUTS } from "@vs/compositor";
 import { computeTimeline, cueIssues, ProjectDocument, repairCues, validateTimeline, type Operation, type QualityIssue } from "@vs/domain";
 import { captureStills, extractFrame, prepareBundle, renderProject, type PageReport } from "@vs/rendering";
@@ -215,7 +215,7 @@ export const qualityReview: Handler = async (ctx) => {
   const remaining = best.issues;
   const audio = { loudness: render.verification.loudness, speechIntervals: render.mix.speechIntervals, truePeakOk: (render.verification.loudness?.truePeakDb ?? -99) <= -1 };
   const limitations = [
-    (await getProviderSecret(db, ctx.job.workspaceId, "anthropic")) ? "Model-based visual review is not part of this pass; checks are measured." : "No model-based visual review (Claude is not configured); all checks are measured.",
+    "No model-based visual review in this pass; all checks are measured.",
     "Contrast, presenter coverage and asset fidelity are not scored automatically; review the evidence frames.",
     "Audio: decode, duration, loudness, peaks and ducking are measured; the naturalness of speech edits is not.",
     "Smooth motion is not proven by stills; transition strips are provided for review.",

@@ -70,7 +70,32 @@ Local mode (`STUDIO_AUTH_MODE=local`) is a passwordless single owner and **only 
 loopback requests**. Anything reachable by others must use password mode; see
 [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
-Providers are optional. Without keys the studio still does everything that doesn't need
+### Claude: your subscription by default
+
+AI planning and the Creative Assistant use **your Claude plan (Pro/Max) through Claude Code**
+— no Anthropic API key and no API charges:
+
+1. Install Claude Code and run `claude` once in a terminal on the same computer; sign in with
+   `/login` using your Claude subscription.
+2. Open **Settings → Claude** and click **Check runtime**. It shows the signed-in plan (the
+   check sends no prompt and uses none of your plan).
+
+Calls go through the official Claude Agent SDK with no built-in tools, no user settings, a
+per-project scratch directory and cancellation; the studio never reads or stores your login.
+They count toward your plan's usage limits. At a limit the job **pauses** with a Resume
+button — the studio never switches accounts, enables extra usage or falls back to paid API
+billing. If `ANTHROPIC_API_KEY` (or another billing override) is set in the server
+environment, Settings warns by name; it is not passed to Claude Code. A separately billed
+API key is an explicit alternative (**Settings → Claude → API key**).
+
+The subscription runtime is only for a **personal local studio** (local mode, one owner, this
+computer): Anthropic does not allow products to offer claude.ai login or plan limits to other
+users, so a password-mode/hosted studio must use API mode. When Claude Code isn't signed in,
+AI actions show a setup link, everything else keeps working, and the Assistant tab offers a
+**Claude Code handoff**: download the project file, ask Claude Code for the change in your own
+terminal, and import the `operations.json` it writes (validated like any assistant edit).
+
+Other providers are optional. Without keys the studio still does everything that doesn't need
 them (manual editing, local narration, subtitle-based transcripts, rendering, exports) and
 each AI/paid action explains what to configure. Keys are entered in **Settings** (stored
 AES-256-GCM encrypted) or supplied as server environment variables; they are never sent to
@@ -80,7 +105,8 @@ the browser.
 
 `DATABASE_URL`, `REDIS_URL`, `STORAGE_DRIVER`, `DATA_DIR`, `S3_BUCKET`, `S3_ENDPOINT`,
 `S3_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`, `STUDIO_AUTH_MODE`, `APP_SECRET`,
-`APP_ENCRYPTION_KEY`, `SETUP_TOKEN`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT`,
+`APP_ENCRYPTION_KEY`, `SETUP_TOKEN`, `CLAUDE_RUNTIME`, `CLAUDE_CODE_EXECUTABLE`,
+`CLAUDE_RUNTIME_TIMEOUT_MS`, `STUDIO_CLAUDE_WORKDIR`, `STUDIO_ALLOWED_ORIGINS`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT`,
 `CLAUDE_MAX_TOKENS`, `CLAUDE_FALLBACKS`, `STUDIO_ANTHROPIC_BASE_URL`, `ELEVENLABS_API_KEY`,
 `ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STT_MODEL`, `WHISPER_CPP_BIN`, `WHISPER_CPP_MODEL`,
 `FAL_KEY`, `FAL_QUEUE_BASE_URL`, `FAL_JWKS_URL`, `FAL_WEBHOOK_SIGNATURE`, `FAL_WAIT_MAX_SEC`,
@@ -88,7 +114,7 @@ the browser.
 `HYPERFRAMES_CHROME_PATH`, `RENDER_WORKERS`, `WORKER_CONCURRENCY`, `PREVIEW_SCALE`,
 `MAX_UPLOAD_BYTES`, `MAX_SOURCE_SECONDS`, `FFMPEG_PATH`, `FFPROBE_PATH`, `DB_POOL_MAX`,
 `QUEUE_NAME`, `DELETE_RECOVERY_DAYS`, `KEEP_WORK_DIRS`, `SKIP_PROXIES`,
-`ALLOW_BUILTIN_TEMPLATE_REWRITE`; test-only: `VS_TEST_TRUSTED_OUTPUT`, `FAKE_FAL_PORT`,
+`ALLOW_BUILTIN_TEMPLATE_REWRITE`; test-only: `VS_TEST_TRUSTED_OUTPUT`, `FAKE_FAL_PORT`, `STUDIO_CLAUDE_SDK_DOUBLE`, `STUDIO_CLAUDE_SDK_DOUBLE_STATE`,
 `PW_CHROMIUM`, `E2E_BASE_URL`, `E2E_PROD_URL`. Descriptions are in `.env.example`.
 
 ### Redraw (licensed)
@@ -118,7 +144,8 @@ download, probe and inspect the exported MP4s (frames under `artifacts/e2e/`):
 | `m4-music-mascot` | A12: excerpt identity by audio correlation, section cuts, accents; T2 |
 | `generation` | A08, A09, A13 against the TEST-ONLY fake fal queue (`scripts/fake-fal.ts`) |
 | `reliability` | A06 missing credentials, A07 worker SIGKILL mid-export |
-| `security` | A14, A15 against a password-mode production build (`E2E_PROD_URL`) |
+| `claude-runtime` | A31–A33 and the Claude Code handoff against the TEST-ONLY Agent SDK double (`scripts/fake-claude-sdk.mjs`) |
+| `security` | A14, A15, A33 (multi-user mode refuses the subscription runtime) against a password-mode production build (`E2E_PROD_URL`) |
 | `a16-templates` | A16: final 1080p export of every core template + P6, fully decoded |
 | `m6-collections` | A20 interrupted/limited/hash-reused ingest; A19 quote search → P3 sizzle, clean cuts, verbatim captions, export envelope match |
 | `m6-profiles`, `m6-quality`, `m6-fidelity`, `m6-screenshot` | A21, A22, A23, FR-15 screenshot isolation |

@@ -1,4 +1,5 @@
 export * from "./claude/client";
+export * from "./claude/subscription";
 export * from "./claude/schema";
 export * from "./claude/planner";
 export * from "./claude/editor";

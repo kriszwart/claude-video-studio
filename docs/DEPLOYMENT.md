@@ -132,3 +132,21 @@ production Redraw rendering, run those workers on GPU hosts.
   what it needs.
 - Logs: web and worker log JSON lines; errors shown to users are sanitised (no SQL, stack or
   provider bodies).
+
+## Claude runtime in deployments (PRD §28)
+
+- **Personal local studio (default).** `STUDIO_AUTH_MODE=local`, web bound to `127.0.0.1`,
+  worker on the same computer as the owner's signed-in Claude Code. AI calls use the owner's
+  Claude plan through the Claude Agent SDK. The web and worker processes must run as the same
+  OS user that signed in to Claude Code (the SDK uses that user's login; the studio never
+  copies it). The status check only asks which account is signed in; it sends no prompt.
+- **Multi-user / hosted (password mode).** The subscription runtime is refused: Anthropic does
+  not allow products to offer claude.ai login or plan limits to other users. Select API mode in
+  Settings → Claude and supply `ANTHROPIC_API_KEY` (billed per token to that API account).
+- **Request protection.** Every state-changing API request is checked for a same-origin
+  `Origin`/`Sec-Fetch-Site`, so other websites open in the owner's browser cannot submit
+  prompts or edits; local mode additionally refuses non-loopback `Host` headers (DNS
+  rebinding). Behind a proxy on another hostname, list it in `STUDIO_ALLOWED_ORIGINS`.
+- **Limits.** A plan usage limit pauses the job (`paused`, with the reset time when Claude Code
+  reports one). Resume or cancel it from the editor. There is no automatic retry and no
+  fallback to an API key or another account.

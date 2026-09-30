@@ -45,7 +45,7 @@ export async function waitForJob(id: string, onUpdate?: (j: JobLike) => void, ti
   while (Date.now() - t0 < timeoutMs) {
     const { job } = await api<{ job: JobLike }>(`/api/jobs/${id}`);
     onUpdate?.(job);
-    if (["succeeded", "failed", "canceled", "uncertain"].includes(job.status)) return job;
+    if (["succeeded", "failed", "canceled", "uncertain", "paused"].includes(job.status)) return job;
     await new Promise((r) => setTimeout(r, 800));
   }
   throw new Error("Timed out waiting for the job.");

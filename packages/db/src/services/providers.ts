@@ -6,7 +6,7 @@ import { decryptSecret, encryptSecret } from "./crypto";
 
 /** Providers and the env var that may configure each server-side. */
 export const PROVIDERS = {
-  anthropic: { env: "ANTHROPIC_API_KEY", label: "Claude (Anthropic API)", capabilities: ["planner", "editor", "vision-review"] },
+  anthropic: { env: "ANTHROPIC_API_KEY", label: "Claude API key (optional, billed separately)", capabilities: ["planner", "editor"] },
   elevenlabs: { env: "ELEVENLABS_API_KEY", label: "ElevenLabs", capabilities: ["tts", "transcription"] },
   fal: { env: "FAL_KEY", label: "fal", capabilities: ["image-generation", "video-generation"] },
 } as const;

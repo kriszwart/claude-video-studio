@@ -4,7 +4,7 @@ import { downloadAndProbe, FIX, frameAt, uploadVia, waitForJobs } from "./helper
 
 /**
  * M1 acceptance (A01–A05, A10) through the real UI, API, worker and renderer.
- * Claude is not used here: without an API key the deterministic template path is the
+ * Claude is not used here: without a signed-in Claude runtime the deterministic template path is the
  * product's documented no-AI workflow. The live Claude checks are reported separately.
  */
 test.describe.serial("M1 product launch", () => {

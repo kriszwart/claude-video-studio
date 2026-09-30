@@ -10,15 +10,16 @@ test.describe.serial("reliability (A06, A07)", () => {
   test("A06: missing credentials give action-specific setup errors; manual editing keeps working", async ({ request }) => {
     const providers = await (await request.get("/api/settings/providers")).json();
     const has = (p: string) => providers.providers.find((x: { provider: string }) => x.provider === p)?.configured;
-    test.skip(has("anthropic") || has("elevenlabs"), "Provider keys are configured on this server; A06 needs them absent.");
+    const claude = await (await request.get("/api/settings/claude")).json();
+    test.skip(claude.readiness.available || has("elevenlabs"), "Claude or ElevenLabs is available on this server; A06 needs them absent.");
     const created = await createProject(request, { templateId: "motion-reel", title: "A06 creds", inputs: { hook: "Hi", headline: "Plan less", brandName: "Tidewave" } });
     const id = created.project.id;
     const rev = (await (await request.get(`/api/projects/${id}`)).json()).revision.id;
     const plan = await request.post(`/api/projects/${id}/plan`, { data: { baseRevisionId: rev } });
     expect(plan.status()).toBe(412);
     const pj = await plan.json();
-    expect(pj.error.code).toBe("credentials_missing");
-    expect(pj.error.recovery).toMatch(/Settings/);
+    expect(pj.error.code).toBe("claude_unavailable");
+    expect(pj.error.recovery).toMatch(/settings#claude/);
     const asst = await request.post(`/api/projects/${id}/assistant`, { data: { request: "make it blue", baseRevisionId: rev } });
     expect(asst.status()).toBe(412);
     // Hosted TTS without a key: the job fails with a setup error, nothing half-applied.

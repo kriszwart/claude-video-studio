@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { validateTimeline } from "@vs/domain";
 import { api } from "@/lib/client/api";
+import { useClaudeStatus } from "@/lib/client/claude";
 import { AssistantPanel } from "./AssistantPanel";
 import { AudioPanel } from "./AudioPanel";
 import { ExportPanel } from "./ExportPanel";
@@ -22,10 +23,7 @@ export function Editor({ projectId }: { projectId: string }) {
   const p = useProject(projectId);
   const [selected, setSelected] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("scene");
-  const [claude, setClaude] = useState(false);
-  useEffect(() => {
-    api<{ providers: { provider: string; configured: boolean }[] }>("/api/settings/providers").then((r) => setClaude(!!r.providers.find((x) => x.provider === "anthropic")?.configured)).catch(() => {});
-  }, []);
+  const [claudeStatus] = useClaudeStatus();
   useEffect(() => {
     if (p.doc && (!selected || !p.doc.scenes.some((s) => s.id === selected))) setSelected(p.doc.scenes[0]?.id ?? null);
   }, [p.doc, selected]);
@@ -48,6 +46,7 @@ export function Editor({ projectId }: { projectId: string }) {
   const { doc, view } = p;
   const scene = doc.scenes.find((s) => s.id === selected) ?? doc.scenes[0]!;
   const planning = view.jobs.find((j) => j.type === "plan" && ["queued", "running"].includes(j.status));
+  const paused = view.jobs.find((j) => (j.type === "plan" || j.type === "assistant") && j.status === "paused");
 
   return (
     <div className="flex h-screen flex-col">
@@ -78,6 +77,12 @@ export function Editor({ projectId }: { projectId: string }) {
           Claude is planning the storyboard ({planning.stage}). You can keep editing; a plan that arrives after newer edits is not applied over them.
         </div>
       )}
+      {paused && (
+        <div role="status" className="flex items-center gap-2 border-b border-line bg-panel-2 px-3 py-1 text-xs">
+          <span className="text-warn">Claude paused:</span> {paused.error?.message}
+          <button className="ml-auto underline" onClick={() => setTab("assistant")}>Resume or cancel in the Assistant tab</button>
+        </div>
+      )}
       <p className="border-b border-line bg-panel-2 px-3 py-1 text-[11px] text-dim lg:hidden">
         Small screen: review, text edits, rendering and downloads work here. Timeline editing is designed for tablet and desktop.
       </p>
@@ -100,7 +105,7 @@ export function Editor({ projectId }: { projectId: string }) {
             {tab === "transcript" && doc.program && <ProgramPanel projectId={projectId} doc={doc} view={view} apply={p.apply} onChanged={() => p.refresh()} />}
             {tab === "shots" && <ShotsPanel projectId={projectId} doc={doc} jobs={view.jobs} apply={p.apply} />}
             {tab === "scene" && <SceneInspector doc={doc} scene={scene} apply={p.apply} />}
-            {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claudeConfigured={claude} />}
+            {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claude={claudeStatus?.readiness ?? null} />}
             {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}
             {tab === "export" && (
               <div className="space-y-6">

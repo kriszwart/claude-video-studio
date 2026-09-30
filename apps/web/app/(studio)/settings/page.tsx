@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useState } from "react";
 import { api, ApiError } from "@/lib/client/api";
+import { useClaudeStatus, type ClaudeStatus } from "@/lib/client/claude";
 
 interface P { provider: string; label: string; capabilities: string[]; configured: boolean; source: "settings" | "env" | null; keyHint: string | null; lastCheck: { ok: boolean; message: string; at: string } | null; settings?: Record<string, unknown> }
 
@@ -25,6 +26,8 @@ export default function Settings() {
       <h1 className="mb-1 text-xl font-semibold">Settings</h1>
       <p className="mb-6 text-sm text-dim">Keys are stored encrypted on the server (or read from server environment variables) and are never shown again or sent to the browser. Never paste keys into project chat.</p>
       {msg._ && <p className="text-bad">{msg._}</p>}
+      <ClaudeRuntime />
+      <h2 className="mb-2 mt-8 text-lg font-semibold">Provider keys</h2>
       <ul className="space-y-4">
         {providers.map((p) => (
           <li key={p.provider} className="card p-4">
@@ -88,5 +91,82 @@ function FalModels({ settings, onSave }: { settings: FalModelSettings; onSave: (
       <label className="flex flex-col gap-1">Max clip length (s)<input className="input" inputMode="numeric" {...f("videoMax")} /></label>
       <button className="btn sm:col-span-3">Save models</button>
     </form>
+  );
+}
+
+const MODES: { id: ClaudeStatus["runtime"]["mode"]; label: string; help: string }[] = [
+  { id: "subscription", label: "Claude subscription via Claude Code (default)", help: "Uses the Claude Code installed and signed in on this computer. Counts toward your Pro/Max plan's usage limits; no API key and no API charges." },
+  { id: "api", label: "Claude API key (billed separately)", help: "Uses the Anthropic API key below, billed per token to that API account. Only used when you select it here." },
+  { id: "off", label: "Off", help: "No AI actions. Manual editing, rendering and exports keep working." },
+];
+
+/** Claude runtime: mode choice, sign-in status, usage-window status as reported, and billing-override warnings. */
+function ClaudeRuntime() {
+  const [s, set] = useClaudeStatus();
+  const [busy, setBusy] = useState(false);
+  const [err, setErr] = useState<string | null>(null);
+  const run = async (fn: () => Promise<ClaudeStatus>) => {
+    setBusy(true);
+    setErr(null);
+    try {
+      set(await fn());
+    } catch (e) {
+      setErr(e instanceof ApiError ? e.message : String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  if (!s) return <section id="claude" className="card p-4 text-sm text-dim">Checking Claude…</section>;
+  const { readiness: r, runtime: rt } = s;
+  const check = rt.lastCheck;
+  const limit = rt.lastLimit;
+  return (
+    <section id="claude" className="card space-y-3 p-4 text-sm" aria-labelledby="claude-h">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 id="claude-h" className="font-medium">Claude</h2>
+        <span className={`chip ${r.available ? "text-ok" : "text-warn"}`}>{r.available ? "AI actions available" : "AI actions unavailable"}</span>
+      </div>
+      <fieldset className="space-y-2">
+        <legend className="sr-only">Claude runtime</legend>
+        {MODES.map((m) => (
+          <label key={m.id} className="flex gap-2">
+            <input type="radio" name="claude-mode" checked={rt.mode === m.id} disabled={busy || (m.id === "subscription" && !rt.subscriptionAllowed && rt.mode !== "subscription")} onChange={() => run(() => api<ClaudeStatus>("/api/settings/claude", { method: "PUT", json: { mode: m.id } }))} />
+            <span>
+              <span className="font-medium">{m.label}</span>
+              <span className="block text-xs text-faint">{m.id === "subscription" && !rt.subscriptionAllowed ? "Only for a personal local studio (one owner, this computer). This studio serves other users, so it must use an API key." : m.help}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+      <p role="status" className={r.available ? "text-dim" : "text-warn"}>
+        {r.message} {r.recovery && <span className="text-dim">{r.recovery}</span>}
+      </p>
+      {rt.mode === "subscription" && rt.subscriptionAllowed && (
+        <div className="space-y-1 text-xs text-dim">
+          <p>
+            Signed-in account: {check ? (check.plan ? `${check.plan} (${check.observed.replace("_", " ")})` : check.observed.replace("_", " ")) : "not checked yet"}
+            {check && <span className="text-faint"> · checked {new Date(check.at).toLocaleString()}</span>}
+          </p>
+          <p>
+            Plan usage:{" "}
+            {limit
+              ? `${limit.status === "rejected" ? "limit reached" : limit.status === "allowed_warning" ? "approaching the limit" : "within limits"}${limit.rateLimitType ? ` (${limit.rateLimitType.replace(/_/g, " ")} window)` : ""}${typeof limit.utilization === "number" ? `, ${Math.round(limit.utilization * 100)}% used` : ""}${limit.resetsAt ? `, resets ${new Date(limit.resetsAt).toLocaleString()}` : ""} — as reported by Claude Code on ${new Date(limit.at).toLocaleString()}`
+              : "unavailable (Claude Code reports it only while a request runs)"}
+          </p>
+          <p className="text-faint">At a usage limit, AI jobs pause with a Resume button. The studio never switches accounts, turns on extra usage or falls back to an API key.</p>
+          <button className="btn mt-1" disabled={busy} onClick={() => run(() => api<ClaudeStatus>("/api/settings/claude", { method: "POST" }))}>
+            {busy ? "Checking…" : "Check runtime"}
+          </button>
+          <p className="text-faint">The check asks Claude Code which account it is signed in with; it sends no prompt and uses none of your plan. The studio never reads or stores your Claude login.</p>
+        </div>
+      )}
+      {rt.mode === "api" && <p className="text-xs text-dim">API key: {rt.apiKeyConfigured ? `configured (${rt.apiKeySource === "env" ? "server environment" : "Settings"})` : "not configured — add it under Provider keys below"}.</p>}
+      {rt.overrides.length > 0 && (
+        <p className="rounded-md border border-line bg-panel-2 p-2 text-xs">
+          <span className="text-warn">Billing override detected:</span> {rt.overrides.join(", ")} {rt.overrides.length === 1 ? "is" : "are"} set in the studio server&apos;s environment (values not shown). In subscription mode the studio does not pass {rt.overrides.length === 1 ? "it" : "them"} to Claude Code, but {rt.overrides.length === 1 ? "it" : "they"} can make Claude Code in your own terminal bill an API account or another provider instead of your plan. The studio does not change your shell configuration.
+        </p>
+      )}
+      {err && <p className="text-bad">{err}</p>}
+    </section>
   );
 }

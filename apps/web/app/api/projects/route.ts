@@ -1,9 +1,10 @@
 import { z } from "zod";
 import { and, eq } from "drizzle-orm";
-import { AppError, createProject, enqueueJob, getDb, getProviderSecret, getTemplateVersion, listProjects, newId, schema } from "@vs/db";
+import { AppError, createProject, enqueueJob, getDb, getTemplateVersion, listProjects, newId, schema } from "@vs/db";
 import { AspectRatio, BrandSnapshot, type BudgetPolicy, DEFAULT_BUDGET } from "@vs/domain";
 import { DEFAULT_BRAND, instantiateTemplate, missingRequiredInputs, TemplateDefinition } from "@vs/templates";
 import { requireSession } from "@/lib/server/auth";
+import { requireClaude } from "@/lib/server/claude";
 import { body, idempotencyKey, json, route } from "@/lib/server/http";
 import { projectView } from "@/lib/server/projects";
 
@@ -69,13 +70,12 @@ export const POST = route(async (req) => {
     throw new AppError(422, "invalid_input", e instanceof Error ? e.message : String(e));
   }
   const budget: BudgetPolicy = { ...DEFAULT_BUDGET, ...input.budget };
+  // AI planning needs a ready Claude runtime; without it, nothing is created (create without planning instead).
+  if (input.plan) await requireClaude(s.workspaceId);
   const result = await db.transaction(async (tx) => {
     const created = await createProject(tx, { workspaceId: s.workspaceId, doc, templateId: template.id, templateVersion: template.version, family: template.family, budget, action: "created from template" });
     let job = null;
     if (input.plan) {
-      if (!(await getProviderSecret(tx, s.workspaceId, "anthropic"))) {
-        throw new AppError(412, "credentials_missing", "Claude is not configured, so the storyboard can't be planned with AI.", "Add an Anthropic API key in Settings, or create the project without AI planning and edit it manually.");
-      }
       job = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "plan", input: { baseRevisionId: created.revision.id, targetDurationSec: input.durationSec ?? template.duration.defaultSec }, idempotencyKey: idem ? `plan:${idem}` : null })).job;
     }
     // Talking-head projects start transcript-first: import the supplied subtitles, or

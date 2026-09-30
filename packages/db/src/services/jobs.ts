@@ -51,10 +51,17 @@ export class JobError extends Error {
     message: string,
     public retryable: boolean,
     public recovery?: string,
+    public details?: Record<string, unknown>,
   ) {
     super(message);
   }
 }
+
+/**
+ * Errors that pause a job instead of failing it: the work is resumable once the owner acts
+ * (e.g. a subscription usage window resets). A paused job is never retried automatically.
+ */
+export const PAUSING_ERRORS = new Set(["usage_limit"]);
 
 /** Jobs that compile the composition and therefore need the graphics backends it uses. */
 const GRAPHICS_JOBS = new Set<string>(["preview", "export", "keyframes", "quality_review"]);
@@ -208,7 +215,7 @@ export function backoffMs(attempt: number): number {
 }
 
 /** Record a failure: retry transient errors with backoff, otherwise fail permanently. */
-export async function failJob(jobId: string, workerId: string, err: { code: string; message: string; retryable: boolean; recovery?: string }) {
+export async function failJob(jobId: string, workerId: string, err: { code: string; message: string; retryable: boolean; recovery?: string; details?: Record<string, unknown> }) {
   const db = getDb();
   return db.transaction(async (tx) => {
     const cur = await tx.query.jobs.findFirst({ where: eq(jobs.id, jobId) });
@@ -220,6 +227,15 @@ export async function failJob(jobId: string, workerId: string, err: { code: stri
         .where(eq(jobs.id, jobId))
         .returning();
       await emitJobEvent(tx, row!, "canceled");
+      return row;
+    }
+    if (PAUSING_ERRORS.has(err.code)) {
+      const [row] = await tx
+        .update(jobs)
+        .set({ status: "paused", stage: "paused", leaseOwner: null, leaseExpiresAt: null, error: { ...err, retryable: false }, updatedAt: sql`now()` })
+        .where(eq(jobs.id, jobId))
+        .returning();
+      await emitJobEvent(tx, row!, "paused", { error: err, attempt: cur.attempts });
       return row;
     }
     const retry = err.retryable && cur.attempts < cur.maxAttempts;
@@ -250,11 +266,11 @@ export async function markCanceled(jobId: string, workerId: string) {
 
 /** Best-effort cancellation. Queued jobs cancel immediately; running jobs are asked to stop. */
 export async function requestCancel(db: DbOrTx, job: JobRow): Promise<JobRow> {
-  if (job.status === "queued") {
+  if (job.status === "queued" || job.status === "paused") {
     const [row] = await db
       .update(jobs)
       .set({ status: "canceled", stage: "canceled", finishedAt: sql`now()`, cancelRequestedAt: sql`now()`, updatedAt: sql`now()` })
-      .where(and(eq(jobs.id, job.id), eq(jobs.status, "queued")))
+      .where(and(eq(jobs.id, job.id), inArray(jobs.status, ["queued", "paused"])))
       .returning();
     if (row) {
       await emitJobEvent(db, row, "canceled");
@@ -276,7 +292,7 @@ export async function requestCancel(db: DbOrTx, job: JobRow): Promise<JobRow> {
 }
 
 export async function retryJob(db: DbOrTx, job: JobRow): Promise<JobRow> {
-  if (!["failed", "canceled", "uncertain"].includes(job.status)) return job;
+  if (!["failed", "canceled", "uncertain", "paused"].includes(job.status)) return job;
   const [row] = await db
     .update(jobs)
     .set({ status: "queued", stage: "queued", maxAttempts: job.attempts + 3, runAfter: sql`now()`, finishedAt: null, error: null, updatedAt: sql`now()` })
