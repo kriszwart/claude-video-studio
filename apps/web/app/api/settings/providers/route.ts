@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AppError, getDb, getOmniVoiceConfig, getProviderSecret, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
-import { checkClaude, FalSettings, normalizeBaseUrl, OmniVoiceTts, VOICE_NAME, ElevenLabsSettings } from "@vs/providers";
+import { checkClaude, FalSettings, normalizeBaseUrl, OmniVoiceTts, VOICE_NAME, ElevenLabsSettings, OpenRouterSettings } from "@vs/providers";
 import { requireOwner } from "@/lib/server/auth";
 import { body, json, route } from "@/lib/server/http";
 
@@ -58,6 +58,12 @@ export const PATCH = route(async (req) => {
       throw new AppError(422, "invalid_input", e instanceof Error ? e.message : "Invalid server address.");
     }
     await setProviderSettings(getDb(), s.workspaceId, "omnivoice", { baseUrl, model: o.model || undefined, voices: o.voices });
+    return json({ providers: await providerStatus(getDb(), s.workspaceId) });
+  }
+  if (b.provider === "openrouter") {
+    const parsed = OpenRouterSettings.safeParse(b.settings);
+    if (!parsed.success) throw new AppError(422, "invalid_input", parsed.error.issues[0]?.message ?? "Invalid OpenRouter settings.");
+    await setProviderSettings(getDb(), s.workspaceId, "openrouter", parsed.data);
     return json({ providers: await providerStatus(getDb(), s.workspaceId) });
   }
   if (b.provider === "elevenlabs") {

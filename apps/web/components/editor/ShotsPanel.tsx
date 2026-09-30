@@ -8,7 +8,7 @@ import type { JobDTO } from "./types";
 
 type Estimate = { kind: "known"; micros: number; basis: string } | { kind: "unknown"; reason: string };
 type ShotRow = { index: number; sceneId: string; purpose: string; shot: NonNullable<ProjectDocument["scenes"][number]["shot"]>; estimate: Estimate; model: string | null; fitsBudget: boolean | null; budgetMessage: string | null };
-type ShotsDTO = { providerConfigured: boolean; modelsConfigured: { image: boolean; video: boolean }; budget: { projectCeilingMicros: number; operationCeilingMicros: number; unknownPriceRequestsAuthorized: number }; totals: { committedMicros: number; unknownPriceRequestsUsed: number }; shots: ShotRow[]; ledger: { operationId: string; status: string; estimatedMicros: number | null; actualMicros: number | null; priceBasis: string | null }[] };
+type ShotsDTO = { providerConfigured: boolean; imageVia?: "openrouter" | "fal" | null; modelsConfigured: { image: boolean; video: boolean }; budget: { projectCeilingMicros: number; operationCeilingMicros: number; unknownPriceRequestsAuthorized: number }; totals: { committedMicros: number; unknownPriceRequestsUsed: number }; shots: ShotRow[]; ledger: { operationId: string; status: string; estimatedMicros: number | null; actualMicros: number | null; priceBasis: string | null }[] };
 type AssetDTO = { id: string; name: string; generated: boolean; previewUrl: string | null; kind: string };
 
 const usd = (m: number) => `$${(m / 1_000_000).toFixed(2)}`;
@@ -55,7 +55,8 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
             <option value="generated-allowed">Generated media allowed (within budget)</option>
           </select>
         </label>
-        {!data.providerConfigured && <p className="text-warn">fal is not configured. Supply your own footage for each shot, or add a fal key and model in Settings.</p>}
+        {!data.providerConfigured && <p className="text-warn">No generation provider is configured. Supply your own footage for each shot, or add a fal key (video and images) or an OpenRouter key (images) with a model in Settings.</p>}
+        {data.imageVia && <p className="text-faint" data-testid="image-provider">Image shots use {data.imageVia === "openrouter" ? "OpenRouter" : "fal"}.</p>}
         {data.providerConfigured && !data.modelsConfigured.video && <p className="text-warn">No fal video model is configured (Settings → Providers).</p>}
         <BudgetForm projectId={projectId} budget={data.budget} onSaved={load} />
         <p className="text-dim">

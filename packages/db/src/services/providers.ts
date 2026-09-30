@@ -12,6 +12,7 @@ export const PROVIDERS = {
   pexels: { env: "PEXELS_API_KEY", label: "Pexels (free stock footage key)", capabilities: ["footage-search"] },
   omnivoice: { env: "OMNIVOICE_API_KEY", label: "OmniVoice (local voice server)", capabilities: ["tts"] },
   pixabay: { env: "PIXABAY_API_KEY", label: "Pixabay (free stock footage key)", capabilities: ["footage-search"] },
+  openrouter: { env: "OPENROUTER_API_KEY", label: "OpenRouter (image models; never used for Claude)", capabilities: ["image-generation"] },
 } as const;
 export type ProviderId = keyof typeof PROVIDERS;
 

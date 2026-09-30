@@ -51,6 +51,7 @@ export default function Settings() {
               {p.source === "settings" && <button type="button" className="btn btn-danger" onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "PUT", json: { provider: p.provider, secret: null } }))}>Remove</button>}
             </form>
             {p.provider === "omnivoice" && <OmniVoiceSettingsForm settings={(p.settings ?? {}) as OmniSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "omnivoice", settings } }))} />}
+            {p.provider === "openrouter" && <OpenRouterModel settings={(p.settings ?? {}) as OrSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "openrouter", settings } }))} />}
             {p.provider === "elevenlabs" && p.configured && <ElevenLabsMusic settings={(p.settings ?? {}) as ElMusicSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "elevenlabs", settings } }))} />}
             {p.provider === "fal" && <FalModels settings={(p.settings ?? {}) as FalModelSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "fal", settings } }))} />}
             {(msg[p.provider] || p.lastCheck) && <p className="mt-2 text-xs text-dim" role="status">{msg[p.provider] ?? `Last check ${new Date(p.lastCheck!.at).toLocaleString()}: ${p.lastCheck!.ok ? "✓" : "✗"} ${p.lastCheck!.message}`}</p>}
@@ -65,6 +66,34 @@ type Model = { endpoint: string; priceMicros: number | null; priceCheckedAt?: st
 type FalModelSettings = { image?: Model; video?: Model };
 
 /** Owner-entered fal models: endpoint ids and prices come from fal's own pages, not from the studio. */
+interface OrSettings {
+  image?: { model: string; priceMicros: number | null; priceCheckedAt?: string };
+  preferForImages?: boolean;
+}
+
+/** OpenRouter image model: the model id and its current price per image, both copied from OpenRouter. */
+function OpenRouterModel({ settings, onSave }: { settings: OrSettings; onSave: (s: OrSettings) => void }) {
+  const [model, setModel] = useState(settings.image?.model ?? "");
+  const [price, setPrice] = useState(settings.image?.priceMicros != null ? String(settings.image.priceMicros / 1_000_000) : "");
+  const [prefer, setPrefer] = useState(settings.preferForImages ?? true);
+  return (
+    <form
+      className="mt-3 grid grid-cols-1 gap-2 border-t border-line pt-3 text-xs sm:grid-cols-3"
+      aria-label="OpenRouter image model"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ ...(model.trim() ? { image: { model: model.trim(), priceMicros: price.trim() ? Math.round(Number(price) * 1_000_000) : null, priceCheckedAt: new Date().toISOString().slice(0, 10) } } : {}), preferForImages: prefer });
+      }}
+    >
+      <p className="text-faint sm:col-span-3">Image shots and keyframes can be generated through OpenRouter with one key: copy an image-output model id and its price per image from OpenRouter. Reference images (product shots, characters) are sent with each request. Claude is never routed through OpenRouter.</p>
+      <label className="flex flex-col gap-1">Image model id<input className="input" aria-label="OpenRouter image model id" placeholder="provider/model" value={model} onChange={(e) => setModel(e.target.value)} /></label>
+      <label className="flex flex-col gap-1">Price per image ($)<input className="input" inputMode="decimal" aria-label="OpenRouter price per image" value={price} onChange={(e) => setPrice(e.target.value)} /></label>
+      <label className="flex items-center gap-1.5 self-end pb-2"><input type="checkbox" checked={prefer} onChange={(e) => setPrefer(e.target.checked)} /> Prefer over fal for images</label>
+      <button className="btn sm:col-span-3">Save OpenRouter model</button>
+    </form>
+  );
+}
+
 interface ElMusicSettings {
   musicPriceMicrosPerMinute?: number | null;
   priceCheckedAt?: string;

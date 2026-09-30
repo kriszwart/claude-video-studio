@@ -18,7 +18,7 @@ import {
   webhookToken,
 } from "@vs/db";
 import type { Operation, ProjectDocument, Scene, ShotReview } from "@vs/domain";
-import { estimateFor, FalQueue, FalSettings, falOutputFiles, MediaProviderError } from "@vs/providers";
+import { decodeDataUrl, estimateFor, FalQueue, FalSettings, falOutputFiles, MediaProviderError, OpenRouterImages, openRouterEstimate, OpenRouterSettings } from "@vs/providers";
 import { FFMPEG, productFidelity, runOk } from "@vs/rendering";
 import { registerFile, resolveAssets, type Handler, type JobContext } from "../context";
 import { safeFetch, UnsafeUrlError } from "../net/safeFetch";
@@ -88,6 +88,12 @@ export const generateMedia: Handler = async (ctx) => {
   const operationId = `${ctx.job.projectId}:${sceneId}:v${variant}`;
   const settings = FalSettings.safeParse(await getProviderSettings(db, ctx.job.workspaceId, "fal"));
   const model = settings.success ? settings.data[shot.kind] : undefined;
+  // Image shots may use OpenRouter (one key, many image models) when it is configured.
+  if (shot.kind === "image") {
+    const or = OpenRouterSettings.safeParse(await getProviderSettings(db, ctx.job.workspaceId, "openrouter"));
+    const orKey = await getProviderSecret(db, ctx.job.workspaceId, "openrouter");
+    if (or.success && or.data.image && orKey && (or.data.preferForImages || !model)) return generateViaOpenRouter(ctx, doc, scene, variant, operationId, or.data, orKey.secret);
+  }
   if (!model) throw new JobError("provider_not_configured", `No fal ${shot.kind} model is configured.`, false, `Choose a ${shot.kind} model endpoint (and its price) in Settings → Providers, or supply your own footage for this shot.`);
   const secret = await getProviderSecret(db, ctx.job.workspaceId, "fal");
   if (!secret) throw new JobError("credentials_missing", "fal is not configured.", false, "Add a fal API key in Settings, or supply your own footage for this shot.");
@@ -228,8 +234,112 @@ export const generateMedia: Handler = async (ctx) => {
 };
 
 async function attach(ctx: JobContext, sceneId: string, g: GenRow, assetId: string, review?: ShotReview) {
-  await applyWithRetry(ctx, () => [{ op: "addShotCandidate", sceneId, candidate: { assetId, generationId: g.id, provider: "fal", createdAt: new Date().toISOString(), ...(review ? { review } : {}) }, autoAccept: true }], review?.flagged ? "generated shot needs fidelity review" : "generated shot ready");
+  await applyWithRetry(ctx, () => [{ op: "addShotCandidate", sceneId, candidate: { assetId, generationId: g.id, provider: g.provider, createdAt: new Date().toISOString(), ...(review ? { review } : {}) }, autoAccept: true }], review?.flagged ? "generated shot needs fidelity review" : "generated shot ready");
   return { sceneId, assetId, generationId: g.id, requestId: g.requestId, operationId: g.operationId, fidelity: review ?? null };
+}
+
+/** Reference images for a shot (its own, then its characters'), downscaled and inlined. */
+async function referenceImages(ctx: JobContext, doc: ProjectDocument, scene: Scene, max = 3) {
+  const shot = scene.shot!;
+  const chars = doc.characters.filter((c) => shot.characterIds.includes(c.id));
+  const ids = [...new Set([...shot.referenceAssetIds, ...chars.flatMap((c) => c.referenceAssetIds)])].slice(0, max);
+  const files = await resolveAssets(ctx.job.workspaceId, ids);
+  const out: { id: string; mediaType: "image/jpeg"; data: string }[] = [];
+  for (const [i, id] of ids.entries()) {
+    const small = join(ctx.workDir, `ref-${i}.jpg`);
+    await runOk(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-y", "-i", files.get(id)!.path, "-vf", "scale='min(1024,iw)':-2", "-frames:v", "1", "-q:v", "3", small], { timeoutMs: 60_000 });
+    out.push({ id, mediaType: "image/jpeg", data: (await readFile(small)).toString("base64") });
+  }
+  return out;
+}
+
+/**
+ * Image shot through OpenRouter: a single synchronous call inside the same guarantees as fal —
+ * budget reserved and intent recorded before sending; an unanswered call becomes "uncertain" and
+ * is never resent; a definite rejection releases the reservation; the ledger settles at the cost
+ * OpenRouter reports when it reports one.
+ */
+async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scene: Scene, variant: number, operationId: string, settings: OpenRouterSettings, key: string) {
+  const db = getDb();
+  const sceneId = scene.id;
+  const shot = scene.shot!;
+  const model = settings.image!;
+  let g = await db.query.generationRequests.findFirst({ where: and(eq(schema.generationRequests.workspaceId, ctx.job.workspaceId), eq(schema.generationRequests.operationId, operationId)) });
+  if (g?.state === "succeeded" && g.assetId) return attach(ctx, sceneId, g, g.assetId);
+  if (g?.state === "uncertain" || g?.state === "submitting") {
+    if (g.state === "submitting") await updateGen(g.id, { state: "uncertain", error: { message: "The worker stopped while OpenRouter was generating." } });
+    throw new JobError("provider_uncertain", "It is unknown whether OpenRouter completed this request, so it was not sent again (it may have been billed).", false, "Check your OpenRouter activity page. To try again anyway, use Regenerate, which creates a new, separately billed request.");
+  }
+  if (g?.state === "failed" && !(g.error as { retryable?: boolean } | null)?.retryable) throw new JobError("provider_failed", String((g.error as { message?: string })?.message ?? "Generation failed."), false, "Adjust the prompt and use Regenerate.");
+
+  const genId = g?.id ?? newId("gen");
+  const reserved = await db.transaction(async (tx) => {
+    const r = await reserveSpend(tx, { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId!, jobId: ctx.job.id, operationId, provider: "openrouter", capability: "image-generation", estimate: openRouterEstimate(settings) });
+    if (!r.decision.allowed) return r;
+    const values = { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId, jobId: ctx.job.id, operationId, provider: "openrouter", endpoint: model.model, capability: "image" as const, state: "submitting" as const, input: {}, requestId: null, error: null };
+    if (g) await tx.update(schema.generationRequests).set({ ...values, updatedAt: sql`now()` }).where(eq(schema.generationRequests.id, genId));
+    else await tx.insert(schema.generationRequests).values({ id: genId, ...values });
+    return r;
+  });
+  if (!reserved.decision.allowed) {
+    await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: reserved.decision.allowed ? undefined : reserved.decision.message }], "shot blocked by budget");
+    throw new JobError(reserved.decision.code, reserved.decision.message, false, reserved.decision.code === "unknown_price_unauthorized" ? "Authorise a number of unknown-price requests in the project budget, or enter the model's price in Settings." : "Raise the project budget or supply your own images.");
+  }
+  await ctx.stage("preparing references");
+  const refs = await referenceImages(ctx, doc, scene);
+  const chars = doc.characters.filter((c) => shot.characterIds.includes(c.id));
+  const prompt = [shot.prompt, shot.continuity && `Continuity: ${shot.continuity}`, ...chars.map((c) => `${c.name}: ${c.notes || `${c.species} character, body ${c.palette.body}, accent ${c.palette.accent}`}`)].filter(Boolean).join("\n").slice(0, 4000);
+  await updateGen(genId, { input: { model: model.model, prompt, aspectRatio: doc.format.aspect, references: refs.map((r) => r.id) } });
+  await applyWithRetry(ctx, (d) => (d.scenes.find((s) => s.id === sceneId)?.shot?.status === "accepted" ? [] : [{ op: "setShotStatus", sceneId, status: "generating", variant }]), "shot generating");
+  await ctx.stage("generating with OpenRouter");
+  let result;
+  try {
+    result = await new OpenRouterImages(key).generate({ model: model.model, prompt, references: refs.map(({ mediaType, data }) => ({ mediaType, data })), aspectRatio: doc.format.aspect, signal: ctx.signal });
+  } catch (e) {
+    const err = e instanceof MediaProviderError ? e : new MediaProviderError("network_uncertain", String(e), false);
+    if (err.code === "network_uncertain") {
+      await updateGen(genId, { state: "uncertain", error: { message: err.message } });
+      throw new JobError("provider_uncertain", `${err.message} It was not resent (it may have been billed).`, false, "Check your OpenRouter activity page, then use Regenerate if needed.");
+    }
+    await updateGen(genId, { state: "failed", error: { message: err.message, retryable: err.retryable, code: err.code } });
+    await releaseSpend(db, ctx.job.workspaceId, operationId);
+    if (!err.retryable) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: err.message.slice(0, 300) }], "shot generation failed");
+    throw new JobError(err.code, err.message, err.retryable, err.code === "credentials_invalid" ? "Check the OpenRouter key in Settings." : undefined);
+  }
+  await updateGen(genId, { requestId: result.id, state: "succeeded", output: { model: result.model, costUsd: result.costUsd, images: result.images.length } });
+  await ctx.stage("saving image");
+  const first = result.images[0]!;
+  let bytes: Buffer;
+  const inline = decodeDataUrl(first);
+  if (inline) bytes = inline.bytes;
+  else {
+    try {
+      bytes = (await safeFetch(first, { maxBytes: 50 * 1024 * 1024, allowedTypes: /^image\//, signal: ctx.signal, timeoutMs: 120_000, ...outputFetchOptions() })).body;
+    } catch (e) {
+      throw new JobError(e instanceof UnsafeUrlError ? e.code : "download_failed", `The generated image could not be downloaded: ${(e as Error).message}`, false);
+    }
+  }
+  const raw = join(ctx.workDir, "gen-image");
+  await writeFile(raw, bytes);
+  const out = join(ctx.workDir, "shot.png");
+  await runOk(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-y", "-i", raw, "-frames:v", "1", out], { timeoutMs: 60_000 });
+  const asset = await registerFile(ctx.job.workspaceId, out, {
+    kind: "image",
+    originalName: `generated-${scene.purpose.replace(/\W+/g, "-").toLowerCase()}-v${variant}.png`,
+    generated: true,
+    provenance: { source: "generated", provider: "openrouter", model: result.model ?? model.model, requestId: result.id, operationId, prompt: shot.prompt, referenceAssetIds: refs.map((r) => r.id), projectId: ctx.job.projectId, sceneId, generatedAt: new Date().toISOString(), reportedCostUsd: result.costUsd },
+  });
+  // Settle at the cost OpenRouter reported; otherwise at the owner-entered price.
+  await settleSpend(db, ctx.job.workspaceId, operationId, result.costUsd !== null ? Math.round(result.costUsd * 1_000_000) : model.priceMicros);
+  await updateGen(genId, { assetId: asset.id });
+  let review: ShotReview | undefined;
+  if (refs[0]) {
+    await ctx.stage("checking fidelity");
+    const ref = (await resolveAssets(ctx.job.workspaceId, [refs[0].id])).get(refs[0].id);
+    if (ref) review = { referenceAssetId: refs[0].id, ...(await productFidelity(out, ref.path, undefined)), decision: "pending" };
+  }
+  g = (await db.query.generationRequests.findFirst({ where: eq(schema.generationRequests.id, genId) }))!;
+  return attach(ctx, sceneId, g, asset.id, review);
 }
 
 async function failGenerated(ctx: JobContext, g: GenRow, operationId: string, sceneId: string, message: string): Promise<never> {

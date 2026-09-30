@@ -7,6 +7,11 @@
  * Behaviour hooks (in the prompt): "[fail]" → the request ends with ERROR.
  * Control: POST /__control {"duplicateWebhooks":true,"staleAfter":true,"delayMs":1500}
  * Stats:   GET /__stats
+ *
+ * Also a TEST-ONLY OpenRouter stand-in (OPENROUTER_BASE_URL=http://127.0.0.1:3910/or/api/v1):
+ *   POST /or/api/v1/chat/completions — key "or-test-key"; returns one PNG as a data: URL in
+ *   choices[0].message.images and usage.cost 0.039. Prompt "CREDITS" → 402; model "test/text-only" → no image.
+ *   GET /__or → the requests received (model, modalities, image_config, reference count).
  */
 import { execFileSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
@@ -26,6 +31,7 @@ const reqs = new Map<string, Req>();
 const control = { duplicateWebhooks: false, staleAfter: false, delayMs: 1500, webhooks: true };
 const stats = { submits: 0, statusCalls: 0, resultCalls: 0, cancels: 0, webhooksSent: 0, authFailures: 0 };
 let n = 0;
+const orRequests: Record<string, unknown>[] = [];
 
 function media(id: string, kind: "video" | "image") {
   const file = join(DIR, `${id}.${kind === "video" ? "mp4" : "png"}`);
@@ -85,6 +91,20 @@ http
       if (!existsSync(f)) execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", "testsrc2=size=320x180:rate=1:duration=1", "-frames:v", "1", f]);
       res.writeHead(200, { "content-type": "image/png" });
       return res.end(readFileSync(f));
+    }
+    if (u.pathname === "/__or") return json(res, 200, orRequests);
+    if (u.pathname === "/or/api/v1/chat/completions" && req.method === "POST") {
+      if (req.headers.authorization !== "Bearer or-test-key") return json(res, 401, { error: { code: 401, message: "No auth credentials found" } });
+      const b = JSON.parse(bodyText || "{}") as { model?: string; modalities?: string[]; image_config?: { aspect_ratio?: string }; usage?: { include?: boolean }; messages?: { content?: { type: string; text?: string; image_url?: { url: string } }[] }[] };
+      const parts = b.messages?.[0]?.content ?? [];
+      const prompt = parts.find((p) => p.type === "text")?.text ?? "";
+      orRequests.push({ model: b.model, modalities: b.modalities, imageConfig: b.image_config, usage: b.usage, references: parts.filter((p) => p.type === "image_url" && p.image_url?.url.startsWith("data:image/")).length, prompt });
+      if (/CREDITS/.test(prompt)) return json(res, 402, { error: { code: 402, message: "Insufficient credits" } });
+      if (b.model === "test/text-only") return json(res, 200, { id: `gen-${++n}`, model: b.model, choices: [{ message: { role: "assistant", content: "I can only write text." } }], usage: { cost: 0.001 } });
+      const [w, h] = b.image_config?.aspect_ratio === "9:16" ? [576, 1024] : b.image_config?.aspect_ratio === "1:1" ? [1024, 1024] : [1024, 576];
+      const f = join(DIR, `or-${++n}.png`);
+      execFileSync("ffmpeg", ["-v", "error", "-y", "-f", "lavfi", "-i", `testsrc2=size=${w}x${h}:rate=1:duration=1`, "-frames:v", "1", f]);
+      return json(res, 200, { id: `gen-${n}`, model: b.model, choices: [{ message: { role: "assistant", content: "Here is the image.", images: [{ type: "image_url", image_url: { url: `data:image/png;base64,${readFileSync(f).toString("base64")}` } }] } }], usage: { prompt_tokens: 100, completion_tokens: 1290, cost: 0.039 } });
     }
     if (u.pathname === "/.well-known/jwks.json") return json(res, 200, { keys: [{ kty: "OKP", crv: "Ed25519", x: jwk.x, kid: "test" }] });
     if (u.pathname === "/__stats") return json(res, 200, { ...stats, requests: [...reqs.values()].map((r) => ({ id: r.id, endpoint: r.endpoint, state: r.state, canceled: r.canceled, error: r.error ?? null })) });

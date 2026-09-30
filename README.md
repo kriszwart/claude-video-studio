@@ -25,6 +25,7 @@ exactly as you left them, and can be saved as reusable templates.
 | Visual critic: Claude reviews real rendered frames (a settled frame per scene plus transitions, up to 16) with the script, narration timings and measured checks; scores story/visuals/readability/pacing, lists prioritised findings with evidence frames, and turns fixable ones into scoped assistant requests you select and apply (locks and approved claims stay protected); review again to compare scores | critic spec (SDK test double; verifies the frames reach Claude as images) |
 | OpenTimelineIO export: a rendered version packages as .otioz (timeline + media) — program cut per scene, voiceover/music/footage tracks where the renderer places them, music markers, scene text and narration as metadata | otio spec, validated by reading the bundle with the reference OpenTimelineIO library |
 | ElevenLabs music: compose a bed from a description (3 s–10 min, instrumental by default) in the Audio tab; budget-gated like other paid generation (owner-entered price per minute, or an authorised unknown-price request), runs once, placed on the timeline with fades and ducking | music-gen spec against a local ElevenLabs stand-in; the live API is unverified here |
+| OpenRouter image shots: one OpenRouter key for image-output models (owner-entered model id and price); image shots/keyframes send the prompt with reference images (product, characters) and the project's aspect ratio; budget-gated, settled at the cost OpenRouter reports, uncertain calls never resent; never used for Claude | openrouter spec against a local stand-in; the live API is unverified here |
 | Live in-browser player and a multi-track timeline (scenes, voice, music, captions, markers) with trim and zoom | live-preview and timeline specs |
 | Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
 | Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
@@ -158,6 +159,17 @@ that shows it, most important first. Findings the assistant can act on carry a s
 tick the ones you want and **Apply** sends them as one scoped assistant request, so locked scenes
 and approved claims stay protected. Review again to see the scores move. The critic only sees
 stills: motion between frames and the sound itself are not judged.
+
+### OpenRouter (image models)
+
+Add an OpenRouter key in Settings and copy an image-output model id and its price per image from
+OpenRouter. Image shots (and keyframes) then go through OpenRouter — or through fal if you untick
+“Prefer over fal for images”. Each request carries the shot prompt, its continuity and character
+notes, up to three reference images (product shots, character sheets) and the project's aspect
+ratio, and asks for usage accounting so the budget ledger settles at the cost OpenRouter reports.
+The same guarantees as fal apply: spend is reserved first, a call that gets no answer is marked
+uncertain and never resent, and a definite rejection (bad key, no credits) releases the
+reservation. Claude is never routed through OpenRouter.
 
 ### ElevenLabs music
 
