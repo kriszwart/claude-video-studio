@@ -2,6 +2,7 @@ import { and, eq, inArray } from "drizzle-orm";
 import {
   AppError,
   applyProjectOperations,
+  enqueueJob,
   getDb,
   getProject,
   getClaudeRuntime,
@@ -28,6 +29,7 @@ import {
   subscriptionBackend,
   type AssetManifestEntry,
   type ClaudeBackend,
+  type ClaudeEffort,
   type StructuredResult,
 } from "@vs/providers";
 import { fitDuration, TemplateDefinition } from "@vs/templates";
@@ -51,7 +53,7 @@ export async function claudeFor(workspaceId: string, scope: string): Promise<Cla
 }
 
 /** Keep the last usage-window status the runtime reported (shown in Settings; never estimated). */
-async function noteLimit(workspaceId: string, e: unknown, usage: StructuredResult["usage"][] = []) {
+export async function noteLimit(workspaceId: string, e: unknown, usage: StructuredResult["usage"][] = []) {
   const fromUsage = usage.map((u) => u.limit).filter(Boolean).at(-1);
   const details = e instanceof ProviderError && e.code === "usage_limit" ? e.details : null;
   const limit = fromUsage ?? (details ? { status: "rejected" as const, ...(details.rateLimitType ? { rateLimitType: String(details.rateLimitType) } : {}), ...(details.resetsAt ? { resetsAt: String(details.resetsAt) } : {}), at: new Date().toISOString() } : null);
@@ -69,7 +71,7 @@ export function toJobError(e: unknown): JobError {
   return new JobError("internal", "An internal error interrupted this job. It will be retried automatically; if it keeps failing, check the worker log.", true);
 }
 
-async function recordUsage(workspaceId: string, projectId: string | null, jobId: string, usage: StructuredResult["usage"][], capability: string) {
+export async function recordUsage(workspaceId: string, projectId: string | null, jobId: string, usage: StructuredResult["usage"][], capability: string) {
   const db = getDb();
   for (const [i, u] of usage.entries()) {
     // Subscription calls draw on the owner's plan limits: no per-call charge is invented for them.
@@ -127,7 +129,8 @@ export const planStoryboard: Handler = async (ctx) => {
   await ctx.stage("planning with Claude");
   let run;
   try {
-    run = await runPlanner(client, { template, doc, assets, targetDurationSec: target, newId }, { signal: ctx.signal });
+    const effort = ctx.job.input.effort as ClaudeEffort | undefined;
+    run = await runPlanner(client, { template, doc, assets, targetDurationSec: target, newId }, { signal: ctx.signal, ...(effort ? { effort } : {}) });
   } catch (e) {
     await noteLimit(ctx.job.workspaceId, e);
     throw toJobError(e);
@@ -139,7 +142,13 @@ export const planStoryboard: Handler = async (ctx) => {
   const replaced = applyOperations(doc, [{ op: "replaceScenes", scenes: run.scenes }], "bulk").doc;
   const next = fitDuration(replaced, target);
   try {
-    const revision = await db.transaction((tx) => replaceDocument(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId, doc: next, author: "planner", action: `storyboard planned (${run.attempts} attempt${run.attempts > 1 ? "s" : ""})` }));
+    const narration = ctx.job.input.narration as { voiceId: string } | undefined;
+    const revision = await db.transaction(async (tx) => {
+      const rev = await replaceDocument(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId, doc: next, author: "planner", action: `storyboard planned (${run.attempts} attempt${run.attempts > 1 ? "s" : ""})` });
+      // Composer projects with a voice: narrate the planned script once the storyboard lands.
+      if (narration?.voiceId) await enqueueJob(tx, { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId, revisionId: rev.id, type: "tts", input: { voiceId: narration.voiceId, rate: 1, fit: "extend" }, idempotencyKey: `tts-after:${ctx.job.id}` });
+      return rev;
+    });
     return { revisionId: revision.id, rationale: run.plan.rationale, omitted: run.plan.omitted, warnings: run.plan.warnings, attempts: run.attempts, repairs: run.repairs, model: run.usage.at(-1)?.model ?? CLAUDE_CONFIG.model, runtime: client.kind };
   } catch (e) {
     if (e instanceof AppError && e.status === 409) {

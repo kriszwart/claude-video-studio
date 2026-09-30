@@ -21,6 +21,56 @@ const scenario = () => {
 };
 const ACCOUNTS = { signed_out: {}, api_key: { subscriptionType: "Claude API", apiProvider: "firstParty" }, max: { subscriptionType: "max", apiProvider: "firstParty" }, max_limit: { subscriptionType: "max", apiProvider: "firstParty" } };
 
+/**
+ * Composer answer: deterministic and obviously canned. Picks the pinned (or first) template,
+ * fills required text inputs with words from the request, uses attached media where the template
+ * requires it, and never adds figures.
+ */
+function composeAnswer(text, props) {
+  const grab = (tag) => {
+    const m = new RegExp(`<${tag}>([\\s\\S]*?)</${tag}>`).exec(text);
+    try {
+      return m ? JSON.parse(m[1]) : null;
+    } catch {
+      return null;
+    }
+  };
+  const templates = grab("templates") ?? [];
+  const settings = grab("settings") ?? {};
+  const attachments = grab("attachments") ?? [];
+  const request = String(grab("request") ?? "");
+  const allowed = props.templateId.enum ?? [];
+  const t = templates.find((x) => allowed.includes(x.id) && x.id === "motion-reel") ?? templates.find((x) => allowed.includes(x.id)) ?? templates[0];
+  const words = request.replace(/[0-9]/g, "").split(/\s+/).filter(Boolean);
+  const phrase = (n, max) => (words.slice(0, n).join(" ") || "Untitled").slice(0, max ?? 60);
+  const textInputs = [];
+  const assetInputs = [];
+  const kinds = { image: ["image", "svg"], images: ["image", "svg"], audio: ["audio"], video: ["video"], videos: ["video"] };
+  for (const f of t.inputs) {
+    if (kinds[f.kind]) {
+      const a = attachments.find((x) => kinds[f.kind].includes(x.kind) && !assetInputs.some((ai) => ai.assetIds.includes(x.id)));
+      if (a && (f.required || f.kind !== "audio" || settings.music !== "off")) assetInputs.push({ inputId: f.id, assetIds: [a.id] });
+    } else if (f.required && f.kind !== "facts") {
+      if (f.kind === "list") textInputs.push({ inputId: f.id, value: "", items: [phrase(3, 40)] });
+      else if (f.kind === "select") textInputs.push({ inputId: f.id, value: f.options?.[0] ?? "", items: [] });
+      else textInputs.push({ inputId: f.id, value: phrase(f.maxLength && f.maxLength < 45 ? 3 : 6, f.maxLength), items: [] });
+    }
+  }
+  const aspect = settings.aspect && settings.aspect !== "auto" && t.aspects.includes(settings.aspect) ? settings.aspect : t.aspects[0];
+  const want = typeof settings.durationSec === "number" ? settings.durationSec : t.durationSec.defaultSec;
+  return {
+    templateId: t.id,
+    title: `TEST DOUBLE: ${phrase(5, 50)}`,
+    aspect,
+    durationSec: Math.min(t.durationSec.maxSec, Math.max(t.durationSec.minSec, want)),
+    narration: settings.voice === "on" && t.narration !== "none",
+    textInputs,
+    assetInputs,
+    rationale: "TEST DOUBLE: canned composer answer.",
+    warnings: [],
+  };
+}
+
 export function query({ prompt, options = {} }) {
   const sc = scenario();
   const log = (event, extra = {}) =>
@@ -49,8 +99,10 @@ export function query({ prompt, options = {} }) {
     if ("operations" in props) {
       const sceneId = /"(?:id|sceneId)"\s*:\s*"(scn_[A-Za-z0-9_-]+)"/.exec(text)?.[1] ?? /scn_[A-Za-z0-9_-]+/.exec(text)?.[0];
       out = { explanation: "TEST DOUBLE: set the first scene to 7 seconds.", clarificationQuestion: null, operations: sceneId ? [{ op: "setSceneDuration", sceneId, durationSec: 7 }] : [] };
+    } else if ("textInputs" in props && "templateId" in props) {
+      out = composeAnswer(text, props);
     } else {
-      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["The test double only answers assistant edits."], usage: {}, modelUsage: {} };
+      yield { type: "result", subtype: "error_during_execution", is_error: true, errors: ["The test double only answers assistant edits and composer requests."], usage: {}, modelUsage: {} };
       return;
     }
     yield { type: "result", subtype: "success", is_error: false, result: JSON.stringify(out), structured_output: out, usage: { input_tokens: Math.ceil(text.length / 4), output_tokens: 60, cache_read_input_tokens: 0 }, modelUsage: { [model]: {} } };

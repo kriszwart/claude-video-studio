@@ -3,6 +3,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
+import { Composer } from "@/components/composer/Composer";
 import { useClaudeStatus } from "@/lib/client/claude";
 import { api, ApiError } from "@/lib/client/api";
 
@@ -78,37 +79,8 @@ function NewProject() {
 
   if (!templateId || !tpl) {
     return (
-      <main className="mx-auto max-w-6xl px-4 py-6">
-        <h1 className="mb-1 text-xl font-semibold">Choose a template</h1>
-        <p className="mb-5 text-sm text-dim">Every template produces a real rendered video. Unavailable ones say why.</p>
-        <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-          {templates.map((t) => (
-            <li key={t.id} className="card group flex flex-col overflow-hidden transition-colors hover:border-accent/50">
-              <TemplatePoster family={t.family} name={t.name} preset={!!t.preset} />
-              <div className="flex flex-1 flex-col p-4">
-                <div className="mb-1 flex items-center gap-2">
-                  <span className="font-medium">{t.name}</span>
-                  {!t.builtin && <span className="chip">Custom</span>}
-                  {t.preset && <span className="chip">Preset</span>}
-                </div>
-                <p className="mb-3 line-clamp-3 flex-1 text-sm text-dim" title={t.description}>{t.description}</p>
-                <div className="mb-3 flex flex-wrap gap-1">
-                  <span className="chip">{t.supportedAspects.join(" · ")}</span>
-                  <span className="chip">{t.duration.defaultSec}s default</span>
-                  <span className="chip">{t.tags.generatedMedia === "none" ? "No generation needed" : t.tags.generatedMedia === "optional" ? "Generation optional" : "Needs generated media"}</span>
-                </div>
-                {!t.availability.ready && (
-                  <p className="mb-2 text-xs text-warn">
-                    {!t.availability.workerOnline ? "No render worker is online." : `Needs: ${t.availability.missingRequired.join(", ")}`}
-                  </p>
-                )}
-                <button className="btn btn-primary" disabled={!t.availability.ready} onClick={() => setTemplateId(t.id)}>
-                  Use template
-                </button>
-              </div>
-            </li>
-          ))}
-        </ul>
+      <main className="px-4 py-10">
+        <Composer templates={templates} claude={claudeStatus} onOpenForm={setTemplateId} />
       </main>
     );
   }
@@ -132,7 +104,7 @@ function NewProject() {
   return (
     <main className="mx-auto max-w-3xl px-4 py-6">
       <button className="btn btn-ghost mb-3 text-xs" onClick={() => setTemplateId(null)}>
-        ← All templates
+        ← Back to the composer
       </button>
       <h1 className="text-xl font-semibold">{tpl.name}</h1>
       <p className="mb-5 text-sm text-dim">{tpl.description}</p>
@@ -255,23 +227,4 @@ function InputControl({ field, value, onChange }: { field: InputField; value: un
     default:
       return <input id={id} className="input" type={field.kind === "url" ? "text" : "text"} value={String(value ?? "")} maxLength={field.maxLength} onChange={(e) => onChange(e.target.value)} />;
   }
-}
-
-/** Families with a frame rendered by the real pipeline, shipped in public/template-posters. */
-const POSTERS = new Set(["product-launch", "motion-reel", "vertical-short", "talking-head", "mascot-story", "music-video", "anime-opening"]);
-
-function TemplatePoster({ family, name, preset }: { family: string; name: string; preset?: boolean }) {
-  const [failed, setFailed] = useState(false);
-  const src = POSTERS.has(family) && !failed ? `/template-posters/${family}.jpg` : null;
-  return (
-    <div className="relative aspect-video overflow-hidden border-b border-line bg-[radial-gradient(circle_at_30%_20%,color-mix(in_srgb,var(--color-accent)_35%,transparent),transparent_60%),linear-gradient(135deg,#17151f,#0b0b10)]">
-      {src ? (
-        // eslint-disable-next-line @next/next/no-img-element
-        <img src={src} alt={`A frame rendered with ${name}`} onError={() => setFailed(true)} className="h-full w-full object-cover transition-transform duration-500 group-hover:scale-[1.03]" loading="lazy" />
-      ) : (
-        <div className="flex h-full items-center justify-center px-6 text-center text-lg font-semibold tracking-tight text-white/80">{name}</div>
-      )}
-      {src && preset && <span className="absolute bottom-2 left-2 rounded bg-black/70 px-1.5 py-0.5 text-[10px] text-white/90">Frame from the {family.replace(/-/g, " ")} base</span>}
-    </div>
-  );
 }

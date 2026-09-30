@@ -47,6 +47,10 @@ const Create = z.object({
   brandKitId: z.string().max(64).optional(),
   durationSec: z.number().positive().max(300).optional(),
   plan: z.boolean().default(false),
+  /** Planner effort from the composer's dial (defaults to the planner's own). */
+  planEffort: z.enum(["low", "medium", "high", "xhigh", "max"]).optional(),
+  /** Narrate with this voice: after planning when planning, otherwise right away. */
+  narration: z.object({ voiceId: z.string().min(1).max(120) }).optional(),
   budget: z.object({ projectCeilingMicros: z.number().int().min(0), operationCeilingMicros: z.number().int().min(0), unknownPriceRequestsAuthorized: z.number().int().min(0) }).partial().optional(),
 });
 
@@ -93,7 +97,9 @@ export const POST = route(async (req) => {
     const created = await createProject(tx, { workspaceId: s.workspaceId, doc, templateId: template.id, templateVersion: template.version, family: template.family, budget, action: "created from template" });
     let job = null;
     if (input.plan) {
-      job = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "plan", input: { baseRevisionId: created.revision.id, targetDurationSec: input.durationSec ?? template.duration.defaultSec }, idempotencyKey: idem ? `plan:${idem}` : null })).job;
+      job = (await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "plan", input: { baseRevisionId: created.revision.id, targetDurationSec: input.durationSec ?? template.duration.defaultSec, ...(input.planEffort ? { effort: input.planEffort } : {}), ...(input.narration ? { narration: input.narration } : {}) }, idempotencyKey: idem ? `plan:${idem}` : null })).job;
+    } else if (input.narration && !template.program && !template.musicVideo) {
+      await enqueueJob(tx, { workspaceId: s.workspaceId, projectId: created.project.id, revisionId: created.revision.id, type: "tts", input: { voiceId: input.narration.voiceId, rate: 1, fit: "extend" }, idempotencyKey: idem ? `tts:${idem}` : null });
     }
     // Talking-head projects start transcript-first: import the supplied subtitles, or
     // transcribe with whatever provider is available (the job fails clearly if none is).

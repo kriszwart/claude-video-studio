@@ -18,6 +18,8 @@ exactly as you left them, and can be saved as reusable templates.
 | Creative profiles from a reference clip (measured vs interpreted traits, evidence frames), feedback → explicit versioned diff, pinned per project | A21 |
 | Bounded render–review–repair with a stored quality report; product-fidelity check for generated shots; website screenshots through the SSRF guard | A22, A23, FR-15 |
 | Capability routing to workers that can run Redraw/Skia; per-scene render cache | A29, A30 |
+| Composer: one prompt (+ optional template chip, attachments) → Claude proposes template, settings and inputs → you review claims and title → project; settings default to Auto; one effort dial (Quick/Standard/High/Max) | Tested against the Claude SDK test double (composer spec); live Claude output unverified here |
+| Live in-browser player and a multi-track timeline (scenes, voice, music, captions, markers) with trim and zoom | live-preview and timeline specs |
 | Brief → storyboard → editable scenes → draft with audio → scene revision → MP4 → reopen → reuse as template | End to end (A01–A05, A10) |
 | Transcript-first editing: subtitle import, silence/filler/retake proposals, EDL with source→output map, editorial beats with anchors, style variants | A11, A17, A18, A24 |
 | Music analysis (tempo/beats/downbeats/sections), markers, cuts fitted to music, accents | A12 |
@@ -94,6 +96,23 @@ users, so a password-mode/hosted studio must use API mode. When Claude Code isn'
 AI actions show a setup link, everything else keeps working, and the Assistant tab offers a
 **Claude Code handoff**: download the project file, ask Claude Code for the change in your own
 terminal, and import the `operations.json` it writes (validated like any assistant edit).
+
+### Composer (New project)
+
+**New project** opens a prompt box: describe the video in a sentence or two, optionally click a
+template to pin it as a chip, attach images, footage or a music track with **+ Attach**, and send.
+Claude picks the template (from those whose providers are available and whose required media you
+attached), decides whatever you left on Auto (aspect, length, music, voiceover, brand kit) and
+fills the template's inputs from your words. Nothing is created until you review the proposal:
+claims that will be shown word for word are listed for you to edit, and figures that are not in
+your request are rejected.
+
+The **effort** dial replaces model settings. *Quick* fills the template and uses its built-in
+scene structure; *Standard*, *High* and *Max* also have Claude plan the storyboard, at rising
+effort. The bar shows roughly how many Claude requests a run makes; on the default subscription
+runtime these use your Claude plan, not an API key. Auto voiceover picks a free voice (OmniVoice,
+then built-in); ElevenLabs is used only when you pick one of its voices. Each template's **Form**
+link still opens the full manual form, which works without Claude.
 
 ### ElevenLabs voices
 

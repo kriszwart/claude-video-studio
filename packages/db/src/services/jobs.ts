@@ -11,6 +11,7 @@ export const JOB_TYPES = [
   "ingest_asset",
   "import_url",
   "plan",
+  "compose",
   "assistant",
   "keyframes",
   "live_preview",
