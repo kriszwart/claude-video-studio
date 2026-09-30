@@ -9,7 +9,9 @@ stop() { if [[ -f $PIDFILE ]]; then kill -TERM -- "-$(cat $PIDFILE)" 2>/dev/null
 start() {
   mkdir -p data
   set -a; [[ -f .env ]] && . ./.env; set +a
-  (cd apps/web; setsid nohup npx next dev --hostname "${HOST:-127.0.0.1}" --port "${PORT:-3000}" >>"../../$LOG" 2>&1 & echo $! > "../../$PIDFILE")
+  # macOS has no setsid; perl's setpgrp gives the same own-process-group behavior.
+  if command -v setsid >/dev/null; then NEWPG=(setsid); else NEWPG=(perl -e 'setpgrp; exec @ARGV or die $!' --); fi
+  (cd apps/web; "${NEWPG[@]}" nohup npx next dev --hostname "${HOST:-127.0.0.1}" --port "${PORT:-3000}" >>"../../$LOG" 2>&1 & echo $! > "../../$PIDFILE")
   echo "web started (pid $(cat $PIDFILE)) on http://${HOST:-127.0.0.1}:${PORT:-3000}, log: $LOG"
 }
 case "${1:-start}" in start) start ;; stop) stop ;; restart) stop; sleep 1; start ;; esac

@@ -30,6 +30,14 @@ describe("T2 mascot story", () => {
     expect(computeTimeline(doc).totalFrames).toBe(35 * 30);
   });
 
+  it("long era text still gives a valid project; the scene label is trimmed to 80 characters", () => {
+    const longEra = "Pip wakes up in a dusty garage full of old radios, bent bicycles and half-finished inventions";
+    const doc = make({ eras: [longEra, "The city"] });
+    const eras = doc.scenes.filter((s) => s.recipeSlot === "era");
+    expect(eras[0]!.purpose).toBe(`Era 1: ${longEra}`.slice(0, 80));
+    expect(eras[1]!.purpose).toBe("Era 2: The city");
+  });
+
   it("image mode uses the owner's cutout as the reference", () => {
     const doc = make({ characterImage: "ast_cutout" });
     expect(doc.characters[0]).toMatchObject({ mode: "image", referenceAssetIds: ["ast_cutout"] });

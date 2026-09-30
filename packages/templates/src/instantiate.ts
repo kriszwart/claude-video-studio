@@ -301,7 +301,8 @@ function buildScene(
   });
   return {
     id: sceneId,
-    purpose: bind(recipe.purpose, inputs, brand, extra) || recipe.slot,
+    // Bound owner text (e.g. "Era {{index}}: {{item}}") can exceed the 80-char label limit.
+    purpose: bind(recipe.purpose, inputs, brand, extra).slice(0, 80) || recipe.slot,
     recipeSlot: recipe.slot,
     durationFrames: secondsToFrames(recipe.durationSec, fps),
     locked: false,
