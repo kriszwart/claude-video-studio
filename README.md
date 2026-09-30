@@ -103,14 +103,21 @@ OpenAI speech API (`POST /v1/audio/speech`), for example
 [omnivoice-server](https://github.com/maemreyo/omnivoice-server) or
 [OmniVoice-local](https://github.com/pasadei/OmniVoice-local):
 
-1. Start the server on the same computer as the worker (note its address, e.g. `http://127.0.0.1:8000`).
-2. **Settings → OmniVoice (local voice server)**: enter the address, **Save**, then **Test connection**.
+1. Open the **OmniVoice Studio** Mac app (it serves the API at `http://127.0.0.1:3900/v1` while
+   it is open, no key needed), or start another OmniVoice server on the same computer as the worker.
+2. **Settings → OmniVoice (local voice server)**: click **OmniVoice Studio app (port 3900)** (or
+   enter your server's address), **Save**, then **Test connection**.
    Voices the server lists appear automatically; add others by name, or add a *designed* voice
    with a description (sent as the request's `instructions`).
 3. In a project, **Audio → Voice → OmniVoice (on this computer)** → **Generate narration + captions**.
 
 Narration timing follows the measured audio, unchanged scripts are reused, and editing a
-voice's description re-synthesises. If the server isn't running, the job says so and retries.
+voice's description re-synthesises. The app/server must be open while narration is generated;
+if it isn't, the job says so and retries.
+
+Local Pico/eSpeak voices are found on `PATH` and in `/usr/bin`, `/usr/local/bin` and
+`/opt/homebrew/bin` (so `brew install espeak-ng` works on a Mac); override with `PICO2WAVE_BIN` /
+`ESPEAK_NG_BIN`.
 Only clone voices you have permission to use.
 
 ### Free footage for B-roll
@@ -151,7 +158,7 @@ the browser.
 `APP_ENCRYPTION_KEY`, `SETUP_TOKEN`, `CLAUDE_RUNTIME`, `CLAUDE_CODE_EXECUTABLE`,
 `CLAUDE_RUNTIME_TIMEOUT_MS`, `STUDIO_CLAUDE_WORKDIR`, `STUDIO_ALLOWED_ORIGINS`, `ANTHROPIC_API_KEY`, `CLAUDE_MODEL`, `CLAUDE_EFFORT`,
 `CLAUDE_MAX_TOKENS`, `CLAUDE_FALLBACKS`, `STUDIO_ANTHROPIC_BASE_URL`, `ELEVENLABS_API_KEY`,
-`PEXELS_API_KEY`, `PIXABAY_API_KEY`, `OMNIVOICE_BASE_URL`, `OMNIVOICE_MODEL`, `OMNIVOICE_API_KEY`, `ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STT_MODEL`, `WHISPER_CPP_BIN`, `WHISPER_CPP_MODEL`,
+`PEXELS_API_KEY`, `PIXABAY_API_KEY`, `OMNIVOICE_BASE_URL`, `OMNIVOICE_MODEL`, `OMNIVOICE_API_KEY`, `PICO2WAVE_BIN`, `ESPEAK_NG_BIN`, `ELEVENLABS_TTS_MODEL`, `ELEVENLABS_STT_MODEL`, `WHISPER_CPP_BIN`, `WHISPER_CPP_MODEL`,
 `FAL_KEY`, `FAL_QUEUE_BASE_URL`, `FAL_JWKS_URL`, `FAL_WEBHOOK_SIGNATURE`, `FAL_WAIT_MAX_SEC`,
 `PUBLIC_BASE_URL`, `REDRAW_TARBALL`, `REDRAW_SHA256`, `REDRAW_DISABLED`,
 `HYPERFRAMES_CHROME_PATH`, `RENDER_WORKERS`, `WORKER_CONCURRENCY`, `PREVIEW_SCALE`,

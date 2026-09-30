@@ -7,7 +7,7 @@ import { join } from "node:path";
 import { expect, test, type APIRequestContext } from "@playwright/test";
 import { apiUpload, createProject, downloadAndProbe, FIX, frameAt, renderAndWait } from "./helpers";
 
-const FAKE = "http://127.0.0.1:3900";
+const FAKE = "http://127.0.0.1:3910";
 type Shot = { sceneId: string; purpose: string; shot: { status: string; acceptedAssetId?: string; candidates: { assetId: string }[]; variant: number; source: string }; fitsBudget: boolean | null };
 
 async function stats(request: APIRequestContext) {

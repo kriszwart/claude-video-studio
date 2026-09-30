@@ -3,7 +3,7 @@
  * verification, budgets and recovery. It is not a provider and is never used by the app
  * unless FAL_QUEUE_BASE_URL points at it. Output media is a synthetic ffmpeg test pattern.
  *
- *   FAKE_FAL_PORT=3900 tsx scripts/fake-fal.ts
+ *   FAKE_FAL_PORT=3910 tsx scripts/fake-fal.ts
  * Behaviour hooks (in the prompt): "[fail]" → the request ends with ERROR.
  * Control: POST /__control {"duplicateWebhooks":true,"staleAfter":true,"delayMs":1500}
  * Stats:   GET /__stats
@@ -15,7 +15,7 @@ import http from "node:http";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const PORT = Number(process.env.FAKE_FAL_PORT ?? 3900);
+const PORT = Number(process.env.FAKE_FAL_PORT ?? 3910);
 const DIR = join(tmpdir(), "fake-fal");
 mkdirSync(DIR, { recursive: true });
 const { publicKey, privateKey } = generateKeyPairSync("ed25519");

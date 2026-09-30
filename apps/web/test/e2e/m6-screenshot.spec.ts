@@ -23,12 +23,12 @@ test("FR-15: website screenshot capture is isolated and SSRF-guarded", async ({ 
 
   // Fixture page through the UI.
   await page.goto("/assets");
-  await page.getByLabel("Capture a public web page").fill("http://127.0.0.1:3900/__page");
+  await page.getByLabel("Capture a public web page").fill("http://127.0.0.1:3910/__page");
   await page.getByRole("button", { name: "Capture screenshot" }).click();
   await expect(page.getByText(/captured \(\d+ request\(s\) to non-public addresses were blocked\)/)).toBeVisible({ timeout: 120_000 });
   const assets = (await (await request.get("/api/assets?kind=image")).json()).assets;
   const shot = assets.find((a: { name: string }) => a.name.startsWith("screenshot-127.0.0.1"));
-  expect(shot.provenance).toMatchObject({ source: "screenshot", url: "http://127.0.0.1:3900/__page", title: "Fixture launch page" });
+  expect(shot.provenance).toMatchObject({ source: "screenshot", url: "http://127.0.0.1:3910/__page", title: "Fixture launch page" });
   expect(shot.provenance.retrievedAt).toBeTruthy();
   expect(shot.provenance.license).toMatch(/not a usage right/);
   const reasons = shot.provenance.blockedRequests.map((b: { url: string; reason: string }) => `${b.url} ${b.reason}`).join("\n");

@@ -92,7 +92,7 @@ test.describe.serial("OmniVoice voices", () => {
       const j = view.jobs.find((x: { type: string; createdAt: string }) => x.type === "tts" && new Date(x.createdAt).getTime() >= t1 - 2000);
       if (j?.error?.code) {
         expect(j.error.code).toBe("omnivoice_unreachable");
-        expect(j.error.recovery).toMatch(/Start the OmniVoice server/);
+        expect(j.error.recovery).toMatch(/Open OmniVoice Studio/);
         return;
       }
       await new Promise((r) => setTimeout(r, 1000));

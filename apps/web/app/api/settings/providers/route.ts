@@ -1,6 +1,6 @@
 import { z } from "zod";
 import { AppError, getDb, getOmniVoiceConfig, getProviderSecret, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
-import { checkClaude, FalSettings, normalizeBaseUrl, OmniVoiceTts } from "@vs/providers";
+import { checkClaude, FalSettings, normalizeBaseUrl, OmniVoiceTts, VOICE_NAME } from "@vs/providers";
 import { requireOwner } from "@/lib/server/auth";
 import { body, json, route } from "@/lib/server/http";
 
@@ -9,7 +9,7 @@ const OmniVoiceSettingsInput = z.object({
   baseUrl: z.string().max(300).default(""),
   model: z.string().max(100).optional(),
   voices: z
-    .array(z.object({ name: z.string().trim().min(1).max(100).regex(/^[\w .:@-]+$/, "Voice names may use letters, numbers, spaces and . : @ - _"), label: z.string().max(100).optional(), instructions: z.string().max(500).optional(), language: z.string().max(40).optional() }))
+    .array(z.object({ name: z.string().trim().min(1).max(100).regex(VOICE_NAME, "Voice names can't contain control characters or < >."), label: z.string().max(100).optional(), instructions: z.string().max(500).optional(), language: z.string().max(40).optional() }))
     .max(50)
     .default([]),
 });

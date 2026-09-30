@@ -188,10 +188,17 @@ function OmniVoiceSettingsForm({ settings, onSave }: { settings: OmniSettings; o
   return (
     <div className="mt-3 space-y-2 border-t border-line pt-3 text-xs">
       <p className="text-faint">
-        Run an OmniVoice server on this computer (for example <code>omnivoice-server</code> or OmniVoice-local), then enter its address. The API key above is only needed if your server requires one. Only clone voices you have permission to use.
+        Open the OmniVoice Studio app on this computer (it serves voices at <code>http://127.0.0.1:3900/v1</code> while it is open), or run an OmniVoice server such as <code>omnivoice-server</code>, then enter its address. The app must be open whenever you generate narration with its voices. The API key above is only needed if your server requires one. Only clone voices you have permission to use.
       </p>
       <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
-        <label className="flex flex-col gap-1">Server address<input className="input" placeholder="http://127.0.0.1:8000" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} /></label>
+        <label className="flex flex-col gap-1">
+          Server address
+          <input className="input" placeholder="http://127.0.0.1:3900/v1" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} />
+          <span className="flex flex-wrap gap-1">
+            <button type="button" className="btn btn-ghost px-1 py-0 text-xs" onClick={() => setBaseUrl("http://127.0.0.1:3900/v1")}>OmniVoice Studio app (port 3900)</button>
+            <button type="button" className="btn btn-ghost px-1 py-0 text-xs" onClick={() => setBaseUrl("http://127.0.0.1:8000")}>omnivoice-server (port 8000)</button>
+          </span>
+        </label>
         <label className="flex flex-col gap-1">Model (optional)<input className="input" placeholder="omnivoice" value={model} onChange={(e) => setModel(e.target.value)} /></label>
       </div>
       <p className="font-medium">Voices</p>

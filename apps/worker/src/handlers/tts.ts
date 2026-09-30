@@ -34,7 +34,7 @@ async function providerFor(voiceId: string, workspaceId: string): Promise<TtsPro
         } catch (e) {
           if (!(e instanceof OmniVoiceError)) throw e;
           // A stopped server is transient (start it and the job retries); a wrong voice needs a fix.
-          throw new JobError(`omnivoice_${e.code}`, e.message, e.code === "unreachable" || e.code === "server_error", e.code === "unknown_voice" ? "Pick a voice the OmniVoice server has, or add it there." : "Start the OmniVoice server on this computer, then retry.");
+          throw new JobError(`omnivoice_${e.code}`, e.message, e.code === "unreachable" || e.code === "server_error", e.code === "unknown_voice" ? "Pick a voice the OmniVoice server has, or add it there." : "Open OmniVoice Studio (or start your OmniVoice server) on this computer, then retry.");
         }
       },
     };

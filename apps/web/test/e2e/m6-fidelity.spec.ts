@@ -6,7 +6,7 @@ import { join } from "node:path";
 import { expect, test } from "@playwright/test";
 import { apiUpload, ART, createProject, FIX } from "./helpers";
 
-const FAKE = "http://127.0.0.1:3900";
+const FAKE = "http://127.0.0.1:3910";
 
 test("A23: generated product shot is checked against the approved photo, flagged, reviewable and replaceable", async ({ page, request }) => {
   test.setTimeout(15 * 60_000);

@@ -1,5 +1,7 @@
 import { spawn } from "node:child_process";
+import { constants } from "node:fs";
 import { access } from "node:fs/promises";
+import { delimiter, join } from "node:path";
 import type { TtsProvider, TtsResult, Voice } from "./types";
 
 function run(bin: string, args: string[], signal?: AbortSignal): Promise<void> {
@@ -12,13 +14,23 @@ function run(bin: string, args: string[], signal?: AbortSignal): Promise<void> {
   });
 }
 
-async function hasBinary(path: string) {
-  try {
-    await access(path);
-    return true;
-  } catch {
-    return false;
+/**
+ * Find a TTS binary: an explicit env override, then PATH, then the usual install locations
+ * (Linux packages in /usr/bin, Homebrew on Apple Silicon in /opt/homebrew/bin, Intel Macs and
+ * source builds in /usr/local/bin).
+ */
+export async function findBinary(name: "pico2wave" | "espeak-ng"): Promise<string | null> {
+  const override = name === "pico2wave" ? process.env.PICO2WAVE_BIN : process.env.ESPEAK_NG_BIN;
+  const dirs = [...(process.env.PATH ?? "").split(delimiter).filter(Boolean), "/usr/bin", "/usr/local/bin", "/opt/homebrew/bin"];
+  for (const candidate of override ? [override] : [...new Set(dirs)].map((d) => join(d, name))) {
+    try {
+      await access(candidate, constants.X_OK);
+      return candidate;
+    } catch {
+      /* try next */
+    }
   }
+  return null;
 }
 
 /**
@@ -30,10 +42,10 @@ export class LocalTts implements TtsProvider {
   kind = "local" as const;
   async voices(): Promise<Voice[]> {
     const v: Voice[] = [];
-    if (await hasBinary("/usr/bin/pico2wave")) {
+    if (await findBinary("pico2wave")) {
       v.push({ id: "pico:en-US", label: "Pico — US English (local)", language: "en-US" }, { id: "pico:en-GB", label: "Pico — UK English (local)", language: "en-GB" });
     }
-    if (await hasBinary("/usr/bin/espeak-ng")) {
+    if (await findBinary("espeak-ng")) {
       v.push({ id: "espeak:en-us", label: "eSpeak NG — US English (local, robotic)", language: "en-US" });
     }
     return v;
@@ -43,10 +55,10 @@ export class LocalTts implements TtsProvider {
     const [engine, lang] = voiceId.split(":");
     if (engine === "pico") {
       // pico2wave has no rate flag; tempo is adjusted later by the mixer if requested.
-      await run("/usr/bin/pico2wave", ["-l", lang ?? "en-US", "-w", out, clean], opts.signal);
+      await run((await findBinary("pico2wave")) ?? "pico2wave", ["-l", lang ?? "en-US", "-w", out, clean], opts.signal);
     } else if (engine === "espeak") {
       const wpm = Math.round(165 * (opts.rate ?? 1));
-      await run("/usr/bin/espeak-ng", ["-v", lang ?? "en-us", "-s", String(wpm), "-w", out, clean], opts.signal);
+      await run((await findBinary("espeak-ng")) ?? "espeak-ng", ["-v", lang ?? "en-us", "-s", String(wpm), "-w", out, clean], opts.signal);
     } else {
       throw new Error(`Unknown local voice ${voiceId}`);
     }

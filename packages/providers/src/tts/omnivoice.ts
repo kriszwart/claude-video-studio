@@ -22,6 +22,12 @@ export class OmniVoiceError extends Error {
   }
 }
 
+/** Voice names/ids: any printable text up to 100 characters (cloned voices can have names like “Kris (warm)”). */
+export const VOICE_NAME = /^[^\u0000-\u001f\u007f<>]{1,100}$/u;
+
+/** OmniVoice Studio (the Mac app) serves its OpenAI-compatible API here while it is open. */
+export const OMNIVOICE_STUDIO_URL = "http://127.0.0.1:3900/v1";
+
 export function normalizeBaseUrl(u: string): string {
   const url = new URL(u.trim());
   if (!/^https?:$/.test(url.protocol)) throw new Error("The OmniVoice server address must start with http:// or https://");
@@ -38,7 +44,7 @@ export function parseVoiceList(j: unknown): { name: string; label?: string; lang
       const name = o.id ?? o.voice_id ?? o.voice ?? o.name;
       return name ? { name: String(name), label: o.label ?? (o.name && o.name !== name ? o.name : undefined), language: o.language } : null;
     })
-    .filter((v): v is { name: string; label?: string; language?: string } => !!v && /^[\w .:@-]{1,100}$/.test(v.name));
+    .filter((v): v is { name: string; label?: string; language?: string } => !!v && VOICE_NAME.test(v.name));
 }
 
 export class OmniVoiceTts implements TtsProvider {
@@ -62,7 +68,8 @@ export class OmniVoiceTts implements TtsProvider {
       return await this.fetchImpl(`${this.base}${path}`, { ...init, signal: ac.signal });
     } catch {
       if (init.signal?.aborted) throw new Error("canceled");
-      throw new OmniVoiceError("unreachable", `The OmniVoice server at ${this.base} did not respond. Start it on this computer (or fix the address in Settings → OmniVoice).`);
+      const app = /:3900$/.test(new URL(this.base).host) ? "Open the OmniVoice Studio app" : "Start your OmniVoice server";
+      throw new OmniVoiceError("unreachable", `OmniVoice at ${this.base} is not responding. ${app} on this computer (or fix the address in Settings → OmniVoice).`);
     } finally {
       clearTimeout(t);
       init.signal?.removeEventListener("abort", onAbort);
