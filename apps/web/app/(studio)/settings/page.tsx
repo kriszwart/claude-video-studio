@@ -36,20 +36,28 @@ export default function Settings() {
               <span className={`chip ${p.configured ? "text-ok" : ""}`}>{p.configured ? `Configured (${p.source === "env" ? "server env" : `settings ${p.keyHint ?? ""}`})` : "Not configured"}</span>
             </div>
             <p className="mb-3 text-xs text-faint">Used for: {p.capabilities.join(", ")}</p>
-            <form
-              className="flex flex-wrap gap-2"
-              onSubmit={(e) => {
-                e.preventDefault();
-                void call(p.provider, () => api("/api/settings/providers", { method: "PUT", json: { provider: p.provider, secret: keys[p.provider] || null } }));
-                setKeys((k) => ({ ...k, [p.provider]: "" }));
-              }}
-            >
-              <label className="sr-only" htmlFor={`k-${p.provider}`}>{p.label} API key</label>
-              <input id={`k-${p.provider}`} className="input max-w-xs" type="password" autoComplete="off" placeholder="Paste a new key to replace" value={keys[p.provider] ?? ""} onChange={(e) => setKeys((k) => ({ ...k, [p.provider]: e.target.value }))} />
-              <button className="btn" disabled={!keys[p.provider]}>Save key</button>
-              <button type="button" className="btn" disabled={!p.configured} onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "POST", json: { provider: p.provider } }))}>Test connection</button>
-              {p.source === "settings" && <button type="button" className="btn btn-danger" onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "PUT", json: { provider: p.provider, secret: null } }))}>Remove</button>}
-            </form>
+            {p.provider === "codex" ? (
+              <CodexImagesSettings
+                settings={(p.settings ?? {}) as CxSettings}
+                onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "codex", settings } }))}
+                onCheck={() => call(p.provider, () => api("/api/settings/providers", { method: "POST", json: { provider: "codex" } }))}
+              />
+            ) : (
+              <form
+                className="flex flex-wrap gap-2"
+                onSubmit={(e) => {
+                  e.preventDefault();
+                  void call(p.provider, () => api("/api/settings/providers", { method: "PUT", json: { provider: p.provider, secret: keys[p.provider] || null } }));
+                  setKeys((k) => ({ ...k, [p.provider]: "" }));
+                }}
+              >
+                <label className="sr-only" htmlFor={`k-${p.provider}`}>{p.label} API key</label>
+                <input id={`k-${p.provider}`} className="input max-w-xs" type="password" autoComplete="off" placeholder="Paste a new key to replace" value={keys[p.provider] ?? ""} onChange={(e) => setKeys((k) => ({ ...k, [p.provider]: e.target.value }))} />
+                <button className="btn" disabled={!keys[p.provider]}>Save key</button>
+                <button type="button" className="btn" disabled={!p.configured} onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "POST", json: { provider: p.provider } }))}>Test connection</button>
+                {p.source === "settings" && <button type="button" className="btn btn-danger" onClick={() => call(p.provider, () => api("/api/settings/providers", { method: "PUT", json: { provider: p.provider, secret: null } }))}>Remove</button>}
+              </form>
+            )}
             {p.provider === "omnivoice" && <OmniVoiceSettingsForm settings={(p.settings ?? {}) as OmniSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "omnivoice", settings } }))} />}
             {p.provider === "openrouter" && <OpenRouterModel settings={(p.settings ?? {}) as OrSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "openrouter", settings } }))} />}
             {p.provider === "elevenlabs" && p.configured && <ElevenLabsMusic settings={(p.settings ?? {}) as ElMusicSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "elevenlabs", settings } }))} />}
@@ -64,6 +72,37 @@ export default function Settings() {
 
 type Model = { endpoint: string; priceMicros: number | null; priceCheckedAt?: string; maxDurationSec?: number; notes?: string };
 type FalModelSettings = { image?: Model; video?: Model };
+
+interface CxSettings {
+  enabled?: boolean;
+  preferForImages?: boolean;
+}
+
+/** Images through the owner's ChatGPT plan: the local Codex CLI signed in with ChatGPT. No key. */
+function CodexImagesSettings({ settings, onSave, onCheck }: { settings: CxSettings; onSave: (s: CxSettings) => void; onCheck: () => void }) {
+  const [enabled, setEnabled] = useState(settings.enabled ?? false);
+  const [prefer, setPrefer] = useState(settings.preferForImages ?? true);
+  return (
+    <form
+      className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-2"
+      aria-label="Images with ChatGPT"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ enabled, preferForImages: prefer });
+      }}
+    >
+      <p className="text-faint sm:col-span-2">
+        Image shots and keyframes can use your ChatGPT plan through the Codex CLI on this computer, the way Claude uses Claude Code. Install it (<code>npm install -g @openai/codex</code>), run <code>codex login</code> and choose Sign in with ChatGPT. Images count against your plan&apos;s limits and are never billed to an API key. Each image takes about a minute. Reference images are attached to each request.
+      </p>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={enabled} onChange={(e) => setEnabled(e.target.checked)} /> Use ChatGPT for images</label>
+      <label className="flex items-center gap-1.5"><input type="checkbox" checked={prefer} onChange={(e) => setPrefer(e.target.checked)} /> Prefer over OpenRouter and fal</label>
+      <div className="flex flex-wrap gap-2 sm:col-span-2">
+        <button className="btn">Save</button>
+        <button type="button" className="btn" onClick={onCheck}>Check runtime</button>
+      </div>
+    </form>
+  );
+}
 
 /** Owner-entered fal models: endpoint ids and prices come from fal's own pages, not from the studio. */
 interface OrSettings {

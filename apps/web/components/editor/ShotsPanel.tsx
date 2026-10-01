@@ -7,8 +7,8 @@ import { DebouncedText } from "./fields";
 import type { JobDTO } from "./types";
 
 type Estimate = { kind: "known"; micros: number; basis: string } | { kind: "unknown"; reason: string };
-type ShotRow = { index: number; sceneId: string; purpose: string; shot: NonNullable<ProjectDocument["scenes"][number]["shot"]>; estimate: Estimate; model: string | null; fitsBudget: boolean | null; budgetMessage: string | null };
-type ShotsDTO = { animatic: { status: "pending" | "approved" } | null; keyframeEstimate: Estimate; keyframes: { sceneId: string; needsKeyframe: boolean; url: string | null }[]; providerConfigured: boolean; imageVia?: "openrouter" | "fal" | null; modelsConfigured: { image: boolean; video: boolean }; budget: { projectCeilingMicros: number; operationCeilingMicros: number; unknownPriceRequestsAuthorized: number }; totals: { committedMicros: number; unknownPriceRequestsUsed: number }; shots: ShotRow[]; ledger: { operationId: string; status: string; estimatedMicros: number | null; actualMicros: number | null; priceBasis: string | null }[] };
+type ShotRow = { index: number; sceneId: string; purpose: string; shot: NonNullable<ProjectDocument["scenes"][number]["shot"]>; estimate: Estimate; model: string | null; provider?: "codex" | "openrouter" | "fal"; fitsBudget: boolean | null; budgetMessage: string | null };
+type ShotsDTO = { animatic: { status: "pending" | "approved" } | null; keyframeEstimate: Estimate; keyframes: { sceneId: string; needsKeyframe: boolean; url: string | null }[]; providerConfigured: boolean; imageVia?: "codex" | "openrouter" | "fal" | null; modelsConfigured: { image: boolean; video: boolean }; budget: { projectCeilingMicros: number; operationCeilingMicros: number; unknownPriceRequestsAuthorized: number }; totals: { committedMicros: number; unknownPriceRequestsUsed: number }; shots: ShotRow[]; ledger: { operationId: string; status: string; estimatedMicros: number | null; actualMicros: number | null; priceBasis: string | null }[] };
 type AssetDTO = { id: string; name: string; generated: boolean; previewUrl: string | null; kind: string };
 
 const usd = (m: number) => `$${(m / 1_000_000).toFixed(2)}`;
@@ -55,8 +55,8 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
             <option value="generated-allowed">Generated media allowed (within budget)</option>
           </select>
         </label>
-        {!data.providerConfigured && <p className="text-warn">No generation provider is configured. Supply your own footage for each shot, or add a fal key (video and images) or an OpenRouter key (images) with a model in Settings.</p>}
-        {data.imageVia && <p className="text-faint" data-testid="image-provider">Image shots use {data.imageVia === "openrouter" ? "OpenRouter" : "fal"}.</p>}
+        {!data.providerConfigured && <p className="text-warn">No generation provider is configured. Supply your own footage for each shot, add a fal key (video and images) or an OpenRouter key (images) with a model in Settings, or turn on Images with ChatGPT.</p>}
+        {data.imageVia && <p className="text-faint" data-testid="image-provider">Image shots use {data.imageVia === "codex" ? "your ChatGPT plan (Codex CLI); no cost, about a minute per image" : data.imageVia === "openrouter" ? "OpenRouter" : "fal"}.</p>}
         {data.providerConfigured && !data.modelsConfigured.video && <p className="text-warn">No fal video model is configured (Settings → Providers).</p>}
         <BudgetForm projectId={projectId} budget={data.budget} onSaved={load} />
         <p className="text-dim">
@@ -81,7 +81,7 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
               </strong>
               <span className={`chip ${s.shot.status === "failed" ? "text-bad" : s.shot.status === "accepted" ? "text-ok" : ""}`}>{s.shot.source === "supplied" ? "your footage" : s.shot.status}</span>
               {s.shot.autoAccepted && <span className="chip text-warn" title="The first result was placed automatically; review it">review</span>}
-              <span className="ml-auto text-faint">{s.estimate.kind === "known" ? usd(s.estimate.micros) : "price unknown"}</span>
+              <span className="ml-auto text-faint">{s.provider === "codex" ? "ChatGPT plan" : s.estimate.kind === "known" ? usd(s.estimate.micros) : "price unknown"}</span>
             </div>
             {s.shot.error && <p className="text-bad">{s.shot.error}</p>}
             {s.budgetMessage && s.shot.status !== "accepted" && <p className="text-warn">{s.budgetMessage}</p>}
@@ -222,7 +222,7 @@ function AnimaticGate({ projectId, data, jobs, apply, act }: { projectId: string
           <button className="btn px-2 py-1 text-xs" disabled={!missing.length || running > 0} onClick={() => act(() => api(`/api/projects/${projectId}/shots/generate`, { method: "POST", json: { mode: "keyframes" }, idempotent: true }))}>
             {running ? `Generating ${running}…` : missing.length ? `Generate ${missing.length} keyframe${missing.length > 1 ? "s" : ""}` : "All keyframes ready"}
           </button>
-          {missing.length > 0 && <span className="text-faint">{est.kind === "known" ? `about $${((est.micros * missing.length) / 1_000_000).toFixed(2)}` : `${missing.length} unknown-price request(s)`}</span>}
+          {missing.length > 0 && <span className="text-faint">{data.imageVia === "codex" ? "uses your ChatGPT plan" : est.kind === "known" ? `about $${((est.micros * missing.length) / 1_000_000).toFixed(2)}` : `${missing.length} unknown-price request(s)`}</span>}
         </li>
         <li className="flex flex-wrap items-center gap-2">
           <span className="text-dim">2. Animatic</span>

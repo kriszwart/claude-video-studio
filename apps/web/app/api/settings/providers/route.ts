@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { AppError, getDb, getOmniVoiceConfig, getProviderSecret, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
-import { checkClaude, FalSettings, normalizeBaseUrl, OmniVoiceTts, VOICE_NAME, ElevenLabsSettings, OpenRouterSettings } from "@vs/providers";
+import { AppError, getDb, subscriptionRuntimeAllowed, getOmniVoiceConfig, getProviderSecret, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
+import { checkClaude, checkCodexRuntime, CodexSettings, FalSettings, normalizeBaseUrl, OmniVoiceTts, VOICE_NAME, ElevenLabsSettings, OpenRouterSettings } from "@vs/providers";
 import { requireOwner } from "@/lib/server/auth";
 import { body, json, route } from "@/lib/server/http";
 
@@ -35,7 +35,11 @@ export const POST = route(async (req) => {
   const b = await body(req, z.object({ provider: Provider }));
   const secret = await getProviderSecret(getDb(), s.workspaceId, b.provider);
   let result: { ok: boolean; message: string; model?: string };
-  if (b.provider === "omnivoice") {
+  if (b.provider === "codex") {
+    // Local check only (version, login method, image tool); sends no prompt and uses no plan usage.
+    const c = subscriptionRuntimeAllowed() ? await checkCodexRuntime() : { state: "unavailable", message: "Images with ChatGPT are only available in a personal local studio (STUDIO_AUTH_MODE=local)." };
+    result = { ok: c.state === "ready", message: c.message };
+  } else if (b.provider === "omnivoice") {
     const cfg = await getOmniVoiceConfig(getDb(), s.workspaceId);
     result = cfg ? await new OmniVoiceTts(cfg.settings, cfg.apiKey).health() : { ok: false, message: "No OmniVoice server address configured." };
   } else if (!secret) result = { ok: false, message: "No key configured." };
@@ -64,6 +68,10 @@ export const PATCH = route(async (req) => {
     const parsed = OpenRouterSettings.safeParse(b.settings);
     if (!parsed.success) throw new AppError(422, "invalid_input", parsed.error.issues[0]?.message ?? "Invalid OpenRouter settings.");
     await setProviderSettings(getDb(), s.workspaceId, "openrouter", parsed.data);
+    return json({ providers: await providerStatus(getDb(), s.workspaceId) });
+  }
+  if (b.provider === "codex") {
+    await setProviderSettings(getDb(), s.workspaceId, "codex", CodexSettings.parse(b.settings));
     return json({ providers: await providerStatus(getDb(), s.workspaceId) });
   }
   if (b.provider === "elevenlabs") {

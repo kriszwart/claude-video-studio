@@ -1,5 +1,5 @@
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { join, resolve } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
 import {
   AppError,
@@ -15,10 +15,11 @@ import {
   schema,
   setWaitingProvider,
   settleSpend,
+  subscriptionRuntimeAllowed,
   webhookToken,
 } from "@vs/db";
 import type { Operation, ProjectDocument, Scene, ShotReview } from "@vs/domain";
-import { decodeDataUrl, estimateFor, FalQueue, FalSettings, falOutputFiles, MediaProviderError, OpenRouterImages, openRouterEstimate, OpenRouterSettings } from "@vs/providers";
+import { CodexError, CodexImages, CodexSettings, pickImageProvider, decodeDataUrl, estimateFor, FalQueue, FalSettings, falOutputFiles, MediaProviderError, OpenRouterImages, openRouterEstimate, OpenRouterSettings } from "@vs/providers";
 import { FFMPEG, productFidelity, runOk } from "@vs/rendering";
 import { registerFile, resolveAssets, type Handler, type JobContext } from "../context";
 import { safeFetch, UnsafeUrlError } from "../net/safeFetch";
@@ -99,7 +100,11 @@ export const generateMedia: Handler = async (ctx) => {
   if (kind === "image") {
     const or = OpenRouterSettings.safeParse(await getProviderSettings(db, ctx.job.workspaceId, "openrouter"));
     const orKey = await getProviderSecret(db, ctx.job.workspaceId, "openrouter");
-    if (or.success && or.data.image && orKey && (or.data.preferForImages || !model)) return generateViaOpenRouter(ctx, doc, scene, variant, operationId, or.data, orKey.secret, keyframe);
+    const orReady = or.success && !!or.data.image && !!orKey;
+    const cx = CodexSettings.safeParse(await getProviderSettings(db, ctx.job.workspaceId, "codex"));
+    const via = pickImageProvider({ codex: cx.success ? cx.data : null, codexAllowed: subscriptionRuntimeAllowed(), openRouterReady: orReady, openRouterPreferred: or.success && or.data.preferForImages, falImage: !!model });
+    if (via === "codex") return generateViaCodex(ctx, doc, scene, variant, operationId, keyframe);
+    if (via === "openrouter") return generateViaOpenRouter(ctx, doc, scene, variant, operationId, or.data!, orKey!.secret, keyframe);
   }
   if (!model) throw new JobError("provider_not_configured", `No ${kind} model is configured.`, false, `Choose a ${kind} model (and its price) in Settings → Providers, or supply your own footage for this shot.`);
   const secret = await getProviderSecret(db, ctx.job.workspaceId, "fal");
@@ -342,6 +347,62 @@ async function generateViaOpenRouter(ctx: JobContext, doc: ProjectDocument, scen
   });
   // Settle at the cost OpenRouter reported; otherwise at the owner-entered price.
   await settleSpend(db, ctx.job.workspaceId, operationId, result.costUsd !== null ? Math.round(result.costUsd * 1_000_000) : model.priceMicros);
+  await updateGen(genId, { assetId: asset.id });
+  let review: ShotReview | undefined;
+  if (refs[0]) {
+    await ctx.stage("checking fidelity");
+    const ref = (await resolveAssets(ctx.job.workspaceId, [refs[0].id])).get(refs[0].id);
+    if (ref) review = { referenceAssetId: refs[0].id, ...(await productFidelity(out, ref.path, undefined)), decision: "pending" };
+  }
+  g = (await db.query.generationRequests.findFirst({ where: eq(schema.generationRequests.id, genId) }))!;
+  return attach(ctx, sceneId, g, asset.id, review, keyframe);
+}
+
+/**
+ * Image shot through the owner's ChatGPT plan (local Codex CLI signed in with ChatGPT). No money is
+ * spent, so the paid-spend ledger is not involved; a plan usage limit pauses the job like Claude's.
+ * An interrupted run costs no money, so it is simply generated again.
+ */
+async function generateViaCodex(ctx: JobContext, doc: ProjectDocument, scene: Scene, variant: number, operationId: string, keyframe = false) {
+  const db = getDb();
+  const sceneId = scene.id;
+  const shot = scene.shot!;
+  let g = await db.query.generationRequests.findFirst({ where: and(eq(schema.generationRequests.workspaceId, ctx.job.workspaceId), eq(schema.generationRequests.operationId, operationId)) });
+  if (g?.state === "succeeded" && g.assetId) return attach(ctx, sceneId, g, g.assetId, undefined, keyframe);
+  if (g?.state === "failed" && !(g.error as { retryable?: boolean } | null)?.retryable) throw new JobError("provider_failed", String((g.error as { message?: string })?.message ?? "Generation failed."), false, "Adjust the prompt and use Regenerate.");
+  const genId = g?.id ?? newId("gen");
+  const values = { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId, jobId: ctx.job.id, operationId, provider: "codex", endpoint: "chatgpt-image", capability: "image" as const, state: "submitting" as const, input: {}, requestId: null, error: null };
+  if (g) await db.update(schema.generationRequests).set({ ...values, updatedAt: sql`now()` }).where(eq(schema.generationRequests.id, genId));
+  else await db.insert(schema.generationRequests).values({ id: genId, ...values });
+
+  await ctx.stage("preparing references");
+  const refs = await referenceImages(ctx, doc, scene);
+  const chars = doc.characters.filter((c) => shot.characterIds.includes(c.id));
+  const prompt = [shot.prompt, shot.continuity && `Continuity: ${shot.continuity}`, ...chars.map((c) => `${c.name}: ${c.notes || `${c.species} character, body ${c.palette.body}, accent ${c.palette.accent}`}`)].filter(Boolean).join("\n").slice(0, 4000);
+  await updateGen(genId, { input: { prompt, aspectRatio: doc.format.aspect, references: refs.map((r) => r.id) } });
+  if (!keyframe) await applyWithRetry(ctx, (d) => (d.scenes.find((s) => s.id === sceneId)?.shot?.status === "accepted" ? [] : [{ op: "setShotStatus", sceneId, status: "generating", variant }]), "shot generating");
+  await ctx.stage(keyframe ? "generating keyframe with ChatGPT" : "generating with ChatGPT");
+  let result;
+  try {
+    // referenceImages() leaves each reference as ref-<i>.jpg in the job's work dir.
+    result = await new CodexImages().generate({ prompt, referencePaths: refs.map((_, i) => resolve(ctx.workDir, `ref-${i}.jpg`)), aspectRatio: doc.format.aspect, cwd: resolve(ctx.workDir), signal: ctx.signal });
+  } catch (e) {
+    const err = e instanceof CodexError ? e : new CodexError("provider_failed", String(e), false);
+    // A usage limit pauses the job; it must run again on Resume, so it stays retryable here.
+    await updateGen(genId, { state: "failed", error: { message: err.message, retryable: err.retryable || err.code === "usage_limit", code: err.code } });
+    if (err.code !== "usage_limit" && err.code !== "canceled" && !keyframe) await applyWithRetry(ctx, () => [{ op: "setShotStatus", sceneId, status: "failed", error: err.message.slice(0, 300) }], "shot generation failed");
+    throw new JobError(err.code, err.message, err.retryable, err.recovery);
+  }
+  await updateGen(genId, { requestId: result.threadId, state: "succeeded", output: { threadId: result.threadId } });
+  await ctx.stage("saving image");
+  const out = join(ctx.workDir, "shot.png");
+  await runOk(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-y", "-i", result.file, "-frames:v", "1", out], { timeoutMs: 60_000 });
+  const asset = await registerFile(ctx.job.workspaceId, out, {
+    kind: "image",
+    originalName: `${keyframe ? "keyframe" : "generated"}-${scene.purpose.replace(/\W+/g, "-").toLowerCase()}-v${variant}.png`,
+    generated: true,
+    provenance: { source: "generated", provider: "codex", ...(keyframe ? { role: "keyframe" } : {}), model: "ChatGPT image (Codex CLI)", requestId: result.threadId, operationId, prompt: shot.prompt, referenceAssetIds: refs.map((r) => r.id), projectId: ctx.job.projectId, sceneId, generatedAt: new Date().toISOString(), billing: "ChatGPT plan" },
+  });
   await updateGen(genId, { assetId: asset.id });
   let review: ShotReview | undefined;
   if (refs[0]) {

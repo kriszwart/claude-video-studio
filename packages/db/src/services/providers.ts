@@ -13,6 +13,8 @@ export const PROVIDERS = {
   omnivoice: { env: "OMNIVOICE_API_KEY", label: "OmniVoice (local voice server)", capabilities: ["tts"] },
   pixabay: { env: "PIXABAY_API_KEY", label: "Pixabay (free stock footage key)", capabilities: ["footage-search"] },
   openrouter: { env: "OPENROUTER_API_KEY", label: "OpenRouter (image models; never used for Claude)", capabilities: ["image-generation"] },
+  // No key: the local Codex CLI signed in with ChatGPT. Turned on in Settings; never read from env.
+  codex: { env: "", label: "Images with ChatGPT (Codex CLI)", capabilities: ["image-generation"] },
 } as const;
 export type ProviderId = keyof typeof PROVIDERS;
 
@@ -34,7 +36,7 @@ export async function setProviderSecret(db: DbOrTx, workspaceId: string, provide
 export async function getProviderSecret(db: DbOrTx, workspaceId: string, provider: ProviderId): Promise<{ secret: string; source: "settings" | "env" } | null> {
   const row = await db.query.providerConfigs.findFirst({ where: and(eq(providerConfigs.workspaceId, workspaceId), eq(providerConfigs.provider, provider)) });
   if (row?.encryptedSecret) return { secret: decryptSecret(row.encryptedSecret), source: "settings" };
-  const env = process.env[PROVIDERS[provider].env];
+  const env = PROVIDERS[provider].env ? process.env[PROVIDERS[provider].env] : undefined;
   return env ? { secret: env, source: "env" } : null;
 }
 
@@ -51,7 +53,9 @@ export async function providerStatus(db: DbOrTx, workspaceId: string) {
     const row = rows.find((r) => r.provider === p);
     // OmniVoice is configured by its server address; an API key is optional.
     const omni = p === "omnivoice" ? ((row?.settings as { baseUrl?: string } | undefined)?.baseUrl ? "settings" : process.env.OMNIVOICE_BASE_URL ? "env" : null) : undefined;
-    const source = omni !== undefined ? omni : row?.encryptedSecret ? "settings" : process.env[PROVIDERS[p].env] ? "env" : null;
+    // Codex has no key; it is configured by turning it on.
+    const codex = p === "codex" ? ((row?.settings as { enabled?: boolean } | undefined)?.enabled ? "settings" : null) : undefined;
+    const source = omni !== undefined ? omni : codex !== undefined ? codex : row?.encryptedSecret ? "settings" : PROVIDERS[p].env && process.env[PROVIDERS[p].env] ? "env" : null;
     return {
       provider: p,
       label: PROVIDERS[p].label,
