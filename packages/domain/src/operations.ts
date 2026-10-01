@@ -33,6 +33,18 @@ import { VoiceDirection } from "./voice";
 const Unit = z.number().min(0).max(1);
 
 /** Typed edit operations. Every write goes through these; nothing patches JSON directly. */
+/**
+ * Caption settings to change. No defaults: `Captions.partial()` would still fill in its defaults
+ * when parsed, so a patch of `{ enabled: false }` reset the style and wiped every cue.
+ */
+const CaptionsPatch = z.object({
+  enabled: z.boolean().optional(),
+  burnIn: z.boolean().optional(),
+  style: Captions.shape.style.unwrap().optional(),
+  position: Captions.shape.position.unwrap().optional(),
+  cues: z.array(CaptionCue).max(2000).optional(),
+});
+
 export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setTitle"), title: z.string().min(1).max(160) }),
   z.object({ op: z.literal("updateLayerText"), sceneId: Id, layerId: Id, text: z.string().max(600) }),
@@ -82,7 +94,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("updateAudioTrack"), trackId: Id, patch: AudioTrack.omit({ id: true }).partial() }),
   z.object({ op: z.literal("setTrackGain"), trackId: Id, gainDb: z.number().min(-60).max(12) }),
   z.object({ op: z.literal("removeAudioTrack"), trackId: Id }),
-  z.object({ op: z.literal("setCaptions"), captions: Captions.partial() }),
+  z.object({ op: z.literal("setCaptions"), captions: CaptionsPatch }),
   z.object({ op: z.literal("setCaptionCues"), cues: z.array(CaptionCue).max(2000) }),
   z.object({ op: z.literal("updateCaptionCue"), cueId: Id, text: z.string().max(300).optional(), startFrame: z.number().int().min(0).optional(), endFrame: z.number().int().positive().optional() }),
   z.object({ op: z.literal("setMarkers"), markers: z.array(MusicMarker).max(1000) }),

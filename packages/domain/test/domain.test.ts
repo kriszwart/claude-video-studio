@@ -7,6 +7,7 @@ import {
   historyForRedo,
   historyForUndo,
   initialHistory,
+  Operation,
   OperationError,
   ProjectDocument,
   resolveAudio,
@@ -197,5 +198,19 @@ describe("budget", () => {
     expect(decideSpend(policy, { committedMicros: 0, unknownPriceRequestsUsed: 0 }, { kind: "known", micros: 500_000, priceTimestamp: "t", basis: "b" })).toMatchObject({ allowed: false, code: "operation_ceiling" });
     expect(decideSpend(policy, { committedMicros: 0, unknownPriceRequestsUsed: 0 }, { kind: "unknown", reason: "x" })).toMatchObject({ allowed: true });
     expect(decideSpend(policy, { committedMicros: 0, unknownPriceRequestsUsed: 1 }, { kind: "unknown", reason: "x" })).toMatchObject({ allowed: false, code: "unknown_price_unauthorized" });
+  });
+});
+
+describe("setCaptions", () => {
+  it("changes only the settings it names; cues and other settings are kept", () => {
+    const cue = { id: "cue1", text: "Hello", anchor: { type: "absolute" as const, startFrame: 0 }, startFrame: 0, endFrame: 30 };
+    // Parsed as the operations API parses them, so schema defaults apply as they would there.
+    const ops = (raw: unknown[]) => raw.map((o) => Operation.parse(o));
+    let doc = applyOperations(makeDoc(), ops([{ op: "setCaptionCues", cues: [cue] }, { op: "setCaptions", captions: { enabled: true, style: "bold", position: "top" } }]), "user").doc;
+    expect(doc.captions).toMatchObject({ enabled: true, style: "bold", position: "top" });
+    expect(doc.captions.cues).toHaveLength(1);
+    doc = applyOperations(doc, ops([{ op: "setCaptions", captions: { enabled: false } }]), "user").doc;
+    expect(doc.captions).toMatchObject({ enabled: false, style: "bold", position: "top" });
+    expect(doc.captions.cues.map((c) => c.text)).toEqual(["Hello"]);
   });
 });
