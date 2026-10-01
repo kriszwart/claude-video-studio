@@ -12,7 +12,7 @@ import { z } from "zod";
 export const JevSettings = z.object({
   /** API address. The official API is TypeSafe's; a key from a Jev community hub may need its own address. */
   baseUrl: z.string().url().max(200).default("https://api.typesafe.ai"),
-  model: z.string().max(80).default("typesafe/jev-1.13"),
+  model: z.string().max(80).default("jev-latest"),
 });
 export type JevSettings = z.infer<typeof JevSettings>;
 

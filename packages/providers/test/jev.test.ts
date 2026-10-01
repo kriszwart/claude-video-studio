@@ -29,14 +29,14 @@ describe("Jev composer suggestions", () => {
 
   it("sends a Bearer key to /v1/systemone and maps errors", async () => {
     const calls: { url: string; init?: RequestInit }[] = [];
-    const ok = new JevClient("k-123", { baseUrl: "https://jev.example", model: "typesafe/jev-1.13" }, async (url, init) => {
+    const ok = new JevClient("k-123", { baseUrl: "https://jev.example", model: "jev-latest" }, async (url, init) => {
       calls.push({ url, init });
       return new Response(JSON.stringify({ model: "jev-1.13.0", answers: { a: { type: "noul", probability: 0.7 } } }), { status: 200 });
     });
     const r = await ok.decide({ request: "x" }, { a: { type: "noul", instructions: "?" } });
     expect(calls[0]!.url).toBe("https://jev.example/v1/systemone");
     expect((calls[0]!.init!.headers as Record<string, string>).Authorization).toBe("Bearer k-123");
-    expect(JSON.parse(String(calls[0]!.init!.body))).toMatchObject({ model: "typesafe/jev-1.13", state: { request: "x" } });
+    expect(JSON.parse(String(calls[0]!.init!.body))).toMatchObject({ model: "jev-latest", state: { request: "x" } });
     expect(r.answers.a).toEqual({ type: "noul", probability: 0.7 });
     const bad = new JevClient("k", undefined, async () => new Response("nope", { status: 401 }));
     await expect(bad.decide("x", {})).rejects.toMatchObject({ code: "auth" });

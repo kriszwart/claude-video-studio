@@ -429,7 +429,7 @@ type JevForm = { baseUrl?: string; model?: string };
 /** Jev's address and model: the official API is TypeSafe's; a key from a Jev community hub may need that hub's address. */
 function JevSettingsForm({ settings, onSave }: { settings: JevForm; onSave: (s: JevForm) => void }) {
   const [baseUrl, setBaseUrl] = useState(settings.baseUrl ?? "https://api.typesafe.ai");
-  const [model, setModel] = useState(settings.model ?? "typesafe/jev-1.13");
+  const [model, setModel] = useState(settings.model ?? "jev-latest");
   return (
     <form
       className="mt-3 grid grid-cols-1 gap-2 border-t border-line pt-3 text-xs sm:grid-cols-2"
