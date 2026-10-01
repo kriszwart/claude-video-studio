@@ -26,12 +26,13 @@ export default function Settings() {
       <h1 className="mb-1 text-xl font-semibold">Settings</h1>
       <p className="mb-6 text-sm text-dim">Keys are stored encrypted on the server (or read from server environment variables) and are never shown again or sent to the browser. Never paste keys into project chat.</p>
       {msg._ && <p className="text-bad">{msg._}</p>}
+      <GetStarted providers={providers} />
       <ClaudeRuntime />
       <Rendering />
       <h2 className="mb-2 mt-8 text-lg font-semibold">Provider keys</h2>
       <ul className="space-y-4">
         {providers.map((p) => (
-          <li key={p.provider} className="card p-4">
+          <li key={p.provider} id={`provider-${p.provider}`} className="card scroll-mt-4 p-4">
             <div className="mb-1 flex items-center gap-2">
               <h2 className="font-medium">{p.label}</h2>
               <span className={`chip ${p.configured ? "text-ok" : ""}`}>{p.configured ? `Configured (${p.source === "env" ? "server env" : `settings ${p.keyHint ?? ""}`})` : "Not configured"}</span>
@@ -219,7 +220,7 @@ function ClaudeRuntime() {
   const check = rt.lastCheck;
   const limit = rt.lastLimit;
   return (
-    <section id="claude" className="card space-y-3 p-4 text-sm" aria-labelledby="claude-h">
+    <section id="claude" className="card scroll-mt-4 space-y-3 p-4 text-sm" aria-labelledby="claude-h">
       <div className="flex flex-wrap items-center gap-2">
         <h2 id="claude-h" className="font-medium">Claude</h2>
         <span className={`chip ${r.available ? "text-ok" : "text-warn"}`}>{r.available ? "AI actions available" : "AI actions unavailable"}</span>
@@ -326,7 +327,7 @@ function Rendering() {
   }, []);
   if (!workers) return null;
   return (
-    <section className="card mt-4 space-y-2 p-4 text-sm" aria-labelledby="rendering-h" data-testid="rendering">
+    <section id="rendering" className="card mt-4 scroll-mt-4 space-y-2 p-4 text-sm" aria-labelledby="rendering-h" data-testid="rendering">
       <h2 id="rendering-h" className="font-medium">Rendering</h2>
       {!workers.length && <p className="text-warn">No render worker is running. Start it with <code>scripts/dev-worker.sh start</code>; drafts and exports wait until one is up.</p>}
       {workers.map((w) => (
@@ -337,6 +338,82 @@ function Rendering() {
         </p>
       ))}
       <p className="text-faint">Graphics-heavy exports (Redraw layers) are much faster on a graphics chip. On a Mac this is detected automatically; set <code>RENDER_GPU=software</code> on the worker for bit-for-bit reproducible renders.</p>
+    </section>
+  );
+}
+
+type Check = { id: string; label: string; state: "ok" | "warn" | "missing" | "optional"; detail: string; href: string; required?: boolean };
+
+/**
+ * First-run checklist: what's ready and what's missing for a first real video, from the same
+ * live state the sections below show (nothing is stored or guessed). Required: Claude and a
+ * render worker. Everything else unlocks a feature and is optional.
+ */
+function GetStarted({ providers }: { providers: P[] }) {
+  const [claude] = useClaudeStatus();
+  const [workers, setWorkers] = useState<WorkerRow[] | null>(null);
+  const [voices, setVoices] = useState<number | null>(null);
+  useEffect(() => {
+    api<{ workers: WorkerRow[] }>("/api/workers").then((r) => setWorkers(r.workers)).catch(() => setWorkers([]));
+    api<{ voices: unknown[] }>("/api/voices").then((r) => setVoices(r.voices.length)).catch(() => setVoices(0));
+  }, []);
+  if (!claude || !workers || voices === null || !providers.length) return <section className="card mb-4 p-4 text-sm text-dim">Checking your setup…</section>;
+  const prov = (id: string) => providers.find((p) => p.provider === id);
+  const has = (id: string, key?: string) => !!prov(id)?.configured && (!key || !!(prov(id)?.settings as Record<string, unknown> | undefined)?.[key]);
+  const checks: Check[] = [
+    {
+      id: "claude", label: "Claude", required: true, href: "#claude",
+      state: claude.readiness.available ? "ok" : "missing",
+      detail: claude.readiness.available ? `Ready (${claude.readiness.mode === "api" ? "API key" : "your Claude plan"}). Writes scripts, plans storyboards, edits and reviews.` : `${claude.readiness.message}${claude.readiness.recovery ? ` ${claude.readiness.recovery}` : ""}`,
+    },
+    {
+      id: "worker", label: "Render worker", required: true, href: "#rendering",
+      state: !workers.length ? "missing" : workers.some((w) => w.gpu === "hardware") ? "ok" : "warn",
+      detail: !workers.length ? "No worker is running, so nothing can render. Start it with scripts/dev-worker.sh start." : workers.some((w) => w.gpu === "hardware") ? "Running and using the graphics chip." : "Running on software rendering: everything works, graphics-heavy exports are slower.",
+    },
+    {
+      id: "voice", label: "Voiceover", href: "#provider-elevenlabs",
+      state: has("elevenlabs") || has("omnivoice") ? "ok" : voices > 0 ? "warn" : "missing",
+      detail: has("elevenlabs") || has("omnivoice") ? `Natural voices via ${[has("elevenlabs") && "ElevenLabs", has("omnivoice") && "OmniVoice"].filter(Boolean).join(" and ")}.` : voices > 0 ? `${voices} basic built-in voice${voices > 1 ? "s" : ""} only. Add an ElevenLabs key or an OmniVoice server for natural narration.` : "No voices: add an ElevenLabs key or an OmniVoice server to narrate.",
+    },
+    {
+      id: "images", label: "Generated images", href: "#provider-openrouter",
+      state: has("fal", "image") || has("openrouter", "image") || has("codex") ? "ok" : "optional",
+      detail: has("fal", "image") || has("openrouter", "image") || has("codex") ? "Image shots and keyframes can be generated (within each project's budget)." : "Optional: add OpenRouter or fal with an image model, or turn on Images with ChatGPT, to generate stills and animatic keyframes.",
+    },
+    {
+      id: "video", label: "Generated video", href: "#provider-fal",
+      state: has("fal", "video") ? "ok" : "optional",
+      detail: has("fal", "video") ? "Video shots can be generated after the animatic is approved." : "Optional: add a fal key with a video model to generate footage. Supplied footage always works.",
+    },
+    {
+      id: "music", label: "Generated music", href: "#provider-elevenlabs",
+      state: has("elevenlabs") ? "ok" : "optional",
+      detail: has("elevenlabs") ? "Music beds can be composed with ElevenLabs (budget-gated)." : "Optional: an ElevenLabs key also composes music. Your own tracks always work.",
+    },
+  ];
+  const ready = checks.filter((c) => c.required).every((c) => c.state === "ok" || c.state === "warn");
+  const icon = { ok: "✓", warn: "!", missing: "✕", optional: "○" } as const;
+  const tone = { ok: "text-ok", warn: "text-warn", missing: "text-bad", optional: "text-faint" } as const;
+  return (
+    <section className="card mb-4 space-y-3 p-4 text-sm" aria-labelledby="start-h" data-testid="get-started">
+      <div className="flex flex-wrap items-center gap-2">
+        <h2 id="start-h" className="font-medium">Get started</h2>
+        <span className={`chip ${ready ? "text-ok" : "text-warn"}`} data-testid="setup-ready">{ready ? "Ready for your first video" : "Setup needed"}</span>
+      </div>
+      <ul className="space-y-1.5">
+        {checks.map((c) => (
+          <li key={c.id} className="flex gap-2" data-check={c.id} data-state={c.state}>
+            <span aria-hidden className={`w-4 shrink-0 text-center font-semibold ${tone[c.state]}`}>{icon[c.state]}</span>
+            <span className="min-w-0">
+              <a href={c.href} className="font-medium hover:underline">{c.label}</a>
+              {c.required && <span className="text-faint"> · required</span>}
+              <span className="text-dim"> — {c.detail}</span>
+            </span>
+          </li>
+        ))}
+      </ul>
+      {ready && <p className="text-faint">Next: open <a className="underline" href="/projects/new">New project</a>, describe your video, and follow the steps bar in the editor. Set a small budget in the project before generating anything paid.</p>}
     </section>
   );
 }
