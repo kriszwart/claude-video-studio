@@ -101,4 +101,48 @@ test.describe.serial("Product check", () => {
     const forged = await request.post(`/api/projects/${id}/operations`, { data: { baseRevisionId: v.revision.id, ops: [{ op: "setShotFidelity", sceneId: s2.id, assetId: v.doc.scenes.find((s: { id: string }) => s.id === s2.id).shot.candidates[0].assetId, claude: { verdict: "match", summary: "x", checks: [], frames: 1, model: null, checkedAt: "now" } }] } });
     expect(forged.ok()).toBe(false);
   });
+
+  test("with automatic checks on, each new take is checked without a click, and skipped quietly while Claude isn't set up", async ({ page, request }) => {
+    test.setTimeout(360_000);
+    await request.put("/api/settings/providers", { data: { provider: "openrouter", secret: "or-test-key" } });
+    await request.patch("/api/settings/providers", { data: { provider: "openrouter", settings: { image: { model: "test/image-model", priceMicros: 50_000 }, preferForImages: true } } });
+    const song = await apiUpload(request, join(FIX, "music-song.m4a"), "audio/mp4");
+    const product = await apiUpload(request, join(FIX, "product-bottle-coral.png"), "image/png");
+    const created = await createProject(request, { templateId: "anime-opening", title: "Auto product check", inputs: { song, excerptStart: 8, excerptEnd: 38, title: "Skyline Relay", synopsis: "Two couriers race across a floating city.", characters: ["Aki — swordswoman in a red coat"], direction: "cel-shaded anime" } });
+    const id = created.project.id;
+    await expect.poll(async () => (await view(request, id)).jobs.find((j: { type: string }) => j.type === "analyze_music")?.status, { timeout: 120_000 }).toBe("succeeded");
+    await ops(request, id, [{ op: "setAcquisitionPolicy", policy: "generated-allowed" }]);
+    await request.put(`/api/projects/${id}/budget`, { data: { projectCeilingMicros: 1_000_000, operationCeilingMicros: 500_000, unknownPriceRequestsAuthorized: 0 } });
+    const [s1, s2] = (await view(request, id)).doc.scenes.filter((s: { shot?: unknown }) => s.shot);
+    await ops(request, id, [
+      { op: "updateShot", sceneId: s1.id, patch: { kind: "image", referenceAssetIds: [product], prompt: "The coral bottle on a rooftop at dusk." } },
+      { op: "updateShot", sceneId: s2.id, patch: { kind: "image", referenceAssetIds: [product], prompt: "The coral bottle on a train platform at night." } },
+    ]);
+
+    await scenario(request, "max");
+    await page.goto(`/projects/${id}`);
+    await page.getByRole("tab", { name: "shots" }).click();
+    const box = page.getByTestId("product-check").getByRole("checkbox", { name: /Check new takes automatically/ });
+    await expect(box).not.toBeChecked();
+    await box.click();
+    await expect(box).toBeChecked();
+    await expect.poll(async () => (await view(request, id)).doc.autoProductCheck).toBe(true);
+
+    // Claude not set up: the take arrives, the automatic check steps aside without failing.
+    await scenario(request, "signed_out");
+    const g1 = await (await request.post(`/api/projects/${id}/shots/generate`, { data: { sceneIds: [s1.id] } })).json();
+    for (const j of g1.jobs) expect((await waitJob(request, j.id)).status).toBe("succeeded");
+    await expect.poll(async () => (await view(request, id)).jobs.find((j: { type: string }) => j.type === "check_fidelity")?.status, { timeout: 120_000 }).toBe("succeeded");
+    let take = (await view(request, id)).doc.scenes.find((s: { id: string }) => s.id === s1.id).shot.candidates[0];
+    expect(take.review?.claude).toBeUndefined();
+
+    // Claude ready: the next new take is checked automatically.
+    await scenario(request, "max");
+    const g2 = await (await request.post(`/api/projects/${id}/shots/generate`, { data: { sceneIds: [s2.id] } })).json();
+    for (const j of g2.jobs) expect((await waitJob(request, j.id)).status).toBe("succeeded");
+    const checked = async () => (await view(request, id)).doc.scenes.find((s: { id: string }) => s.id === s2.id).shot.candidates.find((c: { review?: { claude?: unknown } }) => c.review?.claude);
+    await expect.poll(checked, { timeout: 120_000 }).toBeTruthy();
+    take = await checked();
+    expect(take.review.claude.verdict).toBe("match");
+  });
 });

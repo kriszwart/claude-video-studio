@@ -510,6 +510,8 @@ export const ProjectDocument = z.object({
    * also public references (URL import, website screenshots), or generated media within budget.
    */
   acquisitionPolicy: z.enum(["existing-only", "existing-plus-public", "generated-allowed"]).default("existing-plus-public"),
+  /** Owner opt-in: run Claude's product check on every new generated take that has a reference photo. */
+  autoProductCheck: z.boolean().default(false),
   /** Seed for any procedural variation; part of the render bundle hash. */
   seed: z.number().int().default(1),
 });

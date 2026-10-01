@@ -73,7 +73,7 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
         </div>
         {msg && <p role="alert" className="text-bad">{msg}</p>}
       </section>
-      <ProductCheck projectId={projectId} doc={doc} checking={checking} last={checkFailed} act={act} />
+      <ProductCheck projectId={projectId} doc={doc} checking={checking} last={checkFailed} act={act} apply={apply} />
       <AnimaticGate projectId={projectId} data={data} jobs={jobs} apply={apply} act={act} />
       <ol className="space-y-2" aria-label="Shots">
         {data.shots.map((s) => (
@@ -294,9 +294,9 @@ function ClaudeVerdict({ v }: { v: ClaudeFidelity }) {
 }
 
 /** Run Claude's product check over every generated take that has a reference photo. */
-function ProductCheck({ projectId, doc, checking, last, act }: { projectId: string; doc: ProjectDocument; checking: JobDTO | undefined; last: JobDTO | undefined; act: (fn: () => Promise<unknown>) => Promise<void> }) {
+function ProductCheck({ projectId, doc, checking, last, act, apply }: { projectId: string; doc: ProjectDocument; checking: JobDTO | undefined; last: JobDTO | undefined; act: (fn: () => Promise<unknown>) => Promise<void>; apply: (ops: Operation[]) => Promise<boolean> }) {
+  if (!doc.scenes.some((s) => s.shot?.referenceAssetIds.length)) return null;
   const takes = doc.scenes.flatMap((s) => (s.shot?.referenceAssetIds.length ? s.shot.candidates.filter((c) => c.review?.decision !== "rejected") : []));
-  if (!takes.length) return null;
   const unchecked = takes.filter((c) => !c.review?.claude).length;
   const mismatches = takes.filter((c) => c.review?.claude?.verdict === "mismatch" && c.review.decision === "pending").length;
   return (
@@ -308,10 +308,15 @@ function ProductCheck({ projectId, doc, checking, last, act }: { projectId: stri
       <p className="text-faint">Claude compares each generated take with the shot&apos;s reference photo: shape, logo, label, colour and proportions. Generated logos and labels are often garbled; this catches most of it, but look before you publish.</p>
       <div className="flex flex-wrap items-center gap-2">
         <button className="btn px-2 py-1 text-xs" disabled={!!checking || !unchecked} onClick={() => act(() => api(`/api/projects/${projectId}/shots/fidelity`, { method: "POST", json: {}, idempotent: true }))}>
-          {checking ? `Claude is checking${checking.stage ? ` (${checking.stage})` : ""}…` : unchecked ? `Check ${unchecked} take${unchecked > 1 ? "s" : ""} with Claude` : "All takes checked"}
+          {checking ? `Claude is checking${checking.stage ? ` (${checking.stage})` : ""}…` : unchecked ? `Check ${unchecked} take${unchecked > 1 ? "s" : ""} with Claude` : takes.length ? "All takes checked" : "No takes yet"}
         </button>
         {!checking && last && ["failed", "paused"].includes(last.status) && last.error && <span className="text-bad">{last.error.message}</span>}
       </div>
+      <label className="flex items-center gap-2">
+        <input type="checkbox" checked={doc.autoProductCheck} onChange={(e) => void apply([{ op: "setAutoProductCheck", enabled: e.target.checked }])} />
+        Check new takes automatically
+        <span className="text-faint">(one Claude request per take on your plan; skipped while Claude isn&apos;t set up)</span>
+      </label>
     </section>
   );
 }

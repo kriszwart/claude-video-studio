@@ -4,6 +4,7 @@ import { and, eq, sql } from "drizzle-orm";
 import {
   AppError,
   applyProjectOperations,
+  enqueueJob,
   getDb,
   getProject,
   getProviderSecret,
@@ -251,6 +252,11 @@ async function attach(ctx: JobContext, sceneId: string, g: GenRow, assetId: stri
     return { sceneId, assetId, keyframe: true, generationId: g.id, operationId: g.operationId, fidelity: review ?? null };
   }
   await applyWithRetry(ctx, () => [{ op: "addShotCandidate", sceneId, candidate: { assetId, generationId: g.id, provider: g.provider, createdAt: new Date().toISOString(), ...(review ? { review } : {}) }, autoAccept: true }], review?.flagged ? "generated shot needs fidelity review" : "generated shot ready");
+  // Owner opt-in: queue Claude's product check for this take (once per take).
+  const { doc } = await getProject(getDb(), ctx.job.projectId!, ctx.job.workspaceId);
+  if (doc.autoProductCheck && doc.scenes.find((s) => s.id === sceneId)?.shot?.referenceAssetIds.length) {
+    await enqueueJob(getDb(), { workspaceId: ctx.job.workspaceId, projectId: ctx.job.projectId, revisionId: null, type: "check_fidelity", input: { assetId, auto: true }, idempotencyKey: `auto-product-check:${ctx.job.projectId}:${sceneId}:${assetId}` });
+  }
   return { sceneId, assetId, generationId: g.id, requestId: g.requestId, operationId: g.operationId, fidelity: review ?? null };
 }
 

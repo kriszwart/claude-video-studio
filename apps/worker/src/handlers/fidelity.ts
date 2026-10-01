@@ -9,6 +9,8 @@ import { claudeFor, noteLimit, recordUsage, toJobError } from "./ai";
 
 const MAX_TAKES = 12;
 const MAX_REFS = 3;
+/** Claude isn't set up (or not signed in): an automatic check steps aside instead of failing. */
+const NOT_SET_UP = new Set(["credentials_missing", "runtime_login_required", "runtime_unavailable", "billing_mode_mismatch"]);
 
 /** One JPEG, at most 1024 px wide, from an image or from a video at a time. */
 async function still(ctx: JobContext, src: string, name: string, atSec: number | null): Promise<FidelityImage> {
@@ -25,15 +27,26 @@ async function still(ctx: JobContext, src: string, name: string, atSec: number |
 export const checkFidelity: Handler = async (ctx) => {
   const db = getDb();
   const projectId = ctx.job.projectId!;
-  const input = ctx.job.input as { sceneIds?: string[]; assetId?: string; recheck?: boolean; effort?: ClaudeEffort };
+  const input = ctx.job.input as { sceneIds?: string[]; assetId?: string; recheck?: boolean; auto?: boolean; effort?: ClaudeEffort };
   const { doc } = await getProject(db, projectId, ctx.job.workspaceId);
   const takes = doc.scenes.flatMap((s) =>
     s.shot && s.shot.referenceAssetIds.length && (!input.sceneIds?.length || input.sceneIds.includes(s.id))
       ? s.shot.candidates.filter((c) => (input.assetId ? c.assetId === input.assetId : c.review?.decision !== "rejected" && (input.recheck || !c.review?.claude))).map((c) => ({ scene: s, assetId: c.assetId }))
       : [],
   );
-  if (!takes.length) throw new JobError("nothing_to_check", "No generated takes with a reference photo are waiting for a product check.", false, "Add the product photo as the shot's reference, generate a take, then check again.");
-  const client = await claudeFor(ctx.job.workspaceId, projectId);
+  if (!takes.length) {
+    // An automatic check whose take was removed or already checked has nothing to do.
+    if (input.auto) return { checked: 0, skipped: 0, mismatches: 0, results: [], note: "nothing to check" };
+    throw new JobError("nothing_to_check", "No generated takes with a reference photo are waiting for a product check.", false, "Add the product photo as the shot's reference, generate a take, then check again.");
+  }
+  let client;
+  try {
+    client = await claudeFor(ctx.job.workspaceId, projectId);
+  } catch (e) {
+    // Automatic checks never fail a project for a missing Claude setup; the button still works once it's set up.
+    if (input.auto && e instanceof JobError && NOT_SET_UP.has(e.code)) return { checked: 0, skipped: takes.length, mismatches: 0, results: [], note: e.message };
+    throw e;
+  }
 
   const results: { sceneId: string; assetId: string; verdict: ClaudeFidelity["verdict"] }[] = [];
   for (const [i, t] of takes.slice(0, MAX_TAKES).entries()) {
@@ -52,7 +65,9 @@ export const checkFidelity: Handler = async (ctx) => {
       run = await runFidelityCheck(client, { product, references, frames }, { signal: ctx.signal, effort: input.effort ?? "high" });
     } catch (e) {
       await noteLimit(ctx.job.workspaceId, e);
-      throw toJobError(e);
+      const je = toJobError(e);
+      if (input.auto && NOT_SET_UP.has(je.code)) return { checked: results.length, skipped: takes.length - results.length, mismatches: results.filter((r) => r.verdict === "mismatch").length, results, note: je.message };
+      throw je;
     }
     await noteLimit(ctx.job.workspaceId, null, run.usage);
     await recordUsage(ctx.job.workspaceId, projectId, ctx.job.id, run.usage, "product-check");
