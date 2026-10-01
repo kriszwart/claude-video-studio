@@ -4,11 +4,13 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
 import { Composer } from "@/components/composer/Composer";
+import type { Poster } from "@/components/TemplatePoster";
 import { useClaudeStatus } from "@/lib/client/claude";
 import { api, ApiError } from "@/lib/client/api";
 
 interface TemplateSummary {
   id: string;
+  poster: Poster | null;
   name: string;
   description: string;
   family: string;

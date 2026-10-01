@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { claudeRequestRange, EFFORT_LEVELS, EFFORT_ORDER, SCRIPT_STYLE_IDS, SCRIPT_STYLES, type EffortLevel, type ScriptStyle } from "@vs/domain";
 import { AssetPicker } from "@/components/AssetPicker";
-import { TemplatePoster } from "@/components/TemplatePoster";
+import { TemplatePoster, type Poster } from "@/components/TemplatePoster";
 import { api, ApiError, waitForJob, type UploadedAsset } from "@/lib/client/api";
 import type { ClaudeStatus } from "@/lib/client/claude";
 
@@ -18,6 +18,7 @@ export interface ComposerTemplate {
   supportedAspects: string[];
   duration: { minSec: number; maxSec: number; defaultSec: number };
   availability: { ready: boolean; workerOnline: boolean; missingRequired: string[] };
+  poster: Poster | null;
 }
 interface Voice {
   id: string;
@@ -360,7 +361,7 @@ export function Composer({ templates, claude, onOpenForm }: { templates: Compose
           {templates.map((t) => (
             <li key={t.id} className={`card group overflow-hidden transition-colors ${templateId === t.id ? "border-accent" : "hover:border-accent/50"} ${t.availability.ready ? "" : "opacity-60"}`}>
               <button className="block w-full text-left" disabled={!t.availability.ready} onClick={() => { setTemplateId(templateId === t.id ? null : t.id); box.current?.focus(); }} aria-pressed={templateId === t.id} title={t.description}>
-                <TemplatePoster family={t.family} name={t.name} preset={!!t.preset} />
+                <TemplatePoster poster={t.poster} family={t.family} name={t.name} />
                 <div className="px-2.5 pb-1 pt-2 text-[13px] font-medium">{t.name}</div>
               </button>
               <div className="flex items-center px-2.5 pb-2 text-[11px] text-faint">
@@ -386,7 +387,7 @@ function Review({ proposal, setProposal, templates, effort, voice, busy, err, on
       <button className="btn btn-ghost mb-3 px-2 text-xs" onClick={onBack} disabled={busy}>← Change the request</button>
       <div className="card overflow-hidden">
         <div className="grid gap-0 sm:grid-cols-[240px_1fr]">
-          {t && <TemplatePoster family={t.family} name={t.name} preset={!!t.preset} />}
+          {t && <TemplatePoster poster={t.poster} family={t.family} name={t.name} />}
           <div className="space-y-3 p-4">
             <div>
               <div className="panel-title">Claude suggests</div>

@@ -2,12 +2,14 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { api } from "@/lib/client/api";
+import { TemplatePoster, type Poster } from "@/components/TemplatePoster";
 
 interface T {
   id: string;
   name: string;
   description: string;
   family: string;
+  poster: Poster | null;
   preset: string | null;
   builtin: boolean;
   version: number;
@@ -59,7 +61,9 @@ export default function Templates() {
       </div>
       <ul className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
         {shown.map((t) => (
-          <li key={t.id} className="card flex flex-col p-4">
+          <li key={t.id} className="card group flex flex-col overflow-hidden">
+            <TemplatePoster poster={t.poster} family={t.family} name={t.name} />
+            <div className="flex flex-1 flex-col p-4">
             <div className="mb-1 flex items-center gap-2">
               <h2 className="font-medium">{t.name}</h2>
               {!t.builtin && <span className="chip">Custom</span>}
@@ -83,6 +87,7 @@ export default function Templates() {
             <Link href={`/projects/new?template=${t.id}`} className={`btn btn-primary ${t.availability.ready ? "" : "pointer-events-none opacity-50"}`} aria-disabled={!t.availability.ready}>
               Start a project
             </Link>
+            </div>
           </li>
         ))}
       </ul>
