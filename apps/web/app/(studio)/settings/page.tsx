@@ -63,6 +63,7 @@ export default function Settings() {
             {p.provider === "omnivoice" && <OmniVoiceSettingsForm settings={(p.settings ?? {}) as OmniSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "omnivoice", settings } }))} />}
             {p.provider === "openrouter" && <OpenRouterModel settings={(p.settings ?? {}) as OrSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "openrouter", settings } }))} />}
             {p.provider === "elevenlabs" && p.configured && <ElevenLabsMusic settings={(p.settings ?? {}) as ElMusicSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "elevenlabs", settings } }))} />}
+            {p.provider === "jev" && <JevSettingsForm settings={(p.settings ?? {}) as JevForm} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "jev", settings } }))} />}
             {p.provider === "fal" && <FalModels settings={(p.settings ?? {}) as FalModelSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "fal", settings } }))} />}
             {(msg[p.provider] || p.lastCheck) && <p className="mt-2 text-xs text-dim" role="status">{msg[p.provider] ?? `Last check ${new Date(p.lastCheck!.at).toLocaleString()}: ${p.lastCheck!.ok ? "✓" : "✗"} ${p.lastCheck!.message}`}</p>}
           </li>
@@ -387,6 +388,11 @@ function GetStarted({ providers }: { providers: P[] }) {
       detail: has("fal", "video") ? "Video shots can be generated after the animatic is approved." : "Optional: add a fal key with a video model to generate footage. Supplied footage always works.",
     },
     {
+      id: "suggestions", label: "Instant suggestions", href: "#provider-jev",
+      state: has("jev") ? "ok" : "optional",
+      detail: has("jev") ? "Jev suggests a template, orientation, length and style while you type a new project." : "Optional: a Jev key adds instant suggestions while you type a new project.",
+    },
+    {
       id: "music", label: "Generated music", href: "#provider-elevenlabs",
       state: has("elevenlabs") ? "ok" : "optional",
       detail: has("elevenlabs") ? "Music beds can be composed with ElevenLabs (budget-gated)." : "Optional: an ElevenLabs key also composes music. Your own tracks always work.",
@@ -415,5 +421,28 @@ function GetStarted({ providers }: { providers: P[] }) {
       </ul>
       {ready && <p className="text-faint">Next: open <a className="underline" href="/projects/new">New project</a>, describe your video, and follow the steps bar in the editor. Set a small budget in the project before generating anything paid.</p>}
     </section>
+  );
+}
+
+type JevForm = { baseUrl?: string; model?: string };
+
+/** Jev's address and model: the official API is TypeSafe's; a key from a Jev community hub may need that hub's address. */
+function JevSettingsForm({ settings, onSave }: { settings: JevForm; onSave: (s: JevForm) => void }) {
+  const [baseUrl, setBaseUrl] = useState(settings.baseUrl ?? "https://api.typesafe.ai");
+  const [model, setModel] = useState(settings.model ?? "typesafe/jev-1.13");
+  return (
+    <form
+      className="mt-3 grid grid-cols-1 gap-2 border-t border-line pt-3 text-xs sm:grid-cols-2"
+      aria-label="Jev settings"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ baseUrl: baseUrl.trim(), model: model.trim() });
+      }}
+    >
+      <p className="text-faint sm:col-span-2">Jev answers small decisions in well under a second. Fluxtify uses it only for suggestions you can ignore, such as the template, orientation, length and writing style while you type a new project; Claude still writes and plans everything. Use the address that issued your key: TypeSafe&apos;s official API by default, or a Jev community hub&apos;s.</p>
+      <label className="flex flex-col gap-1">API address<input className="input" aria-label="Jev API address" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} /></label>
+      <label className="flex flex-col gap-1">Model<input className="input" aria-label="Jev model" value={model} onChange={(e) => setModel(e.target.value)} /></label>
+      <button className="btn sm:col-span-2">Save Jev settings</button>
+    </form>
   );
 }

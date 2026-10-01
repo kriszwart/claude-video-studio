@@ -1,6 +1,6 @@
 import { z } from "zod";
-import { AppError, getDb, subscriptionRuntimeAllowed, getOmniVoiceConfig, getProviderSecret, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
-import { checkClaude, checkCodexRuntime, CodexSettings, FalSettings, normalizeBaseUrl, OmniVoiceTts, VOICE_NAME, ElevenLabsSettings, OpenRouterSettings } from "@vs/providers";
+import { AppError, getDb, subscriptionRuntimeAllowed, getOmniVoiceConfig, getProviderSecret, getProviderSettings, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
+import { checkClaude, checkCodexRuntime, CodexSettings, FalSettings, normalizeBaseUrl, OmniVoiceTts, VOICE_NAME, ElevenLabsSettings, OpenRouterSettings, JevClient, JevSettings } from "@vs/providers";
 import { requireOwner } from "@/lib/server/auth";
 import { body, json, route } from "@/lib/server/http";
 
@@ -44,6 +44,7 @@ export const POST = route(async (req) => {
     result = cfg ? await new OmniVoiceTts(cfg.settings, cfg.apiKey).health() : { ok: false, message: "No OmniVoice server address configured." };
   } else if (!secret) result = { ok: false, message: "No key configured." };
   else if (b.provider === "anthropic") result = await checkClaude(secret.secret);
+  else if (b.provider === "jev") result = await new JevClient(secret.secret, JevSettings.parse(await getProviderSettings(getDb(), s.workspaceId, "jev"))).check();
   else result = { ok: false, message: "A live check for this provider is not implemented; its integration is unverified." };
   await recordProviderCheck(getDb(), s.workspaceId, b.provider, { ...result, at: new Date().toISOString() });
   return json({ check: result, providers: await providerStatus(getDb(), s.workspaceId) });
@@ -68,6 +69,12 @@ export const PATCH = route(async (req) => {
     const parsed = OpenRouterSettings.safeParse(b.settings);
     if (!parsed.success) throw new AppError(422, "invalid_input", parsed.error.issues[0]?.message ?? "Invalid OpenRouter settings.");
     await setProviderSettings(getDb(), s.workspaceId, "openrouter", parsed.data);
+    return json({ providers: await providerStatus(getDb(), s.workspaceId) });
+  }
+  if (b.provider === "jev") {
+    const parsed = JevSettings.safeParse(b.settings);
+    if (!parsed.success) throw new AppError(422, "invalid_input", parsed.error.issues[0]?.message ?? "Invalid Jev settings.");
+    await setProviderSettings(getDb(), s.workspaceId, "jev", parsed.data);
     return json({ providers: await providerStatus(getDb(), s.workspaceId) });
   }
   if (b.provider === "codex") {

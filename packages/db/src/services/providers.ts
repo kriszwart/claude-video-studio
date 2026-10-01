@@ -13,6 +13,7 @@ export const PROVIDERS = {
   omnivoice: { env: "OMNIVOICE_API_KEY", label: "OmniVoice (local voice server)", capabilities: ["tts"] },
   pixabay: { env: "PIXABAY_API_KEY", label: "Pixabay (free stock footage key)", capabilities: ["footage-search"] },
   openrouter: { env: "OPENROUTER_API_KEY", label: "OpenRouter (image models; never used for Claude)", capabilities: ["image-generation"] },
+  jev: { env: "JEV_API_KEY", label: "Jev (TypeSafe decision model: instant suggestions)", capabilities: ["suggestions"] },
   // No key: the local Codex CLI signed in with ChatGPT. Turned on in Settings; never read from env.
   codex: { env: "", label: "Images with ChatGPT (Codex CLI)", capabilities: ["image-generation"] },
 } as const;

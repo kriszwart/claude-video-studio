@@ -12,6 +12,11 @@
  *   POST /or/api/v1/chat/completions — key "or-test-key"; returns one PNG as a data: URL in
  *   choices[0].message.images and usage.cost 0.039. Prompt "CREDITS" → 402; model "test/text-only" → no image.
  *   GET /__or → the requests received (model, modalities, image_config, reference count).
+ *
+ * Also a TEST-ONLY Jev (TypeSafe System One) stand-in (JEV_BASE_URL=http://127.0.0.1:3910/jev):
+ *   POST /jev/v1/systemone — key "jev-test-key"; answers each question deterministically from
+ *   keywords in state.request (vertical/tiktok → 9:16, "15 second" → 15, lesson → professor…).
+ *   Request "SLOW" → answers after 5 s (the app gives up); GET /__jev → requests received.
  */
 import { execFileSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
@@ -31,6 +36,7 @@ const reqs = new Map<string, Req>();
 const control = { duplicateWebhooks: false, staleAfter: false, delayMs: 1500, webhooks: true };
 const stats = { submits: 0, statusCalls: 0, resultCalls: 0, cancels: 0, webhooksSent: 0, authFailures: 0 };
 let n = 0;
+const jevRequests: unknown[] = [];
 const orRequests: Record<string, unknown>[] = [];
 
 function media(id: string, kind: "video" | "image") {
@@ -95,6 +101,32 @@ http
       return res.end(readFileSync(f));
     }
     if (u.pathname === "/__or") return json(res, 200, orRequests);
+    if (u.pathname === "/__jev") return json(res, 200, jevRequests);
+    if (u.pathname === "/jev/v1/systemone" && req.method === "POST") {
+      if (req.headers.authorization !== "Bearer jev-test-key") return json(res, 401, { error: "invalid api key" });
+      const b = JSON.parse(bodyText || "{}") as { model?: string; state?: { request?: string } | string; questions?: Record<string, { type: string; criteria?: Record<string, string> | string[] }> };
+      const text = (typeof b.state === "string" ? b.state : (b.state?.request ?? "")).toLowerCase();
+      jevRequests.push({ model: b.model, questions: Object.keys(b.questions ?? {}), state: b.state });
+      if (text.includes("slow")) await new Promise((r) => setTimeout(r, 5000));
+      const pick = (q: { criteria?: Record<string, string> | string[] }, rules: [RegExp, string][], fallback?: string) => {
+        const keys = Array.isArray(q.criteria) ? q.criteria : Object.keys(q.criteria ?? {});
+        const hit = rules.find(([re, k]) => re.test(text) && keys.includes(k))?.[1];
+        const choice = hit ?? (fallback && keys.includes(fallback) ? fallback : keys[0]!);
+        const probabilities = Object.fromEntries(keys.map((k) => [k, k === choice ? (hit ? 0.86 : 0.4) : (hit ? 0.14 : 0.6) / Math.max(1, keys.length - 1)]));
+        return { type: "choice", choice, probabilities, confidence: hit ? 0.8 : 0.3 };
+      };
+      const answers: Record<string, unknown> = {};
+      for (const [id, q] of Object.entries(b.questions ?? {})) {
+        if (q.type === "noul") answers[id] = { type: "noul", probability: /no voice|without voice|no narration|music only/.test(text) ? 0.1 : /narrat|voice|explain|lesson|story/.test(text) ? 0.9 : 0.5 };
+        else if (q.type === "score") answers[id] = { type: "score", score: 1, confidence: 0.5 };
+        else if (id === "template") answers[id] = pick(q, [[/mascot|robot|character/, "mascot-story"], [/lesson|course|teach/, "course-lesson"], [/music video|song/, "music-video"], [/anime/, "anime-opening"], [/launch|product|app/, "product-launch"], [/tiktok|reel|short/, "vertical-short"]]);
+        else if (id === "aspect") answers[id] = pick(q, [[/vertical|tiktok|reels?|shorts?|stories/, "9:16"], [/square|instagram post|linkedin/, "1:1"], [/youtube|website|landscape/, "16:9"]], "16:9");
+        else if (id === "length") answers[id] = pick(q, [[/15[- ]second/, "15"], [/30[- ]second|half a minute/, "30"], [/45[- ]second/, "45"], [/one minute|60[- ]second|a minute/, "60"], [/90[- ]second/, "90"], [/two minute|2 minute/, "120"]]);
+        else if (id === "style") answers[id] = pick(q, [[/lesson|lecture|course|teach/, "professor"], [/documentary/, "documentary"], [/energetic|punchy|hype|tiktok/, "energetic"], [/friendly|casual/, "conversational"], [/calm|clear|simple/, "plain"]]);
+        else answers[id] = pick(q, []);
+      }
+      return json(res, 200, { model: "jev-1.13.0-test", answers, usage: { input_tokens: Math.ceil(text.length / 4), output_tokens: 8 } });
+    }
     if (u.pathname === "/or/api/v1/chat/completions" && req.method === "POST") {
       if (req.headers.authorization !== "Bearer or-test-key") return json(res, 401, { error: { code: 401, message: "No auth credentials found" } });
       const b = JSON.parse(bodyText || "{}") as { model?: string; modalities?: string[]; image_config?: { aspect_ratio?: string }; usage?: { include?: boolean }; messages?: { content?: { type: string; text?: string; image_url?: { url: string } }[] }[] };

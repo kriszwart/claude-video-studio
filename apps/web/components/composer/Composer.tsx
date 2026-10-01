@@ -97,6 +97,7 @@ export function Composer({ templates, claude, onOpenForm }: { templates: Compose
   const [proposal, setProposal] = useState<Proposal | null>(null);
   const [err, setErr] = useState<string | null>(null);
   const box = useRef<HTMLTextAreaElement>(null);
+  const suggestion = useJevSuggestion(prompt, templateId, templates, attached, phase === "idle");
 
   useEffect(() => {
     api<{ voices: Voice[] }>("/api/voices").then((r) => setVoices(r.voices)).catch(() => {});
@@ -237,6 +238,16 @@ export function Composer({ templates, claude, onOpenForm }: { templates: Compose
           }}
           disabled={phase === "composing"}
         />
+        {suggestion && (
+          <Suggestions
+            s={suggestion}
+            templates={templates}
+            templateId={templateId}
+            settings={settings}
+            onTemplate={setTemplateId}
+            onSettings={(patch) => setSettings((cur) => ({ ...cur, ...patch }))}
+          />
+        )}
         <div className="relative flex flex-wrap items-center gap-1.5 border-t border-line px-2 py-2">
           <button className={`btn btn-ghost h-8 px-2.5 text-xs ${panel === "attach" ? "bg-panel-2" : ""}`} aria-expanded={panel === "attach"} onClick={() => setPanel(panel === "attach" ? null : "attach")} title="Attach images, footage or music">
             + Attach
@@ -492,6 +503,74 @@ function Seg({ options, value, onChange }: { options: [string, string][]; value:
           {l}
         </button>
       ))}
+    </div>
+  );
+}
+
+type Suggestion = {
+  templateId?: { value: string; confidence: number };
+  aspect?: { value: Aspect; confidence: number };
+  durationSec?: { value: number; confidence: number };
+  scriptStyle?: { value: ScriptStyle; confidence: number };
+  narration?: { value: boolean; confidence: number };
+};
+
+/** Jev's live suggestions for what's typed so far (debounced; nothing when no Jev key is set up). */
+function useJevSuggestion(prompt: string, templateId: string | null, templates: ComposerTemplate[], attached: { image: string[]; video: string[]; audio: string[] }, active: boolean): Suggestion | null {
+  const [s, setS] = useState<Suggestion | null>(null);
+  const off = useRef(false);
+  const text = prompt.trim();
+  const counts = `${attached.image.length}/${attached.video.length}/${attached.audio.length}`;
+  const candidates = useMemo(() => templates.filter((t) => t.availability.ready).map((t) => t.id), [templates]);
+  useEffect(() => {
+    if (!active || off.current || text.length < 12) {
+      setS(null);
+      return;
+    }
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      const [image, video, audio] = counts.split("/").map(Number);
+      api<{ available: boolean; suggestion?: Suggestion }>("/api/compose/suggest", { method: "POST", json: { prompt: text.slice(0, 1500), templateId, candidates, attachments: { image, video, audio } }, signal: ctrl.signal })
+        .then((r) => {
+          if (!r.available) off.current = true; // no Jev key: stop asking for this session
+          setS(r.suggestion && Object.keys(r.suggestion).length ? r.suggestion : null);
+        })
+        .catch(() => {});
+    }, 700);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
+  }, [text, templateId, counts, candidates, active]);
+  return s;
+}
+
+/** One chip per suggestion that differs from what's set; a click applies it. */
+function Suggestions({ s, templates, templateId, settings, onTemplate, onSettings }: { s: Suggestion; templates: ComposerTemplate[]; templateId: string | null; settings: Settings; onTemplate: (id: string) => void; onSettings: (patch: Partial<Settings>) => void }) {
+  const chips: { key: string; label: string; apply: () => void }[] = [];
+  const t = s.templateId && !templateId ? templates.find((x) => x.id === s.templateId!.value) : null;
+  if (t) chips.push({ key: "template", label: t.name, apply: () => onTemplate(t.id) });
+  if (s.aspect && settings.aspect !== s.aspect.value) chips.push({ key: "aspect", label: s.aspect.value, apply: () => onSettings({ aspect: s.aspect!.value }) });
+  if (s.durationSec && settings.durationSec !== s.durationSec.value) chips.push({ key: "length", label: `~${fmtLength(s.durationSec.value)}`, apply: () => onSettings({ durationSec: s.durationSec!.value }) });
+  if (s.scriptStyle && settings.scriptStyle !== s.scriptStyle.value) chips.push({ key: "style", label: SCRIPT_STYLES[s.scriptStyle.value].label, apply: () => onSettings({ scriptStyle: s.scriptStyle!.value }) });
+  if (s.narration) {
+    const wantOff = !s.narration.value;
+    if (wantOff !== (settings.voice === "off")) chips.push({ key: "voice", label: wantOff ? "No voiceover" : "Voiceover", apply: () => onSettings({ voice: wantOff ? "off" : "auto" }) });
+  }
+  if (!chips.length) return null;
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 text-xs" data-testid="jev-suggestions" aria-label="Suggested settings">
+      <span className="text-faint" title="Instant suggestions from Jev for what you've typed. Click one to use it; Claude still writes the script and plans the video.">Suggested:</span>
+      {chips.map((c) => (
+        <button key={c.key} data-suggest={c.key} className="chip border-dashed py-0.5 hover:border-accent hover:text-ink" onClick={c.apply}>
+          + {c.label}
+        </button>
+      ))}
+      {chips.length > 1 && (
+        <button className="text-accent underline" onClick={() => chips.forEach((c) => c.apply())}>
+          Use all
+        </button>
+      )}
     </div>
   );
 }

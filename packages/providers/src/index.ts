@@ -19,3 +19,5 @@ export * from "./media/settings";
 export * from "./footage";
 export * from "./media/openrouter";
 export * from "./media/codex";
+export * from "./jev/client";
+export * from "./jev/suggest";
