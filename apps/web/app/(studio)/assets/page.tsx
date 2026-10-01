@@ -125,7 +125,7 @@ export default function Assets() {
                 <div className="flex flex-wrap gap-1 pt-1">
                   {a.isSample && <span className="sample-badge">Sample</span>}
                   {a.generated && <span className="chip">Generated</span>}
-                  {a.status !== "ready" && <span className={`chip ${a.status === "failed" ? "text-bad" : ""}`}>{a.status}</span>}
+                  {a.status !== "ready" && (a.error === "duplicate" ? <span className="chip" title="The same file is already in your library; use that copy">duplicate</span> : <span className={`chip ${a.status === "failed" ? "text-bad" : ""}`}>{a.status}</span>)}
                 </div>
               </div>
             </button>
@@ -164,6 +164,27 @@ export default function Assets() {
           </dl>
           <div className="mt-3 flex flex-wrap gap-2">
             {sel.asset.downloadUrl && <a className="btn text-xs" href={sel.asset.downloadUrl}>Download original</a>}
+            {sel.asset.status === "failed" && sel.asset.error !== "duplicate" && (
+              <button
+                className="btn text-xs"
+                title="Try processing this upload again, e.g. after its file was restored"
+                onClick={async () => {
+                  const id = sel.asset.id;
+                  setUploads((u) => ({ ...u, [sel.asset.name]: "reprocessing…" }));
+                  try {
+                    const r = await api<{ job: { id: string } }>(`/api/assets/${id}/reprocess`, { method: "POST" });
+                    const done = await waitForJob(r.job.id, (j) => setUploads((u) => ({ ...u, [sel.asset.name]: j.stage })));
+                    setUploads((u) => ({ ...u, [sel.asset.name]: done.status === "succeeded" ? "ready" : `failed: ${done.error?.message ?? "could not be processed"}` }));
+                    await load();
+                    setSel(await api<NonNullable<typeof sel>>(`/api/assets/${id}`));
+                  } catch (x) {
+                    setUploads((u) => ({ ...u, [sel.asset.name]: `failed: ${x instanceof ApiError ? `${x.message}${x.recovery ? ` ${x.recovery}` : ""}` : String(x)}` }));
+                  }
+                }}
+              >
+                Reprocess
+              </button>
+            )}
             {sel.asset.kind === "image" && sel.asset.status === "ready" && (
               <button className="btn text-xs" disabled={refs.length >= 3 || refs.some((r) => r.id === sel.asset.id)} onClick={() => setRefs((r) => [...r, sel.asset])}>
                 {refs.some((r) => r.id === sel.asset.id) ? "Used as reference" : "Use as reference for ChatGPT image"}
