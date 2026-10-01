@@ -34,6 +34,7 @@ import {
 } from "@vs/providers";
 import { fitDuration, TemplateDefinition } from "@vs/templates";
 import type { Handler } from "../context";
+import { classifyEnvironmentError } from "../envErrors";
 
 /**
  * The Claude backend for a workspace, exactly as the owner selected it (PRD §28): the Claude
@@ -65,6 +66,12 @@ export function toJobError(e: unknown): JobError {
   if (e instanceof ProviderError) return new JobError(e.code, e.message, e.retryable, e.recovery, e.details);
   if (e instanceof AppError) return new JobError(e.code, e.message, false, e.recovery);
   if (e instanceof OperationError) return new JobError(e.code, e.message, false);
+  // Setup problems on this machine: say what is missing and how to fix it; retrying won't help.
+  const env = classifyEnvironmentError(e);
+  if (env) {
+    console.error("[worker] environment error", env.code, e instanceof Error ? e.message : e);
+    return env;
+  }
   // Unexpected errors: log details server-side, show a safe message to the user.
   console.error("[worker] unexpected error", e instanceof Error ? e.stack : e);
   if (e instanceof Error && /canceled|aborted/i.test(e.message)) return new JobError("canceled", "Canceled.", false);
