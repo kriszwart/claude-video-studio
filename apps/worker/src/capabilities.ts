@@ -11,7 +11,7 @@ export async function workerCapabilities() {
     renderer: RENDERER_VERSIONS,
     chrome: chrome ?? null,
     ffmpeg: { available: !!ffmpeg, libx264: !!ffmpeg?.stdout.includes("libx264"), aac: !!ffmpeg?.stdout.includes(" aac ") },
-    tts: { pico: !!(await findBinary("pico2wave")), espeak: !!(await findBinary("espeak-ng")), voices: await new LocalTts().voices() },
+    tts: { say: (await new LocalTts().voices()).some((v) => v.id.startsWith("say:")), pico: !!(await findBinary("pico2wave")), espeak: !!(await findBinary("espeak-ng")), voices: await new LocalTts().voices() },
     transcription: { subtitleImport: true, whisperCpp: WhisperCppStt.available(), elevenlabs: "configured per workspace in Settings" },
     graphics: await (async () => {
       const g = await graphicsCapabilities();

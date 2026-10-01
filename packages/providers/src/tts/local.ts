@@ -1,4 +1,4 @@
-import { spawn } from "node:child_process";
+import { execFile, spawn } from "node:child_process";
 import { constants } from "node:fs";
 import { access, rm } from "node:fs/promises";
 import { delimiter, join } from "node:path";
@@ -34,14 +34,48 @@ export async function findBinary(name: "pico2wave" | "espeak-ng"): Promise<strin
 }
 
 /**
- * Local speech synthesis (SVOX Pico, fallback eSpeak NG). Real audio generated on the
- * worker; voices are robotic compared with hosted providers — labelled as such in the UI.
+ * macOS built-in voices (`say`). Only natural-sounding English voices are offered: any
+ * Premium/Enhanced voice the owner has downloaded, then the standard ones below, in this order.
+ * Novelty voices (Bells, Zarvox, …) are left out.
+ */
+const SAY_VOICES = ["Ava", "Zoe", "Allison", "Susan", "Tom", "Evan", "Nathan", "Samantha", "Daniel", "Kate", "Oliver", "Serena", "Karen", "Lee", "Moira", "Fiona", "Tessa", "Rishi", "Veena"];
+const SAY_BIN = "/usr/bin/say";
+
+export function parseSayVoices(listing: string): Voice[] {
+  const found: { name: string; language: string; rank: number }[] = [];
+  for (const line of listing.split("\n")) {
+    const m = /^(.+?)\s+(en_[A-Z]{2})\s+#/.exec(line);
+    if (!m) continue;
+    const name = m[1]!.trim();
+    const base = name.replace(/\s*\((Premium|Enhanced)\)$/, "");
+    const curated = SAY_VOICES.indexOf(base);
+    const quality = /\((Premium|Enhanced)\)$/.test(name);
+    if (curated < 0 && !quality) continue;
+    found.push({ name, language: m[2]!.replace("_", "-"), rank: (quality ? 0 : 100) + (curated < 0 ? 50 : curated) });
+  }
+  return found.sort((a, b) => a.rank - b.rank).map((v) => ({ id: `say:${v.name}`, label: `${v.name} — ${v.language} (macOS, local)`, language: v.language }));
+}
+
+async function sayVoices(): Promise<Voice[]> {
+  if (process.platform !== "darwin") return [];
+  try {
+    await access(SAY_BIN, constants.X_OK);
+  } catch {
+    return [];
+  }
+  return new Promise((resolve) => execFile(SAY_BIN, ["-v", "?"], { timeout: 10_000 }, (err, stdout) => resolve(err ? [] : parseSayVoices(stdout))));
+}
+
+/**
+ * Local speech synthesis: macOS voices (`say`), SVOX Pico, eSpeak NG. Real audio generated on
+ * the worker; Pico and eSpeak are robotic compared with hosted providers — labelled as such.
  */
 export class LocalTts implements TtsProvider {
   id = "local";
   kind = "local" as const;
   async voices(): Promise<Voice[]> {
-    const v: Voice[] = [];
+    // macOS voices first: they sound the most natural, and the composer's default is the first local voice.
+    const v: Voice[] = await sayVoices();
     if (await findBinary("pico2wave")) {
       v.push({ id: "pico:en-US", label: "Pico — US English (local)", language: "en-US" }, { id: "pico:en-GB", label: "Pico — UK English (local)", language: "en-GB" });
     }
@@ -62,6 +96,10 @@ export class LocalTts implements TtsProvider {
         await run(process.env.FFMPEG_BIN || "ffmpeg", ["-y", "-loglevel", "error", "-i", raw, "-filter:a", `atempo=${Math.min(2, Math.max(0.5, rate)).toFixed(3)}`, out], opts.signal);
         await rm(raw, { force: true });
       }
+    } else if (engine === "say") {
+      const name = voiceId.slice(4);
+      const wpm = Math.round(175 * (opts.rate ?? 1));
+      await run(SAY_BIN, ["-v", name, "-r", String(wpm), "-o", out, "--file-format=WAVE", "--data-format=LEI16@24000", clean], opts.signal);
     } else if (engine === "espeak") {
       const wpm = Math.round(165 * (opts.rate ?? 1));
       await run((await findBinary("espeak-ng")) ?? "espeak-ng", ["-v", lang ?? "en-us", "-s", String(wpm), "-w", out, clean], opts.signal);
