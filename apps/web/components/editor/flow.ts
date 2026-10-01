@@ -99,6 +99,9 @@ function shotStep(doc: ProjectDocument, shots: Shot[], jobs: JobDTO[]): FlowStep
   const base = { id: "shots" as const, label: "Shots", action: { kind: "tab" as const, tab: "shots" as const } };
   const generating = active(jobs, "generate_media");
   if (generating) return { ...base, state: "working", hint: `Generating shots (${generating.stage || "queued"}).`, actionLabel: "Open Shots" };
+  const usedReview = (s: ProjectDocument["scenes"][number]) => s.shot?.candidates.find((c) => c.assetId === s.shot!.acceptedAssetId)?.review;
+  const off = doc.scenes.findIndex((s) => usedReview(s)?.claude?.verdict === "mismatch" && usedReview(s)?.decision !== "approved");
+  if (off >= 0) return { ...base, state: "next", hint: `Claude says the take used in scene ${off + 1} doesn't match your product. Check it, then keep it (Matches) or replace it.`, actionLabel: "Go to shots" };
   const open = shots.filter((s) => !s.acceptedAssetId);
   if (!open.length) {
     const auto = shots.filter((s) => s.autoAccepted).length;

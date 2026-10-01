@@ -14,6 +14,7 @@ export const JOB_TYPES = [
   "compose",
   "write_script",
   "critique",
+  "check_fidelity",
   "export_otio",
   "generate_music",
   "assistant",

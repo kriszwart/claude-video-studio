@@ -94,4 +94,14 @@ describe("guided project flow", () => {
     expect(f.next?.id).toBe("draft");
     expect(states(f)).toMatchObject({ review: "todo", export: "todo" });
   });
+
+  it("points back at a used take Claude says doesn't match, until the owner keeps it", () => {
+    const doc = voiceAll(base());
+    const s = doc.scenes[0]!;
+    const review = { paletteSimilarity: 0.9, flagged: false, method: "colour", decision: "pending" as const, claude: { verdict: "mismatch" as const, summary: "Logo garbled.", checks: [], frames: 1, model: null, checkedAt: "" } };
+    s.shot = { kind: "image", prompt: "bottle", continuity: "", characterIds: [], referenceAssetIds: ["ast_ref"], source: "generate", status: "accepted", candidates: [{ assetId: "ast_t", provider: "openrouter", createdAt: "", review }], acceptedAssetId: "ast_t", autoAccepted: true, variant: 1 };
+    expect(flow(doc).next).toMatchObject({ id: "shots", hint: expect.stringContaining("scene 1 doesn't match your product") });
+    review.decision = "approved" as never;
+    expect(flow(doc).next?.id).toBe("draft");
+  });
 });

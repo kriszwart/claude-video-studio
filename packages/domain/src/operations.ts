@@ -19,6 +19,7 @@ import {
   ProjectDocument,
   Scene,
   ShotReview,
+  ClaudeFidelity,
   TextLayer,
   Transition,
 } from "./document";
@@ -89,6 +90,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setShotStatus"), sceneId: Id, status: z.enum(["pending", "generating", "ready", "accepted", "failed"]), error: z.string().max(300).optional(), variant: z.number().int().min(1).optional() }),
   z.object({ op: z.literal("addShotCandidate"), sceneId: Id, candidate: z.object({ assetId: Id, generationId: z.string().max(64).optional(), provider: z.string().max(40), createdAt: z.string().max(40), review: ShotReview.optional() }), autoAccept: z.boolean().default(false) }),
   z.object({ op: z.literal("reviewShotCandidate"), sceneId: Id, assetId: Id, decision: z.enum(["approved", "rejected"]) }),
+  z.object({ op: z.literal("setShotFidelity"), sceneId: Id, assetId: Id, claude: ClaudeFidelity }),
   z.object({ op: z.literal("acceptShot"), sceneId: Id, assetId: Id, supplied: z.boolean().default(false) }),
   z.object({ op: z.literal("varyScene"), sceneId: Id, variant: z.number().int().min(1).max(1_000_000) }),
   z.object({ op: z.literal("setCharacters"), characters: z.array(Character).max(6) }),
@@ -512,6 +514,17 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
         s.shot.autoAccepted = false;
         for (const l of s.layers) if ((l.kind === "video" || l.kind === "image") && l.slot === "media" && l.assetId === op.assetId) l.assetId = null;
       }
+      changed.add(s.id);
+      return doc;
+    }
+    case "setShotFidelity": {
+      if (actor === "user") throw new OperationError("invalid", "Claude's product check is recorded by the studio, not edited by hand.");
+      const s = findScene(doc, op.sceneId);
+      const c = s.shot?.candidates.find((x) => x.assetId === op.assetId);
+      if (!s.shot || !c) throw new OperationError("invalid", "That asset is not a candidate for this shot.");
+      const base = c.review ?? { paletteSimilarity: null, flagged: false, method: "Claude visual check against the reference", decision: "pending" as const };
+      // "flagged" stays the colour measure's signal; Claude's verdict is kept beside it.
+      c.review = { ...base, claude: op.claude };
       changed.add(s.id);
       return doc;
     }

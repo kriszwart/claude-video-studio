@@ -155,6 +155,17 @@ function criticAnswer(text, images) {
   };
 }
 
+/** Product check: a mismatch (garbled logo) when the shot prompt asks for one, otherwise a match. */
+function fidelityAnswer(text, images) {
+  const bad = /TEST-MISMATCH/.test(text);
+  const ok = (aspect) => ({ aspect, result: "ok", note: "" });
+  return {
+    verdict: bad ? "mismatch" : "match",
+    summary: bad ? `TEST DOUBLE: the logo is garbled compared with the reference (${images} images).` : `TEST DOUBLE: same product as the reference (${images} images).`,
+    checks: [ok("shape"), bad ? { aspect: "logo", result: "wrong", note: "TEST DOUBLE: letters are scrambled and the mark sits lower." } : ok("logo"), { aspect: "label", result: "unclear", note: "TEST DOUBLE: too small to read." }, ok("colour"), ok("proportions"), ok("details")],
+  };
+}
+
 export function query({ prompt, options = {} }) {
   const sc = scenario();
   const log = (event, extra = {}) =>
@@ -194,6 +205,8 @@ export function query({ prompt, options = {} }) {
       out = { explanation: "TEST DOUBLE: set the first scene to 7 seconds.", clarificationQuestion: null, operations: sceneId ? [{ op: "setSceneDuration", sceneId, durationSec: 7 }] : [] };
     } else if ("textInputs" in props && "templateId" in props) {
       out = composeAnswer(text, props);
+    } else if ("verdict" in props && "checks" in props) {
+      out = fidelityAnswer(text, images);
     } else if ("findings" in props && "scores" in props) {
       out = criticAnswer(text, images);
     } else if ("beats" in props && "notes" in props) {

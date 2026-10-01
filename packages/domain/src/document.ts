@@ -224,12 +224,29 @@ export const Transition = z.object({
 });
 export type Transition = z.infer<typeof Transition>;
 
+export const FIDELITY_ASPECTS = ["shape", "logo", "label", "colour", "proportions", "details"] as const;
+export const ClaudeFidelity = z.object({
+  verdict: z.enum(["match", "mismatch", "unsure"]),
+  summary: z.string().max(400),
+  checks: z.array(z.object({ aspect: z.enum(FIDELITY_ASPECTS), result: z.enum(["ok", "wrong", "unclear", "not-visible"]), note: z.string().max(240) })).max(6),
+  /** Frames of the take Claude saw (video: three samples). */
+  frames: z.number().int().min(1).max(6),
+  model: z.string().max(80).nullable(),
+  checkedAt: z.string().max(40),
+});
+export type ClaudeFidelity = z.infer<typeof ClaudeFidelity>;
+
 /** Measured fidelity review of a generated shot against its approved reference (A23). */
 export const ShotReview = z.object({
   referenceAssetId: Id.optional(),
   paletteSimilarity: z.number().min(0).max(1).nullable(),
   flagged: z.boolean(),
   method: z.string().max(300),
+  /**
+   * Claude's look at the take beside the reference photos: shape, logo, label, colour and
+   * proportions. Advisory like the colour measure; the owner still decides.
+   */
+  claude: ClaudeFidelity.optional(),
   /** Owner decision after looking at it side by side. */
   decision: z.enum(["pending", "approved", "rejected"]).default("pending"),
 });

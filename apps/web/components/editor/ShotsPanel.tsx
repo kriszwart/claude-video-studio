@@ -1,6 +1,6 @@
 "use client";
 import { useCallback, useEffect, useState } from "react";
-import type { Operation, ProjectDocument } from "@vs/domain";
+import type { ClaudeFidelity, Operation, ProjectDocument } from "@vs/domain";
 import { AssetPicker } from "@/components/AssetPicker";
 import { api, ApiError } from "@/lib/client/api";
 import { DebouncedText } from "./fields";
@@ -19,6 +19,8 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
   const [assets, setAssets] = useState<Record<string, AssetDTO>>({});
   const [msg, setMsg] = useState<string | null>(null);
   const running = jobs.filter((j) => j.type === "generate_media" && ["queued", "running", "waiting_provider"].includes(j.status)).length;
+  const checking = jobs.find((j) => j.type === "check_fidelity" && ["queued", "running"].includes(j.status));
+  const checkFailed = jobs.find((j) => j.type === "check_fidelity");
   const load = useCallback(async () => {
     const d = await api<ShotsDTO>(`/api/projects/${projectId}/shots`);
     setData(d);
@@ -29,7 +31,7 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
   }, [projectId]);
   useEffect(() => {
     void load().catch((e) => setMsg(String(e)));
-  }, [load, doc, running]);
+  }, [load, doc, running, checking?.status]);
   if (!data) return <p className="text-xs text-dim">Loading shots…</p>;
   const pending = data.shots.filter((s) => s.shot.source === "generate" && s.shot.status !== "accepted");
   const known = pending.filter((s) => s.estimate.kind === "known").reduce((a, s) => a + (s.estimate.kind === "known" ? s.estimate.micros : 0), 0);
@@ -71,6 +73,7 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
         </div>
         {msg && <p role="alert" className="text-bad">{msg}</p>}
       </section>
+      <ProductCheck projectId={projectId} doc={doc} checking={checking} last={checkFailed} act={act} />
       <AnimaticGate projectId={projectId} data={data} jobs={jobs} apply={apply} act={act} />
       <ol className="space-y-2" aria-label="Shots">
         {data.shots.map((s) => (
@@ -99,12 +102,18 @@ export function ShotsPanel({ projectId, doc, jobs, apply }: { projectId: string;
                   const a = assets[c.assetId];
                   const accepted = s.shot.acceptedAssetId === c.assetId;
                   return (
-                    <div key={c.assetId} className={`w-28 rounded border p-1 ${accepted ? "border-accent" : "border-line"}`}>
+                    <div key={c.assetId} className={`w-36 rounded border p-1 ${accepted ? "border-accent" : "border-line"}`}>
                       {a?.previewUrl ? a.kind === "video" ? <video src={a.previewUrl} muted loop playsInline className="aspect-video w-full rounded bg-black object-cover" onMouseEnter={(e) => void e.currentTarget.play()} /> : <img src={a.previewUrl} alt="" className="aspect-video w-full rounded object-cover" /> : <div className="aspect-video rounded bg-panel-2" />}
-                      {c.review && (
+                      {c.review && (c.review.decision !== "pending" || c.review.paletteSimilarity !== null) && (
                         <p className={`mt-1 text-[10px] ${c.review.decision === "rejected" ? "text-bad" : c.review.flagged ? "text-warn" : "text-faint"}`} title={c.review.method} data-testid="fidelity">
                           {c.review.decision === "rejected" ? "Rejected" : c.review.decision === "approved" ? "Approved by you" : c.review.flagged ? `Colour mismatch vs reference (${Math.round((c.review.paletteSimilarity ?? 0) * 100)}%) — review` : `Colour matches reference (${Math.round((c.review.paletteSimilarity ?? 0) * 100)}%)`}
                         </p>
+                      )}
+                      {c.review?.claude && <ClaudeVerdict v={c.review.claude} />}
+                      {s.shot.referenceAssetIds.length > 0 && c.review?.decision !== "rejected" && (
+                        <button className="text-[10px] underline text-dim" disabled={!!checking} onClick={() => act(() => api(`/api/projects/${projectId}/shots/fidelity`, { method: "POST", json: { assetId: c.assetId, recheck: true }, idempotent: true }))}>
+                          {c.review?.claude ? "Check again" : "Check with Claude"}
+                        </button>
                       )}
                       {c.review && c.review.decision === "pending" && (
                         <div className="flex gap-2 text-[10px]">
@@ -255,6 +264,54 @@ function AnimaticGate({ projectId, data, jobs, apply, act }: { projectId: string
           )}
         </div>
       )}
+    </section>
+  );
+}
+
+const ASPECT_LABEL: Record<string, string> = { shape: "Shape", logo: "Logo", label: "Label", colour: "Colour", proportions: "Proportions", details: "Details" };
+
+/** Claude's product check on one take: the verdict, then each aspect that isn't simply ok. */
+function ClaudeVerdict({ v }: { v: ClaudeFidelity }) {
+  const tone = v.verdict === "match" ? "text-ok" : v.verdict === "mismatch" ? "text-bad" : "text-warn";
+  const notable = v.checks.filter((c) => c.result !== "ok" || c.note);
+  return (
+    <details className="mt-1 text-[10px]" data-testid="claude-fidelity" data-verdict={v.verdict}>
+      <summary className={`cursor-pointer ${tone}`} title={v.summary}>
+        Claude: {v.verdict === "match" ? "same product" : v.verdict === "mismatch" ? "doesn't match" : "can't tell"}
+      </summary>
+      <p className="mt-0.5 text-dim">{v.summary}</p>
+      <ul className="mt-0.5 space-y-0.5">
+        {notable.map((c) => (
+          <li key={c.aspect} className={c.result === "wrong" ? "text-bad" : c.result === "ok" ? "text-faint" : "text-warn"}>
+            {ASPECT_LABEL[c.aspect]}: {c.result === "not-visible" ? "not visible" : c.result}
+            {c.note && ` — ${c.note}`}
+          </li>
+        ))}
+      </ul>
+      <p className="mt-0.5 text-faint">Advisory; you decide with Matches or Reject.</p>
+    </details>
+  );
+}
+
+/** Run Claude's product check over every generated take that has a reference photo. */
+function ProductCheck({ projectId, doc, checking, last, act }: { projectId: string; doc: ProjectDocument; checking: JobDTO | undefined; last: JobDTO | undefined; act: (fn: () => Promise<unknown>) => Promise<void> }) {
+  const takes = doc.scenes.flatMap((s) => (s.shot?.referenceAssetIds.length ? s.shot.candidates.filter((c) => c.review?.decision !== "rejected") : []));
+  if (!takes.length) return null;
+  const unchecked = takes.filter((c) => !c.review?.claude).length;
+  const mismatches = takes.filter((c) => c.review?.claude?.verdict === "mismatch" && c.review.decision === "pending").length;
+  return (
+    <section className="card space-y-1.5 p-2.5" aria-labelledby="product-check-h" data-testid="product-check">
+      <div className="flex flex-wrap items-center gap-2">
+        <h3 id="product-check-h" className="text-sm font-medium">Product check</h3>
+        {mismatches > 0 && <span className="chip text-bad">{mismatches} mismatch{mismatches > 1 ? "es" : ""}</span>}
+      </div>
+      <p className="text-faint">Claude compares each generated take with the shot&apos;s reference photo: shape, logo, label, colour and proportions. Generated logos and labels are often garbled; this catches most of it, but look before you publish.</p>
+      <div className="flex flex-wrap items-center gap-2">
+        <button className="btn px-2 py-1 text-xs" disabled={!!checking || !unchecked} onClick={() => act(() => api(`/api/projects/${projectId}/shots/fidelity`, { method: "POST", json: {}, idempotent: true }))}>
+          {checking ? `Claude is checking${checking.stage ? ` (${checking.stage})` : ""}…` : unchecked ? `Check ${unchecked} take${unchecked > 1 ? "s" : ""} with Claude` : "All takes checked"}
+        </button>
+        {!checking && last && ["failed", "paused"].includes(last.status) && last.error && <span className="text-bad">{last.error.message}</span>}
+      </div>
     </section>
   );
 }

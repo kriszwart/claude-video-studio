@@ -13,6 +13,7 @@ import { captureScreenshot } from "./screenshot";
 import { composeBrief } from "./compose";
 import { writeScript } from "./script";
 import { critique } from "./critique";
+import { checkFidelity } from "./fidelity";
 import { exportOtio } from "./otio";
 import { generateMusic } from "./music.gen";
 
@@ -34,6 +35,7 @@ export const extraHandlers: Record<string, Handler> = {
   compose: composeBrief,
   write_script: writeScript,
   critique,
+  check_fidelity: checkFidelity,
   export_otio: exportOtio,
   generate_music: generateMusic,
 };

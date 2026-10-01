@@ -80,7 +80,7 @@ spectrum and level measurements (this environment has no speakers — "listened"
 | A20 | Interrupted collection ingest | ✅ | `m6-collections.spec.ts` |
 | A21 | Style learning and reuse | ✅ | `m6-profiles.spec.ts` |
 | A22 | Automated review and repair | ✅ | `m6-quality.spec.ts` → `m6-quality-report.json` |
-| A23 | Physical product fidelity | ✅ check / 🟡 generation | `m6-fidelity.spec.ts` (fake fal output flagged, rejected, replaced) |
+| A23 | Physical product fidelity | ✅ check / 🟡 generation | `m6-fidelity.spec.ts` (fake fal output flagged, rejected, replaced); `product-check.spec.ts` (Claude shape/logo check, test double) |
 | A24 | Strict vs flexible creative mode | ✅ | `packages/domain/test/transcript.test.ts` |
 | A25 | Authorized Redraw build | ✅ | redraw 1.3.3, sha256 `3cb51684…474f`; `scripts/clean-worker-check.sh`; P2 export |
 | A26 | Skia integration | ✅ | P4/P5 exports, `m7-mixed.mp4` (paths, text, image mask) |
@@ -154,7 +154,7 @@ and e2e tests use the SDK test double.
 
 ## Known limitations
 
-- Product fidelity is a colour measure only; shape and logo placement need human review (the UI says so).
+- Product fidelity: a measured colour check runs on every generated take; Claude's product check (Shots → Product check) compares takes with the reference photo for shape, logo, label, colour and proportions. Both are advisory and judged from stills (three samples per video take); the owner still keeps or rejects each take. Tested against the Claude test double only.
 - Automated review measures fit, fonts, captions, timing, loudness and decode; contrast, presenter
   coverage and speech naturalness are left to human review with the stored evidence frames.
 - Redraw export is slow on software WebGPU; production should use GPU workers (routing supports it).
