@@ -6,7 +6,7 @@ export const mascotStory: TemplateDefinitionInput = {
   family: "mascot-story",
   name: "Mascot Story",
   description: "Your mascot travels through escalating eras to a transformation and a finale. The character is drawn from a persistent reference (your cutout, or a code-drawn vector mascot) so it stays the same in every scene.",
-  version: 1,
+  version: 2,
   tags: { purpose: ["brand", "story", "kids", "social"], generatedMedia: "optional" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -67,7 +67,8 @@ export const mascotStory: TemplateDefinitionInput = {
       layers: [
         { kind: "shape", slot: "decor", shape: "ring", color: "brand.accent", animation: "pop", loop: "spin", box: { x: 0.2, y: -0.2, w: 0.6, h: 1.4 } },
         { kind: "character", slot: "media", pose: "celebrate", accessory: "cape", scale: 1.1, animation: "pop" },
-        { kind: "text", slot: "headline", role: "headline", text: "{{transformation}}", animation: "pop", delaySec: 0.4 },
+        // The amber end of the gradient sits behind the title: a plate keeps it readable (measured 2.5:1 without).
+        { kind: "text", slot: "headline", role: "headline", text: "{{transformation}}", animation: "pop", delaySec: 0.4, backing: "translucent" },
       ],
     },
     {

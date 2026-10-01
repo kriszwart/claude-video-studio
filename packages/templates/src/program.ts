@@ -106,7 +106,7 @@ function sceneFor(sec: TranscriptSection, i: number, n: number, style: ProgramSt
       base.background = { type: "gradient", from: "brand.background", to: "brand.surface", angle: 160 };
       if (i === 0) {
         base.layout = "lesson-intro";
-        base.layers = [text(l(0), "kicker", "kicker", doc.brief.productName || "Lesson", { color: "brand.accent" }), text(l(1), "headline", "headline", doc.title, { backing: "translucent", scale: 1.1 })];
+        base.layers = [text(l(0), "kicker", "kicker", doc.brief.productName || "Lesson", { color: "brand.accent", backing: "translucent" }), text(l(1), "headline", "headline", doc.title, { backing: "translucent", scale: 1.1 })];
       } else {
         base.layout = "lesson-takeaway";
         base.layers = [
