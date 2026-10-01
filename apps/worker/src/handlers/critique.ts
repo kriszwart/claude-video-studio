@@ -8,6 +8,7 @@ import { TemplateDefinition } from "@vs/templates";
 import { registerFile, type Handler } from "../context";
 import { claudeFor, noteLimit, recordUsage, toJobError } from "./ai";
 import { issuesFrom, visualPass } from "./quality";
+import { measureVoice, pacingIssues } from "./pacing";
 
 const MAX_FRAMES = 16;
 
@@ -41,7 +42,8 @@ export const critique: Handler = async (ctx) => {
   const plan = critiqueFrames(doc);
   const pass = await visualPass(ctx, doc, join(ctx.workDir, "critic"), [], plan.map((f) => f.timeSec));
   const frames = await Promise.all(plan.map(async (f, i) => ({ ...f, n: i + 1, file: pass.files[i]!, data: (await readFile(pass.files[i]!)).toString("base64"), mediaType: "image/jpeg" as const })));
-  const allMeasured = issuesFrom(doc, pass.report, pass.height);
+  const voice = await measureVoice(ctx, doc);
+  const allMeasured = [...issuesFrom(doc, pass.report, pass.height), ...pacingIssues(doc, voice)];
   // Low contrast goes to Claude to turn into concrete fixes; everything else is Quality review's.
   const measured = allMeasured.filter((i) => !(i.code === "low_contrast" && i.layerId));
   const contrast = allMeasured.flatMap((i) => {
@@ -62,7 +64,7 @@ export const critique: Handler = async (ctx) => {
   await ctx.stage("Claude is reviewing");
   let run;
   try {
-    run = await runCritic(client, { doc, templateName: template.name, frames, measured, contrast, voiceoverSec, focus: typeof ctx.job.input.focus === "string" ? ctx.job.input.focus.slice(0, 500) : undefined }, { signal: ctx.signal, effort: (ctx.job.input.effort as ClaudeEffort | undefined) ?? "high" });
+    run = await runCritic(client, { doc, templateName: template.name, frames, measured, contrast, voiceoverSec, voicePace: Object.fromEntries(voice.map((f) => [f.sceneId, { wordsPerSec: f.wordsPerSec, longestPauseSec: f.longestPauseSec }])), focus: typeof ctx.job.input.focus === "string" ? ctx.job.input.focus.slice(0, 500) : undefined }, { signal: ctx.signal, effort: (ctx.job.input.effort as ClaudeEffort | undefined) ?? "high" });
   } catch (e) {
     await noteLimit(ctx.job.workspaceId, e);
     throw toJobError(e);

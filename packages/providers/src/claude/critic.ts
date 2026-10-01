@@ -28,6 +28,8 @@ export interface CriticContext {
   measured: QualityIssue[];
   /** Recorded voiceover length per scene id, when narration exists. */
   voiceoverSec: Record<string, number>;
+  /** Measured speaking rate and longest mid-line pause per scene id. */
+  voicePace?: Record<string, { wordsPerSec: number; longestPauseSec: number }>;
   /** Measured low-contrast text (from the real frames), for Claude to turn into concrete fixes. */
   contrast?: { scene: number; frame: number; layerId: string | null; text: string; ratio: number; textColor: string; background: string; halo: boolean }[];
   /** Optional owner question, e.g. "Is the hook strong enough?" */
@@ -103,6 +105,7 @@ export function buildCriticPrompt(ctx: CriticContext): string {
     visuals: s.layers.filter((l) => !l.hidden && (l.kind === "character" || l.kind === "image" || l.kind === "video")).map((l) => `${l.kind}:${l.slot}`),
     narration: s.script.narration,
     ...(ctx.voiceoverSec[s.id] ? { voiceoverSec: +ctx.voiceoverSec[s.id]!.toFixed(2) } : {}),
+    ...(ctx.voicePace?.[s.id] ? { voiceWordsPerSec: ctx.voicePace[s.id]!.wordsPerSec, voiceLongestPauseSec: ctx.voicePace[s.id]!.longestPauseSec } : {}),
     ...(s.locked ? { locked: true } : {}),
   }));
   return [

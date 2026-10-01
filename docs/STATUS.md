@@ -158,5 +158,6 @@ and e2e tests use the SDK test double.
 - Automated review measures fit, fonts, captions, timing, loudness, decode and text contrast (WCAG ratio
   against the real background on sampled frames; text inside graphics layers is not measured).
   Presenter and subject framing is judged by the Claude critic from stills (tested with the test double
-  only). Speech naturalness is left to human review.
+  only). Voiceover pacing is measured from the recordings (speaking rate, mid-line pauses, late starts,
+  speech running past a cut); how natural the voice sounds is left to human review.
 - Redraw export is slow on software WebGPU; production should use GPU workers (routing supports it).

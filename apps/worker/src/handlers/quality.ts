@@ -7,6 +7,7 @@ import { computeTimeline, cueIssues, ProjectDocument, repairCues, validateTimeli
 import { captureStills, extractFrame, lowContrast, MIN_CONTRAST, prepareBundle, renderProject, type PageReport } from "@vs/rendering";
 import { referencedAssetIds, registerFile, resolveAssets, type Handler, type JobContext } from "../context";
 import { graphicsCompilerFor, needsWebGpu } from "../graphics";
+import { measureVoice, pacingIssues } from "./pacing";
 import { programMixInputs } from "../program";
 
 interface PassRecord {
@@ -154,7 +155,7 @@ export const qualityReview: Handler = async (ctx) => {
     await ctx.stage(`review pass ${pass + 1}`);
     const cueTimes = cueIssues(doc).map((i) => i.atSec).filter((x): x is number => x !== undefined);
     const v = await visualPass(ctx, doc, join(ctx.workDir, `pass${pass}`), cueTimes);
-    const issues = issuesFrom(doc, v.report, v.height);
+    const issues = [...issuesFrom(doc, v.report, v.height), ...pacingIssues(doc, await measureVoice(ctx, doc))];
     // Evidence: frames at issue times (or the first hero frames when clean), stored as assets.
     const evidence: PassRecord["evidence"] = [];
     const want = issues.length ? issues.filter((i) => i.atSec !== undefined).map((i) => ({ t: i.atSec!, why: i.code })) : v.times.slice(0, 3).map((t) => ({ t, why: "hero frame" }));
@@ -233,7 +234,7 @@ export const qualityReview: Handler = async (ctx) => {
   const audio = { loudness: render.verification.loudness, speechIntervals: render.mix.speechIntervals, truePeakOk: (render.verification.loudness?.truePeakDb ?? -99) <= -1 };
   const limitations = [
     "No model-based visual review in this pass; all checks are measured. For Claude's visual review, use the Critic tab.",
-    "Text contrast is measured on the sampled frames (DOM text only; text drawn inside graphics layers is not). Presenter framing is judged by the Claude critic, and product fidelity by the product check; review the evidence frames.",
+    "Voiceover pacing (rate, pauses, late starts, running past a cut) is measured from the recordings; how natural the voice sounds is not. Text contrast is measured on the sampled frames (DOM text only; text drawn inside graphics layers is not). Presenter framing is judged by the Claude critic, and product fidelity by the product check; review the evidence frames.",
     "Audio: decode, duration, loudness, peaks and ducking are measured; the naturalness of speech edits is not.",
     "Smooth motion is not proven by stills; transition strips are provided for review.",
   ];
