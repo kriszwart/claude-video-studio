@@ -4,6 +4,7 @@ import { synthesizeNarration } from "./tts";
 import { analyzeMusic } from "./music";
 import { importUrl } from "./importUrl";
 import { generateMedia, recoverGeneration } from "./generate";
+import { generateImage } from "./imagegen";
 import { ingestCollectionItem } from "./collection";
 import { buildSizzle } from "./sizzle";
 import { analyzeReference } from "./reference";
@@ -23,6 +24,7 @@ export const extraHandlers: Record<string, Handler> = {
   analyze_music: analyzeMusic,
   import_url: importUrl,
   generate_media: generateMedia,
+  generate_image: generateImage,
   recover_generation: recoverGeneration,
   collection_ingest: ingestCollectionItem,
   build_sizzle: buildSizzle,

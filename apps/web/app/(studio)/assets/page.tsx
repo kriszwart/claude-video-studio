@@ -27,6 +27,7 @@ export default function Assets() {
   const [rights, setRights] = useState(false);
   const [uploads, setUploads] = useState<Record<string, string>>({});
   const [sel, setSel] = useState<{ asset: A; usage: { projects: { id: string; title: string }[]; templates: { templateId: string; version: number }[] } } | null>(null);
+  const [refs, setRefs] = useState<A[]>([]);
   const input = useRef<HTMLInputElement>(null);
   const load = useCallback(() => api<{ assets: A[] }>(`/api/assets?${new URLSearchParams({ ...(kind ? { kind } : {}), ...(q ? { q } : {}) })}`).then((r) => setAssets(r.assets)), [kind, q]);
   useEffect(() => {
@@ -90,6 +91,7 @@ export default function Assets() {
         <button className="btn">Capture screenshot</button>
         <span className="text-xs text-faint">Public pages only; the capture keeps the address and date. Public availability is not a usage right.</span>
       </form>
+      <GenerateImage refs={refs} onRemoveRef={(id) => setRefs((r) => r.filter((x) => x.id !== id))} onGenerated={() => void load()} />
       <details className="card mb-3 p-3" id="footage">
         <summary className="cursor-pointer text-sm font-medium">Find free footage and images (Internet Archive, Wikimedia Commons, Pexels, Pixabay, Moving Image Archive)</summary>
         <div className="mt-3">
@@ -160,10 +162,97 @@ export default function Assets() {
             <dd>{sel.usage.projects.length ? sel.usage.projects.map((p) => p.title).join(", ") : "No projects"}{sel.usage.templates.length ? `; templates: ${sel.usage.templates.map((t) => `${t.templateId} v${t.version}`).join(", ")}` : ""}</dd>
             {sel.asset.error && (<><dt className="text-faint">Error</dt><dd className="text-bad">{sel.asset.error}</dd></>)}
           </dl>
-          {sel.asset.downloadUrl && <a className="btn mt-3 text-xs" href={sel.asset.downloadUrl}>Download original</a>}
+          <div className="mt-3 flex flex-wrap gap-2">
+            {sel.asset.downloadUrl && <a className="btn text-xs" href={sel.asset.downloadUrl}>Download original</a>}
+            {sel.asset.kind === "image" && sel.asset.status === "ready" && (
+              <button className="btn text-xs" disabled={refs.length >= 3 || refs.some((r) => r.id === sel.asset.id)} onClick={() => setRefs((r) => [...r, sel.asset])}>
+                {refs.some((r) => r.id === sel.asset.id) ? "Used as reference" : "Use as reference for ChatGPT image"}
+              </button>
+            )}
+          </div>
         </section>
       )}
     </main>
+  );
+}
+
+const ASPECTS = [
+  ["16:9", "16:9 landscape"],
+  ["9:16", "9:16 portrait"],
+  ["1:1", "1:1 square"],
+  ["4:5", "4:5 social"],
+  ["3:2", "3:2 photo"],
+  ["2:3", "2:3 poster"],
+] as const;
+
+/** Prompt-to-image with the owner's ChatGPT plan (Codex CLI). The result lands in the library. */
+function GenerateImage({ refs, onRemoveRef, onGenerated }: { refs: A[]; onRemoveRef: (id: string) => void; onGenerated: () => void }) {
+  const [prompt, setPrompt] = useState("");
+  const [aspect, setAspect] = useState<string>("16:9");
+  const [status, setStatus] = useState<string | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [paused, setPaused] = useState<string | null>(null);
+  const follow = async (start: () => Promise<string>) => {
+    setBusy(true);
+    setPaused(null);
+    setStatus("starting…");
+    try {
+      const id = await start();
+      const done = await waitForJob(id, (j) => setStatus(j.stage));
+      if (done.status === "paused") {
+        setPaused(id);
+        setStatus(`paused: ${done.error?.message ?? "ChatGPT usage limit reached."} ${done.error?.recovery ?? ""}`);
+      } else if (done.status !== "succeeded") setStatus(`failed: ${done.error?.message ?? "Generation failed."}${done.error?.recovery ? ` ${done.error.recovery}` : ""}`);
+      else {
+        setStatus("done: added to your assets.");
+        onGenerated();
+      }
+    } catch (x) {
+      setStatus(`failed: ${x instanceof ApiError ? `${x.message}${x.recovery ? ` ${x.recovery}` : ""}` : String(x)}`);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <form
+      className="card mb-3 space-y-2 p-3 text-sm"
+      aria-label="Generate image with ChatGPT"
+      onSubmit={(e) => {
+        e.preventDefault();
+        if (busy || prompt.trim().length < 3) return;
+        void follow(async () => (await api<{ job: { id: string } }>("/api/assets/generate-image", { method: "POST", idempotent: true, json: { prompt, aspectRatio: aspect, referenceAssetIds: refs.map((x) => x.id) } })).job.id);
+      }}
+    >
+      <div className="flex items-center gap-2">
+        <h2 className="font-medium">Generate image with ChatGPT</h2>
+        <span className="text-xs text-faint">Uses your ChatGPT plan through the Codex CLI, about a minute per image. <a className="underline" href="/settings">Settings</a></span>
+      </div>
+      <textarea className="input min-h-20 w-full" aria-label="Image prompt" placeholder="Describe the image: subject, setting, style, lighting…" maxLength={2000} value={prompt} onChange={(e) => setPrompt(e.target.value)} />
+      <div className="flex flex-wrap items-center gap-2 text-xs">
+        <select className="input w-auto" aria-label="Aspect ratio" value={aspect} onChange={(e) => setAspect(e.target.value)}>
+          {ASPECTS.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+        </select>
+        {refs.length ? (
+          refs.map((r) => (
+            <span key={r.id} className="chip flex items-center gap-1">
+              {r.thumbUrl && <img src={r.thumbUrl} alt="" className="h-5 w-8 rounded object-cover" />}
+              <span className="max-w-32 truncate">{r.name}</span>
+              <button type="button" aria-label={`Remove reference ${r.name}`} onClick={() => onRemoveRef(r.id)}>×</button>
+            </span>
+          ))
+        ) : (
+          <span className="text-faint">Optional: open an image below and choose &quot;Use as reference&quot; (up to 3).</span>
+        )}
+        <button className="btn btn-primary ml-auto" disabled={busy || prompt.trim().length < 3}>{busy ? "Generating…" : "Generate image"}</button>
+      </div>
+      {status && <p className="text-xs text-dim" role="status">{status}</p>}
+      {paused && (
+        <div className="flex gap-2">
+          <button type="button" className="btn text-xs" disabled={busy} onClick={() => void follow(async () => (await api(`/api/jobs/${paused}/retry`, { method: "POST" }), paused))}>Resume</button>
+          <button type="button" className="btn btn-ghost text-xs" disabled={busy} onClick={() => api(`/api/jobs/${paused}/cancel`, { method: "POST" }).then(() => (setPaused(null), setStatus("canceled.")))}>Cancel</button>
+        </div>
+      )}
+    </form>
   );
 }
 
