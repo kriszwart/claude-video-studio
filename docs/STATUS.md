@@ -127,6 +127,34 @@ spectrum and level measurements (this environment has no speakers — "listened"
 Suites not re-run for §28 (no code path they cover changed beyond the job-state enum and API
 origin check): `m2`–`m7`, `generation`, `a16-templates`; their results above stand.
 
+## Full regression run (2026-10-01, all suites)
+
+Every unit and end-to-end suite, run against the committed code after the phase 1–4 features, the
+quality checks (contrast, framing, product check, voiceover pacing), GPU auto mode and the setup
+checklist. Local stand-ins as before: Claude Agent SDK test double, fake fal/OpenRouter,
+fake OmniVoice/ElevenLabs.
+
+| Suite | Result |
+| --- | --- |
+| Unit/integration (`pnpm test`, vitest, 33 files) | 187 passed |
+| Typecheck (all packages + web + worker) | clean |
+| End-to-end, full suite on the dev server (`pnpm e2e`, 34 specs, 1.1 h) | 65 passed, 5 failed, 8 not run (later tests in a failed serial group) |
+| Re-run of the 13 failed/not-run tests after the fixes below | 13 passed |
+| `m7-graphics` (A28–A30, Redraw + Skia, software WebGPU) | 2 passed (11.0 min) |
+| `security` (A14, A15, A33) vs password-mode production build | 5 passed |
+
+The five first-pass failures, and what they were:
+
+- `elevenlabs`, `omnivoice`: the tests picked a provider card as the first `<li>` naming the
+  provider; the new Get started checklist now comes first. Tests select `#provider-<id>`
+  (the OmniVoice failure followed from the ElevenLabs test timing out with its settings in place).
+- `m7-graphics`: assumed a cold keyframe cache; caches are content-keyed across the studio, so a
+  second run on the same database found its scenes cached. The test now uses a per-run seed.
+- `shot-plan`: connection reset while the dev server restarted (container); passes on re-run.
+- `security`: not meant for the dev server; it needs the password-mode production build above.
+
+No application code changed as a result; all were test assumptions or environment.
+
 ## Blocked live checks (exact reasons)
 
 These integrations are implemented against the providers' official SDK/REST contracts and tested
