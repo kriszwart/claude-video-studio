@@ -109,6 +109,20 @@ Redraw needs WebGPU. Without a GPU the worker uses Chromium's software (SwiftSha
 correct and deterministic but slow (~10 minutes for 5 s at 960×540 in our measurements). For
 production Redraw rendering, run those workers on GPU hosts.
 
+### Using a graphics chip (`RENDER_GPU`)
+
+The worker probes once at start-up and renders on the hardware GPU when one answers
+(`RENDER_GPU=auto`, the default): Metal on a Mac, the GPU's EGL driver on Linux. Settings →
+Rendering shows what each running worker found.
+
+- **Mac:** nothing to configure; running the worker on the Mac uses its graphics chip.
+- **Linux GPU host:** the container needs the GPU device and drivers (NVIDIA: the NVIDIA container
+  runtime with `NVIDIA_DRIVER_CAPABILITIES=all`; AMD/Intel: pass `/dev/dri` through) plus EGL
+  libraries. If the probe can't confirm a GPU the worker falls back to software and says so.
+- `RENDER_GPU=software` forces the software path, which renders bit-for-bit the same on every
+  machine (useful for tests and audits). `RENDER_GPU=hardware` insists on the GPU and logs a
+  warning when the probe can't confirm one.
+
 ## Backups, retention, restore
 
 - **Database:** nightly `pg_dump -Fc` (or managed PITR). It holds projects, revisions, jobs,

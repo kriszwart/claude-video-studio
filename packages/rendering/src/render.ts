@@ -90,7 +90,7 @@ export async function resolveChromePath(opts: { webgpu?: boolean } = {}): Promis
   const base = defaultChromePath() ?? (await findPlaywrightHeadlessShell());
   if (!base || !opts.webgpu) return base;
   // HyperFrames adds --enable-unsafe-webgpu only outside software mode; this wrapper enables
-  // WebGPU (a software adapter on GPU-less workers) for compositions with Redraw layers.
+  // WebGPU for compositions with Redraw layers in software mode too (a software adapter).
   const dir = join(process.env.DATA_DIR ?? join(process.cwd(), "data"), "bin");
   const wrapper = join(dir, "chrome-webgpu.sh");
   await mkdir(dir, { recursive: true });
@@ -359,11 +359,32 @@ export interface HfRenderOptions {
   onProgress?: (percent: number | null, message: string, stage: string) => void | Promise<void>;
 }
 
+/**
+ * Renderer GPU mode. "auto" (default) probes once per process and uses the hardware GPU when one
+ * answers (Metal on a Mac, the GPU on a Linux GPU host), else Chromium's software rasteriser.
+ * RENDER_GPU=software forces the software path (bit-for-bit reproducible across machines);
+ * RENDER_GPU=hardware insists on the GPU and warns loudly if the probe can't confirm one.
+ */
+export function renderGpuMode(): "auto" | "software" | "hardware" {
+  const v = process.env.RENDER_GPU;
+  return v === "software" || v === "hardware" ? v : "auto";
+}
+
+/** What the renderer will actually use on this machine ("hardware" or "software"). */
+export async function probeRenderGpu(chromePath?: string): Promise<"hardware" | "software"> {
+  try {
+    const engine = (await import("@hyperframes/engine")) as unknown as { resolveBrowserGpuMode: (m: string, o: { chromePath?: string }) => Promise<"hardware" | "software"> };
+    return await engine.resolveBrowserGpuMode(renderGpuMode(), { chromePath });
+  } catch {
+    return "software";
+  }
+}
+
 /** Thin adapter over the pinned @hyperframes/producer API (0.8.90). */
 export async function renderWithHyperFrames(projectDir: string, outputPath: string, opts: HfRenderOptions): Promise<void> {
   const producer = await import("@hyperframes/producer");
   const chromePath = await resolveChromePath({ webgpu: opts.webgpu });
-  const engineConfig = producer.resolveConfig({ chromePath, browserGpuMode: "software", concurrency: opts.workers } as never);
+  const engineConfig = producer.resolveConfig({ chromePath, browserGpuMode: renderGpuMode(), concurrency: opts.workers } as never);
   const request = producer.createRenderRequest({
     projectDir,
     outputPath,

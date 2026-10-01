@@ -27,6 +27,7 @@ export default function Settings() {
       <p className="mb-6 text-sm text-dim">Keys are stored encrypted on the server (or read from server environment variables) and are never shown again or sent to the browser. Never paste keys into project chat.</p>
       {msg._ && <p className="text-bad">{msg._}</p>}
       <ClaudeRuntime />
+      <Rendering />
       <h2 className="mb-2 mt-8 text-lg font-semibold">Provider keys</h2>
       <ul className="space-y-4">
         {providers.map((p) => (
@@ -312,5 +313,30 @@ function OmniVoiceSettingsForm({ settings, onSave }: { settings: OmniSettings; o
         <button type="button" className="btn btn-primary" onClick={() => onSave({ baseUrl: baseUrl.trim(), model: model.trim() || undefined, voices: voices.filter((v) => v.name.trim()).map((v) => ({ ...v, name: v.name.trim() })) })}>Save OmniVoice settings</button>
       </div>
     </div>
+  );
+}
+
+type WorkerRow = { id: string; gpu: "hardware" | "software"; gpuMode: string; redraw: boolean; skia: boolean };
+
+/** Which render workers are running and whether they use this computer's graphics chip. */
+function Rendering() {
+  const [workers, setWorkers] = useState<WorkerRow[] | null>(null);
+  useEffect(() => {
+    api<{ workers: WorkerRow[] }>("/api/workers").then((r) => setWorkers(r.workers)).catch(() => setWorkers([]));
+  }, []);
+  if (!workers) return null;
+  return (
+    <section className="card mt-4 space-y-2 p-4 text-sm" aria-labelledby="rendering-h" data-testid="rendering">
+      <h2 id="rendering-h" className="font-medium">Rendering</h2>
+      {!workers.length && <p className="text-warn">No render worker is running. Start it with <code>scripts/dev-worker.sh start</code>; drafts and exports wait until one is up.</p>}
+      {workers.map((w) => (
+        <p key={w.id} className="text-dim">
+          <span className="text-ink">{w.id}</span> ·{" "}
+          {w.gpu === "hardware" ? <span className="text-ok">uses the graphics chip</span> : <span>software rendering{w.gpuMode === "software" ? " (forced by RENDER_GPU=software)" : " (no graphics chip found)"}</span>}
+          {" · "}Redraw {w.redraw ? "available" : "not installed"}
+        </p>
+      ))}
+      <p className="text-faint">Graphics-heavy exports (Redraw layers) are much faster on a graphics chip. On a Mac this is detected automatically; set <code>RENDER_GPU=software</code> on the worker for bit-for-bit reproducible renders.</p>
+    </section>
   );
 }
