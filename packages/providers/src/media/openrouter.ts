@@ -77,7 +77,7 @@ export class OpenRouterImages {
     try {
       r = await this.fetchImpl(`${this.base}/chat/completions`, {
         method: "POST",
-        headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json", "X-Title": "Video Studio" },
+        headers: { Authorization: `Bearer ${this.key}`, "Content-Type": "application/json", "X-Title": "Fluxtify" },
         body: JSON.stringify(body),
         signal: req.signal,
       });

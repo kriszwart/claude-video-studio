@@ -1,11 +1,11 @@
-# Video Studio
+# Fluxtify
 
 A standalone, project-based video creation studio. Pick a template, add your content and
 assets, review a storyboard, render a draft **with audio**, revise scenes directly or through
 the Creative Assistant (Claude), and export a playable MP4. Projects are revisioned, reopen
 exactly as you left them, and can be saved as reusable templates.
 
-> Working name. Not an official Anthropic product. Everything under `fixtures/sample/` is
+> Fluxtify ([fluxtify.com](https://fluxtify.com)). Not an official Anthropic product. Everything under `fixtures/sample/` is
 > generated sample data for fictional brands (see its README).
 
 ## What works

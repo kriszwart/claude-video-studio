@@ -6,7 +6,7 @@ import "@fontsource/inter/700.css";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Video Studio",
+  title: "Fluxtify",
   description: "Project-based video creation powered by Claude",
 };
 

@@ -10,7 +10,7 @@ import { body, json, route } from "@/lib/server/http";
  * the typed operations it wrote. The studio never runs anything in this path; imported
  * operations are validated like assistant edits (base revision, locks, approved claims, mode).
  */
-const INSTRUCTIONS = `# Claude Video Studio — Claude Code handoff
+const INSTRUCTIONS = `# Fluxtify — Claude Code handoff
 
 This file is a snapshot of one project revision. To make an AI edit with Claude Code:
 

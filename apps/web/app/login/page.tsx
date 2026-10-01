@@ -8,7 +8,7 @@ export default function Login() {
   const [err, setErr] = useState<string | null>(null);
   return (
     <main className="mx-auto mt-24 max-w-sm p-6">
-      <h1 className="mb-6 text-xl font-semibold">Sign in to Video Studio</h1>
+      <h1 className="mb-6 text-xl font-semibold">Sign in to Fluxtify</h1>
       <form
         className="card space-y-4 p-5"
         onSubmit={async (e) => {

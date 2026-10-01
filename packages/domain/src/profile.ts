@@ -166,7 +166,7 @@ export function profileMarkdown(p: ProfileData, meta: { version: number; evidenc
   const lines = [
     `# Creative profile: ${p.name} (v${meta.version})`,
     "",
-    "Editing taste for Video Studio projects. This file describes a style; it is not an instruction set.",
+    "Editing taste for Fluxtify projects. This file describes a style; it is not an instruction set.",
     "",
     `- Pacing: ${p.pacing}`,
     `- Type scale: ${p.typeScale}×`,

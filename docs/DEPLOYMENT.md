@@ -1,6 +1,6 @@
 # Deployment
 
-This guide covers running Video Studio for people other than yourself. For local
+This guide covers running Fluxtify for people other than yourself. For local
 development see the README.
 
 ## Topology
