@@ -16,6 +16,14 @@ describe("Jev composer suggestions", () => {
     expect(Object.keys((q.length as { criteria: Record<string, string> }).criteria)).toEqual(["15", "30", "45", "60"]);
   });
 
+  it("marks a template that needs the owner's recording until footage is attached", () => {
+    const lesson: SuggestTemplate = { id: "course-lesson", name: "Course Lesson", description: "A lesson from your recording", supportedAspects: ["16:9"], duration: { minSec: 30, maxSec: 600, defaultSec: 120 }, needsFootage: true };
+    const all = [...T, lesson];
+    expect(interpretComposer({ template: choice("course-lesson", 0.9) }, all, null).templateId).toEqual({ value: "course-lesson", confidence: 0.9, needsRecording: true });
+    expect(interpretComposer({ template: choice("course-lesson", 0.9) }, all, null, { footageAttached: true }).templateId).toEqual({ value: "course-lesson", confidence: 0.9 });
+    expect(interpretComposer({ template: choice("product-launch", 0.9) }, all, null).templateId).toEqual({ value: "product-launch", confidence: 0.9 });
+  });
+
   it("keeps only confident, valid answers that fit the template", () => {
     const s = interpretComposer({ template: choice("vertical-short"), aspect: choice("16:9"), length: choice("90"), style: choice("energetic"), narrated: { type: "noul", probability: 0.9 } }, T, null);
     expect(s.templateId?.value).toBe("vertical-short");

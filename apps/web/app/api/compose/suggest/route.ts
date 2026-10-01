@@ -22,14 +22,16 @@ export const POST = route(async (req) => {
     const d = TemplateDefinition.parse(version.definition);
     return { id: template.id, name: d.name, description: d.description, supportedAspects: d.supportedAspects, duration: d.duration, needsFootage: d.inputs.some((i) => i.required && i.kind === "video") };
   });
-  // Only templates the composer can use right now (it sends the ready ones); templates built from
-  // the owner's own recording only when footage is attached.
-  const usable = (b.candidates.length ? all.filter((t) => b.candidates.includes(t.id)) : all).filter((t) => !t.needsFootage || (b.attachments.video ?? 0) > 0);
+  // Only templates the composer can use right now (it sends the ready ones). Templates built from
+  // the owner's own recording stay in: a lesson described before its recording is attached should
+  // still be suggested, marked as needing that recording.
+  const usable = b.candidates.length ? all.filter((t) => b.candidates.includes(t.id)) : all;
+  const footageAttached = (b.attachments.video ?? 0) > 0;
   const chosen = b.templateId ? (all.find((t) => t.id === b.templateId) ?? null) : null;
   const state = { request: b.prompt, attached: { images: b.attachments.image ?? 0, footage: b.attachments.video ?? 0, music: b.attachments.audio ?? 0 }, ...(chosen ? { chosenTemplate: chosen.name } : {}) };
   try {
     const r = await new JevClient(key.secret, JevSettings.parse(await getProviderSettings(getDb(), s.workspaceId, "jev"))).decide(state, composerQuestions(usable, chosen), { timeoutMs: 3000, signal: req.signal });
-    return json({ available: true, suggestion: interpretComposer(r.answers, usable, chosen), elapsedMs: r.elapsedMs });
+    return json({ available: true, suggestion: interpretComposer(r.answers, usable, chosen, { footageAttached }), elapsedMs: r.elapsedMs });
   } catch (e) {
     return json({ available: true, suggestion: {}, error: e instanceof JevError ? e.message : "Jev suggestions are unavailable right now." });
   }

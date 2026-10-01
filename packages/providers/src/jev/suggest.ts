@@ -18,7 +18,8 @@ export interface SuggestTemplate {
 }
 
 export interface ComposerSuggestion {
-  templateId?: { value: string; confidence: number };
+  /** needsRecording: the template is built from the owner's recording, and none is attached yet. */
+  templateId?: { value: string; confidence: number; needsRecording?: boolean };
   aspect?: { value: "16:9" | "9:16" | "1:1"; confidence: number };
   durationSec?: { value: number; confidence: number };
   scriptStyle?: { value: ScriptStyle; confidence: number };
@@ -59,10 +60,10 @@ export function composerQuestions(templates: SuggestTemplate[], chosen: SuggestT
   return q;
 }
 
-export function interpretComposer(answers: Record<string, JevAnswer>, templates: SuggestTemplate[], chosen: SuggestTemplate | null): ComposerSuggestion {
+export function interpretComposer(answers: Record<string, JevAnswer>, templates: SuggestTemplate[], chosen: SuggestTemplate | null, opts: { footageAttached?: boolean } = {}): ComposerSuggestion {
   const out: ComposerSuggestion = {};
   const t = confidentChoice(answers.template, templates.map((x) => x.id));
-  if (t) out.templateId = t;
+  if (t) out.templateId = templates.find((x) => x.id === t.value)?.needsFootage && !opts.footageAttached ? { ...t, needsRecording: true } : t;
   const target = chosen ?? (t ? templates.find((x) => x.id === t.value) ?? null : null);
   const a = confidentChoice(answers.aspect, target?.supportedAspects ?? Object.keys(ASPECTS));
   if (a) out.aspect = { value: a.value as keyof typeof ASPECTS, confidence: a.confidence };

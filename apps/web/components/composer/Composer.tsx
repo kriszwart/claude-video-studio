@@ -508,7 +508,7 @@ function Seg({ options, value, onChange }: { options: [string, string][]; value:
 }
 
 type Suggestion = {
-  templateId?: { value: string; confidence: number };
+  templateId?: { value: string; confidence: number; needsRecording?: boolean };
   aspect?: { value: Aspect; confidence: number };
   durationSec?: { value: number; confidence: number };
   scriptStyle?: { value: ScriptStyle; confidence: number };
@@ -547,9 +547,9 @@ function useJevSuggestion(prompt: string, templateId: string | null, templates: 
 
 /** One chip per suggestion that differs from what's set; a click applies it. */
 function Suggestions({ s, templates, templateId, settings, onTemplate, onSettings }: { s: Suggestion; templates: ComposerTemplate[]; templateId: string | null; settings: Settings; onTemplate: (id: string) => void; onSettings: (patch: Partial<Settings>) => void }) {
-  const chips: { key: string; label: string; apply: () => void }[] = [];
+  const chips: { key: string; label: string; title?: string; apply: () => void }[] = [];
   const t = s.templateId && !templateId ? templates.find((x) => x.id === s.templateId!.value) : null;
-  if (t) chips.push({ key: "template", label: t.name, apply: () => onTemplate(t.id) });
+  if (t) chips.push(s.templateId!.needsRecording ? { key: "template", label: `${t.name} (add your recording)`, title: "This template is built from your own recording: attach it under Video.", apply: () => onTemplate(t.id) } : { key: "template", label: t.name, apply: () => onTemplate(t.id) });
   if (s.aspect && settings.aspect !== s.aspect.value) chips.push({ key: "aspect", label: s.aspect.value, apply: () => onSettings({ aspect: s.aspect!.value }) });
   if (s.durationSec && settings.durationSec !== s.durationSec.value) chips.push({ key: "length", label: `~${fmtLength(s.durationSec.value)}`, apply: () => onSettings({ durationSec: s.durationSec!.value }) });
   if (s.scriptStyle && settings.scriptStyle !== s.scriptStyle.value) chips.push({ key: "style", label: SCRIPT_STYLES[s.scriptStyle.value].label, apply: () => onSettings({ scriptStyle: s.scriptStyle!.value }) });
@@ -562,7 +562,7 @@ function Suggestions({ s, templates, templateId, settings, onTemplate, onSetting
     <div className="flex flex-wrap items-center gap-1.5 px-3 pb-2 text-xs" data-testid="jev-suggestions" aria-label="Suggested settings">
       <span className="text-faint" title="Instant suggestions from Jev for what you've typed. Click one to use it; Claude still writes the script and plans the video.">Suggested:</span>
       {chips.map((c) => (
-        <button key={c.key} data-suggest={c.key} className="chip border-dashed py-0.5 hover:border-accent hover:text-ink" onClick={c.apply}>
+        <button key={c.key} data-suggest={c.key} title={c.title} className="chip border-dashed py-0.5 hover:border-accent hover:text-ink" onClick={c.apply}>
           + {c.label}
         </button>
       ))}
