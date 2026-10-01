@@ -157,3 +157,23 @@ describe("media layers follow the asset's real kind", () => {
     expect(v.getAttribute("data-media-start")).toBe("0");
   });
 });
+
+describe("motion-grammar transitions", () => {
+  it("compiles every transition, with overlays only for tiles and colour field, and a camera push per scene", () => {
+    for (const type of ["flythrough", "portal", "fold", "tiles", "colorfield"] as const) {
+      const { doc } = build("16:9");
+      doc.scenes[1]!.transitionIn = { type, durationFrames: 18 };
+      const out = compileComposition(doc, { scale: 0.5, assets: new Map(), fonts: [], gsapFile: "gsap.min.js" } as never);
+      const { document } = parseHTML(out.html);
+      const overlay = document.getElementById(`tr-${doc.scenes[1]!.id}`);
+      if (type === "tiles") expect(overlay!.querySelectorAll(".tile").length).toBe(24);
+      else if (type === "colorfield") expect(overlay).not.toBeNull();
+      else expect(overlay).toBeNull();
+      expect(document.getElementById(`s-${doc.scenes[1]!.id}-cam`)).not.toBeNull();
+      const script = [...document.querySelectorAll("script")].map((s) => s.textContent).join("\n");
+      expect(script).toContain(`#s-${doc.scenes[0]!.id}-cam`);
+      if (type === "flythrough") expect(script).toMatch(/blur\(12px\)/);
+      if (type === "portal") expect(script).toMatch(/circle\(0% at 50% 50%\)/);
+    }
+  });
+});

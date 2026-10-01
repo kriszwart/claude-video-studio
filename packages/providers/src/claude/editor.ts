@@ -1,11 +1,11 @@
 import { LAYOUTS } from "@vs/compositor";
-import { AspectRatio, secondsToFrames, type BrandSnapshot, type Operation, type ProjectDocument } from "@vs/domain";
+import { TRANSITION_TYPES, AspectRatio, secondsToFrames, type BrandSnapshot, type Operation, type ProjectDocument } from "@vs/domain";
 import { type ClaudeBackend, type StructuredResult } from "./client";
 import type { AssetManifestEntry } from "./planner";
 import { arr, bool, constant, enm, int, nullable, num, obj, str, type JsonSchema } from "./schema";
 
 const FRAMES = ["none", "card", "laptop", "phone", "circle", "rounded"] as const;
-const TRANSITIONS = ["cut", "fade", "slide", "wipe", "zoom"] as const;
+const TRANSITIONS = TRANSITION_TYPES;
 const BACKINGS = ["none", "solid", "translucent"] as const;
 
 export const EDIT_OPS: Record<string, JsonSchema> = {

@@ -1,5 +1,5 @@
 import { LAYOUTS } from "@vs/compositor";
-import { secondsToFrames, Scene, type Layer, type ProjectDocument } from "@vs/domain";
+import { TRANSITION_TYPES, secondsToFrames, Scene, type Layer, type ProjectDocument } from "@vs/domain";
 import type { TemplateDefinition } from "@vs/templates";
 import { ProviderError, type ChatTurn, type ClaudeBackend, type ClaudeEffort, type StructuredResult } from "./client";
 import { arr, enm, nullable, num, obj, str } from "./schema";
@@ -25,7 +25,7 @@ export interface PlanContext {
 }
 
 export const TEXT_ROLES = ["kicker", "headline", "subhead", "body", "label", "cta", "stat", "caption", "quote"] as const;
-const TRANSITIONS = ["cut", "fade", "slide", "wipe", "zoom"] as const;
+const TRANSITIONS = TRANSITION_TYPES;
 const FRAMES = ["none", "card", "laptop", "phone", "circle", "rounded"] as const;
 
 export interface PlannedScene {

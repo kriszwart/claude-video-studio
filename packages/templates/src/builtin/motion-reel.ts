@@ -6,7 +6,7 @@ export const motionReel: TemplateDefinitionInput = {
   family: "motion-reel",
   name: "Motion Graphics Reel",
   description: "Hook → kinetic typography → graphic progression → focal reveal → end card. Five distinct visual beats built from real type and shape animation, with your logo and music.",
-  version: 2,
+  version: 3,
   tags: { purpose: ["brand", "social", "announcement"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -41,7 +41,8 @@ export const motionReel: TemplateDefinitionInput = {
       purpose: "Kinetic typography",
       durationSec: 5,
       layout: "kinetic",
-      transition: { type: "slide", durationFrames: 9 },
+      // The hook flies past the camera onto the kinetic type (motion grammar: foreground fly-through).
+      transition: { type: "flythrough", durationFrames: 14 },
       background: { type: "gradient", from: "brand.primary", to: "brand.secondary", angle: 120 },
       motion: 0.95,
       layers: [
@@ -122,7 +123,7 @@ export const brandShowreel: TemplateDefinitionInput = {
   preset: "P2",
   name: "Brand / Channel Showreel",
   description: "One colour motif carried from an opening circle through a thumbnail wall and a hero milestone to your logo. Uses only supplied facts; generated assets off by default.",
-  version: 3,
+  version: 4,
   tags: { purpose: ["brand", "channel", "showreel"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -173,7 +174,7 @@ export const brandShowreel: TemplateDefinitionInput = {
       purpose: "Hero milestone",
       durationSec: 3,
       layout: "fullbleed-media",
-      transition: { type: "fade", durationFrames: 9 },
+      transition: { type: "portal", durationFrames: 14 },
       background: { type: "color", color: "brand.surface" },
       motion: 0.6,
       layers: [
@@ -196,7 +197,7 @@ export const brandShowreel: TemplateDefinitionInput = {
       purpose: "Logo / CTA",
       durationSec: 3,
       layout: "end-card",
-      transition: { type: "zoom", durationFrames: 9 },
+      transition: { type: "colorfield", durationFrames: 18 },
       background: { type: "color", color: "brand.background" },
       motion: 0.6,
       layers: [

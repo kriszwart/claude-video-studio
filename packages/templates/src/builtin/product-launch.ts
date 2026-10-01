@@ -7,7 +7,7 @@ export const productLaunch: TemplateDefinitionInput = {
   name: "Product Launch",
   description:
     "Problem → product reveal → approved benefits → proof (only if you supply it) → call to action. Uses your screenshots, logo, brand kit and music.",
-  version: 1,
+  version: 2,
   tags: { purpose: ["launch", "marketing"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -96,7 +96,7 @@ export const productLaunch: TemplateDefinitionInput = {
       purpose: "Call to action",
       durationSec: 5,
       layout: "end-card",
-      transition: { type: "zoom", durationFrames: 12 },
+      transition: { type: "portal", durationFrames: 14 },
       background: { type: "gradient", from: "brand.primary", to: "brand.background", angle: 160 },
       motion: 0.5,
       narration: "{{cta}}",

@@ -1,13 +1,14 @@
 "use client";
 import { LAYOUTS } from "@vs/compositor";
-import { secondsToFrames, type Background, type Layer, type Operation, type ProjectDocument, type Scene } from "@vs/domain";
+import { secondsToFrames, TRANSITION_TYPES, type Background, type Layer, type Operation, type ProjectDocument, type Scene } from "@vs/domain";
 import { useEffect, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
 import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
 import { projectVoiceId, VoiceDirectionControls } from "./VoiceDirectionControls";
 
-const TRANSITIONS = ["cut", "fade", "slide", "wipe", "zoom"] as const;
+const TRANSITIONS = TRANSITION_TYPES;
+const TRANSITION_LABEL: Record<(typeof TRANSITION_TYPES)[number], string> = { cut: "Cut", fade: "Fade", slide: "Slide", wipe: "Wipe", zoom: "Zoom", flythrough: "Fly-through", portal: "Portal", fold: "Fold", tiles: "Tile wipe", colorfield: "Colour field" };
 const FRAMES = ["none", "card", "laptop", "phone", "circle", "rounded"] as const;
 const ENTRANCES = ["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw"] as const;
 
@@ -59,7 +60,7 @@ export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; sc
             <label className="label" htmlFor="trans">Transition in</label>
             <select id="trans" className="input" value={scene.transitionIn.type} disabled={index === 0} onChange={(e) => op({ op: "setSceneTransition", sceneId: scene.id, transition: { type: e.target.value as Scene["transitionIn"]["type"], durationFrames: e.target.value === "cut" ? 0 : Math.max(6, scene.transitionIn.durationFrames || 12) } })}>
               {TRANSITIONS.map((t) => (
-                <option key={t}>{t}</option>
+                <option key={t} value={t}>{TRANSITION_LABEL[t]}</option>
               ))}
             </select>
           </div>

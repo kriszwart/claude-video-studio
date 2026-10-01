@@ -204,6 +204,8 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
   };
 
   const sceneHtml: string[] = [];
+  /** Overlays that some transitions draw above both scenes (tiles, colour field). */
+  const transitionHtml: string[] = [];
   doc.scenes.forEach((scene, index) => {
     const t = timeline.scenes[index]!;
     const start = sec(t.start);
@@ -365,9 +367,12 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       }
     }
 
+    // A slow camera push keeps held frames alive (motion grammar: no motionless stretch; reading
+    // holds keep a 3–5% push). It moves an inner wrapper so transitions on the scene don't fight it.
     sceneHtml.push(
-      `<div id="${sid}" class="clip scene" data-start="${start}" data-duration="${dur}" style="z-index:${index + 1};">${parts.join("")}</div>`,
+      `<div id="${sid}" class="clip scene" data-start="${start}" data-duration="${dur}" style="z-index:${index + 1};"><div class="cam" id="${sid}-cam">${parts.join("")}</div></div>`,
     );
+    tweens.push(`tl.fromTo("#${sid}-cam",{scale:1},{scale:${f3(1 + 0.02 + 0.03 * m.k)},duration:${dur},ease:"none"},${start});`);
 
     // Content eases out just before a hard cut (not before overlapping transitions, which cover
     // it, not on the final scene, which holds, and not when cuts are timed to music markers).
@@ -399,6 +404,59 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           tweens.push(`tl.fromTo("#${sid}",{opacity:0,scale:1.12},{opacity:1,scale:1,duration:${o},ease:"power2.out"},${start});`);
           const prev = `s-${doc.scenes[index - 1]!.id}`;
           tweens.push(`tl.fromTo("#${prev}",{scale:1},{scale:0.94,duration:${o},ease:"power2.in",immediateRender:false},${start});`);
+          break;
+        }
+        // Motion grammar (motion-video-kit, MIT): the foreground becomes the transition.
+        case "flythrough": {
+          // The next scene is already in place underneath; the outgoing one rushes past the camera.
+          const prev = `s-${doc.scenes[index - 1]!.id}`;
+          tweens.push(`tl.set("#${prev}",{zIndex:${doc.scenes.length + 2}},${start});`);
+          tweens.push(`tl.fromTo("#${prev}",{scale:1,opacity:1,filter:"blur(0px)"},{scale:2.8,opacity:0,filter:"blur(12px)",duration:${o},ease:"power2.in",immediateRender:false},${start});`);
+          tweens.push(`tl.set("#${prev}",{zIndex:${index},scale:1,filter:"none"},${f3(start + o)});`);
+          tweens.push(`tl.fromTo("#${sid}",{scale:1.06},{scale:1,duration:${f3(o * 1.6)},ease:"expo.out"},${start});`);
+          break;
+        }
+        case "portal": {
+          // The next scene opens out of a growing circle while the outgoing one pushes in.
+          tweens.push(`tl.fromTo("#${sid}",{clipPath:"circle(0% at 50% 50%)"},{clipPath:"circle(75% at 50% 50%)",duration:${o},ease:"expo.inOut"},${start});`);
+          tweens.push(`tl.set("#${sid}",{clipPath:"none"},${f3(start + o)});`);
+          const prev = `s-${doc.scenes[index - 1]!.id}`;
+          tweens.push(`tl.fromTo("#${prev}",{scale:1},{scale:1.18,duration:${o},ease:"power2.in",immediateRender:false},${start});`);
+          break;
+        }
+        case "fold": {
+          // The outgoing panel folds back to a strip; the next one rises out of it.
+          const prev = `s-${doc.scenes[index - 1]!.id}`;
+          tweens.push(`tl.fromTo("#${prev}",{rotationX:0,transformPerspective:900,transformOrigin:"50% 100%",filter:"brightness(1)"},{rotationX:-88,filter:"brightness(1.8)",duration:${f3(o * 0.8)},ease:"power2.inOut",immediateRender:false},${start});`);
+          tweens.push(`tl.fromTo("#${sid}",{yPercent:28,opacity:0},{yPercent:0,opacity:1,duration:${f3(o * 0.8)},ease:"expo.out"},${f3(start + o * 0.2)});`);
+          break;
+        }
+        case "tiles":
+        case "colorfield": {
+          // A brief overlay covers both scenes; the next scene is revealed under it at the midpoint.
+          const tid = `tr-${scene.id}`;
+          const half = f3(o / 2);
+          const a = resolveColor(brand, "brand.accent", "#8b5cf6");
+          const b = resolveColor(brand, "brand.primary", "#111827");
+          // Swap under full cover: the outgoing scene hides and the next shows at the midpoint.
+          const prevSid = `s-${doc.scenes[index - 1]!.id}`;
+          tweens.push(`tl.fromTo("#${sid}",{opacity:0},{opacity:1,duration:0.001,immediateRender:true},${f3(start + o / 2)});`);
+          tweens.push(`tl.fromTo("#${prevSid}",{opacity:1},{opacity:0,duration:0.001,immediateRender:false},${f3(start + o / 2)});`);
+          if (scene.transitionIn.type === "tiles") {
+            const cols = doc.format.aspect === "9:16" ? 4 : 6;
+            const rows = doc.format.aspect === "9:16" ? 7 : doc.format.aspect === "1:1" ? 6 : 4;
+            const cells = Array.from({ length: cols * rows }, (_, k) => `<div class="tile" style="background:${k % 3 === 0 ? a : b}"></div>`).join("");
+            transitionHtml.push(`<div id="${tid}" class="clip" data-start="${start}" data-duration="${o}" style="z-index:850;pointer-events:none;"><div class="tiles" style="grid-template-columns:repeat(${cols},1fr);grid-template-rows:repeat(${rows},1fr);">${cells}</div></div>`);
+            // Each half: tiles take 60% of it, their stagger spreads over the other 40%, so cover is complete at the midpoint.
+            const each = f3((o / 2) * 0.4 / (cols * rows));
+            const tdur = f3((o / 2) * 0.6);
+            tweens.push(`tl.fromTo("#${tid} .tile",{scale:0},{scale:1.04,duration:${tdur},ease:"power2.in",stagger:{each:${each},grid:[${rows},${cols}],from:"start"}},${start});`);
+            tweens.push(`tl.to("#${tid} .tile",{scale:0,duration:${tdur},ease:"power2.out",stagger:{each:${each},grid:[${rows},${cols}],from:"end"}},${f3(start + o / 2)});`);
+          } else {
+            transitionHtml.push(`<div id="${tid}" class="clip" data-start="${start}" data-duration="${o}" style="z-index:850;pointer-events:none;"><div id="${tid}-in" class="layer" style="left:-25%;top:-25%;width:150%;height:150%;background:radial-gradient(circle at 42% 46%, ${a} 0%, ${a} 18%, ${b} 52%, ${b} 66%, ${hexWithAlpha(b, 0)} 78%);opacity:0;"></div></div>`);
+            tweens.push(`tl.fromTo("#${tid}-in",{scale:0.25,opacity:0},{scale:2.2,opacity:1,duration:${half},ease:"power2.in"},${start});`);
+            tweens.push(`tl.to("#${tid}-in",{scale:3.2,opacity:0,duration:${half},ease:"power2.out"},${f3(start + o / 2)});`);
+          }
           break;
         }
       }
@@ -483,6 +541,9 @@ html,body{margin:0;padding:0;background:#000;}
 #root{position:relative;width:${width}px;height:${height}px;overflow:hidden;background:${resolveColor(brand, "brand.background", "#000000")};font-family:${cssFamily(body.family)},sans-serif;color:${textColor};}
 .clip{position:absolute;inset:0;}
 .scene{overflow:hidden;}
+.cam{position:absolute;inset:0;transform-origin:50% 50%;}
+.tiles{position:absolute;inset:0;display:grid;}
+.tile{transform:scale(0);transform-origin:50% 50%;}
 .layer{position:absolute;box-sizing:border-box;}
 .bg{position:absolute;inset:0;overflow:hidden;}
 .bg img{position:absolute;inset:0;width:100%;height:100%;object-fit:cover;}
@@ -540,6 +601,7 @@ html,body{margin:0;padding:0;background:#000;}
 </head><body>
 <div id="root" data-composition-id="main" data-start="0" data-width="${width}" data-height="${height}" data-duration="${f3(durationSec)}">
 ${sceneHtml.join("\n")}
+${transitionHtml.join("\n")}
 <div id="finish"><div class="vig"></div><div class="grain" id="grain" style="background-image:url(&quot;${GRAIN_SVG}&quot;);"></div></div>
 ${beatHtml.join("\n")}
 ${captionHtml.join("\n")}
@@ -580,12 +642,13 @@ function entrance(sel: string, kind: string, at: number, m: { dist: number; dur:
       return [];
     case "fade":
       return [`tl.fromTo("${sel}",{opacity:0},{opacity:1,duration:${m.dur},ease:"power1.out"},${at});`];
+    // Arrivals come in fast and slow into their landing so they can be read (motion grammar rule 4).
     case "rise":
-      return [`tl.fromTo("${sel}",{opacity:0,y:${f3(m.dist)}},{opacity:1,y:0,duration:${m.dur},ease:"power3.out"},${at});`];
+      return [`tl.fromTo("${sel}",{opacity:0,y:${f3(m.dist)}},{opacity:1,y:0,duration:${m.dur},ease:"expo.out"},${at});`];
     case "pop":
       return [`tl.fromTo("${sel}",{opacity:0,scale:0.6},{opacity:1,scale:1,duration:${m.dur},ease:"back.out(1.7)"},${at});`];
     case "slide":
-      return [`tl.fromTo("${sel}",{opacity:0,x:${f3(-m.dist * 1.5)}},{opacity:1,x:0,duration:${m.dur},ease:"power3.out"},${at});`];
+      return [`tl.fromTo("${sel}",{opacity:0,x:${f3(-m.dist * 1.5)}},{opacity:1,x:0,duration:${m.dur},ease:"expo.out"},${at});`];
     case "wipe":
       return [`tl.fromTo("${sel}",{clipPath:"inset(0% 100% 0% 0%)"},{clipPath:"inset(0% 0% 0% 0%)",duration:${m.dur},ease:"power2.inOut"},${at});`];
     case "draw":
