@@ -155,6 +155,8 @@ and e2e tests use the SDK test double.
 ## Known limitations
 
 - Product fidelity: a measured colour check runs on every generated take; Claude's product check (Shots → Product check) compares takes with the reference photo for shape, logo, label, colour and proportions. Both are advisory and judged from stills (three samples per video take); the owner still keeps or rejects each take. Tested against the Claude test double only.
-- Automated review measures fit, fonts, captions, timing, loudness and decode; contrast, presenter
-  coverage and speech naturalness are left to human review with the stored evidence frames.
+- Automated review measures fit, fonts, captions, timing, loudness, decode and text contrast (WCAG ratio
+  against the real background on sampled frames; text inside graphics layers is not measured).
+  Presenter and subject framing is judged by the Claude critic from stills (tested with the test double
+  only). Speech naturalness is left to human review.
 - Redraw export is slow on software WebGPU; production should use GPU workers (routing supports it).

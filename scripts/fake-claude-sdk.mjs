@@ -143,6 +143,13 @@ function criticAnswer(text, images) {
     }
   })();
   const f1 = frames.find((f) => f.scene === 1);
+  const contrast = (() => {
+    try {
+      return JSON.parse(/<contrast>([\s\S]*?)<\/contrast>/.exec(text)?.[1] ?? "[]");
+    } catch {
+      return [];
+    }
+  })();
   const locked = /"scene":1,[^}]*"locked":true/.test(/<scenes>([\s\S]*?)<\/scenes>/.exec(text)?.[1] ?? "");
   return {
     summary: `TEST DOUBLE: canned review of ${images} frame(s).`,
@@ -151,6 +158,7 @@ function criticAnswer(text, images) {
     findings: [
       { scene: 1, frame: f1?.image ?? 0, category: "readability", severity: "fix", observation: "TEST DOUBLE: the opening line is on screen too briefly.", suggestion: "Hold the opening shot longer.", request: locked ? "" : "Make this scene 7 seconds long." },
       { scene: 0, frame: 0, category: "story", severity: "nit", observation: "TEST DOUBLE: no product footage.", suggestion: "Add real product footage.", request: "" },
+      ...contrast.map((c) => ({ scene: c.scene, frame: c.image ?? 0, category: "readability", severity: c.ratio < 2 ? "fix" : "improve", observation: `TEST DOUBLE: “${c.text}” measures ${c.ratio}:1 against ${c.background}.`, suggestion: "Use white text.", request: `Change the colour of the text “${c.text}” to #ffffff.` })),
     ],
   };
 }

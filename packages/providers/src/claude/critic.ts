@@ -9,7 +9,7 @@ import { arr, enm, int, obj, str } from "./schema";
  * path as any assistant edit (approved claims and locked scenes stay protected).
  */
 
-export const CRITIC_CATEGORIES = ["readability", "composition", "hierarchy", "pacing", "story", "consistency", "brand", "audio", "claims", "other"] as const;
+export const CRITIC_CATEGORIES = ["readability", "framing", "composition", "hierarchy", "pacing", "story", "consistency", "brand", "audio", "claims", "other"] as const;
 export const CRITIC_SEVERITIES = ["fix", "improve", "nit"] as const;
 
 export interface CriticFrame {
@@ -28,6 +28,8 @@ export interface CriticContext {
   measured: QualityIssue[];
   /** Recorded voiceover length per scene id, when narration exists. */
   voiceoverSec: Record<string, number>;
+  /** Measured low-contrast text (from the real frames), for Claude to turn into concrete fixes. */
+  contrast?: { scene: number; frame: number; layerId: string | null; text: string; ratio: number; textColor: string; background: string; halo: boolean }[];
   /** Optional owner question, e.g. "Is the hook strong enough?" */
   focus?: string;
 }
@@ -78,6 +80,8 @@ How to review:
 - Readability: text must be large enough, have enough contrast with what is behind it, and stay on screen long enough to read (roughly 3 words per second plus a beat).
 - Pacing: compare shot lengths with the narration and with how much there is to read.
 - Consistency: type, colour and framing should feel like one piece across shots.
+- Framing (category "framing"): wherever a person, presenter, character or product is on screen, check that heads and faces are not cut off by the frame edge, that no text, caption or lower third covers a face or the product, that the subject is large enough to read and not jammed against an edge, and that the eyeline has room. Report only what an image shows; if every subject is framed well, report nothing.
+- Measured contrast: each item in <contrast> is text whose measured contrast with what's behind it is too low (WCAG ratio; 3:1 is the minimum for large text). Report each as a "readability" finding (severity "fix" below 2:1, otherwise "improve") on that scene and image, quoting the ratio, with a request that fixes it within the scene: a text colour with clearly more contrast against the measured background (give the #rrggbb), or a darker/lighter scene background. Do not report a contrast problem that is not in <contrast>.
 - Do not report the measured problems listed in <measured>; they are handled separately.
 - Never suggest adding facts, numbers, quotes, customers or claims that are not already in the video; you may suggest cutting or rephrasing.
 - Locked scenes cannot be changed by the assistant: give their findings an empty request.
@@ -96,6 +100,7 @@ export function buildCriticPrompt(ctx: CriticContext): string {
     transitionIn: s.transitionIn.type,
     onScreen: s.layers.filter((l) => l.kind === "text" && !l.hidden).map((l) => (l.kind === "text" ? l.text : "")),
     media: s.layers.filter((l) => (l.kind === "image" || l.kind === "video") && !l.hidden).length,
+    visuals: s.layers.filter((l) => !l.hidden && (l.kind === "character" || l.kind === "image" || l.kind === "video")).map((l) => `${l.kind}:${l.slot}`),
     narration: s.script.narration,
     ...(ctx.voiceoverSec[s.id] ? { voiceoverSec: +ctx.voiceoverSec[s.id]!.toFixed(2) } : {}),
     ...(s.locked ? { locked: true } : {}),
@@ -105,6 +110,7 @@ export function buildCriticPrompt(ctx: CriticContext): string {
     `<scenes>${JSON.stringify(scenes)}</scenes>`,
     `<frames>${JSON.stringify(ctx.frames.map((f) => ({ image: f.n, scene: f.sceneIndex + 1, atSec: +f.timeSec.toFixed(2), kind: f.kind })))}</frames>`,
     `<measured>${JSON.stringify(ctx.measured.map((i) => ({ code: i.code, message: i.message })))}</measured>`,
+    ctx.contrast?.length ? `<contrast>${JSON.stringify(ctx.contrast.map((c) => ({ scene: c.scene, image: c.frame || null, text: c.text, ratio: c.ratio, textColor: c.textColor, background: c.background, hasShadowOrOutline: c.halo })))}</contrast>` : "",
     ctx.focus ? `<owner_focus>${JSON.stringify(ctx.focus)}</owner_focus>` : "",
     "The frames follow, in order. Review the draft now.",
   ]
@@ -131,6 +137,9 @@ export function validateCritique(out: CriticOutput, ctx: CriticContext): string[
     const scene = f.scene > 0 ? ctx.doc.scenes[f.scene - 1] : undefined;
     if (scene?.locked && f.request.trim()) issues.push(`${p}: scene ${f.scene} is locked; leave request empty.`);
   });
+  for (const c of ctx.contrast ?? []) {
+    if (!out.findings.some((f) => f.scene === c.scene && f.category === "readability")) issues.push(`<contrast> lists scene ${c.scene} (“${c.text.slice(0, 40)}”, ${c.ratio}:1): add a readability finding for it with a fix.`);
+  }
   return issues;
 }
 

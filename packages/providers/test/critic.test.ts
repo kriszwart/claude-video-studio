@@ -51,4 +51,13 @@ describe("critic", () => {
       { type: "image", source: { type: "base64", media_type: "image/jpeg", data: "QUJD" } },
     ]);
   });
+
+  it("requires a readability finding for each measured contrast problem and lists it in the prompt", () => {
+    const withContrast: CriticContext = { ...ctx, contrast: [{ scene: 2, frame: 2, layerId: "lay", text: "Plan less", ratio: 1.7, textColor: "#2b2d6b", background: "#524ae3", halo: false }] };
+    expect(buildCriticPrompt(withContrast)).toContain('"ratio":1.7');
+    expect(buildCriticPrompt(withContrast)).toMatch(/"visuals":\[/);
+    expect(validateCritique(good(), withContrast).join()).toMatch(/scene 2 .*1.7:1/);
+    const fixed = good({ findings: [...good().findings, { scene: 2, frame: 2, category: "readability", severity: "fix", observation: "1.7:1", suggestion: "White text", request: "Change the text colour to #ffffff." }] });
+    expect(validateCritique(fixed, withContrast)).toEqual([]);
+  });
 });

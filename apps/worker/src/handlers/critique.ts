@@ -41,7 +41,16 @@ export const critique: Handler = async (ctx) => {
   const plan = critiqueFrames(doc);
   const pass = await visualPass(ctx, doc, join(ctx.workDir, "critic"), [], plan.map((f) => f.timeSec));
   const frames = await Promise.all(plan.map(async (f, i) => ({ ...f, n: i + 1, file: pass.files[i]!, data: (await readFile(pass.files[i]!)).toString("base64"), mediaType: "image/jpeg" as const })));
-  const measured = issuesFrom(doc, pass.report, pass.height);
+  const allMeasured = issuesFrom(doc, pass.report, pass.height);
+  // Low contrast goes to Claude to turn into concrete fixes; everything else is Quality review's.
+  const measured = allMeasured.filter((i) => !(i.code === "low_contrast" && i.layerId));
+  const contrast = allMeasured.flatMap((i) => {
+    if (i.code !== "low_contrast" || !i.sceneId || !i.layerId) return [];
+    const m = (pass.report.contrast ?? []).filter((c) => c.id === `l-${i.sceneId}-${i.layerId}`).sort((a, b) => a.ratio - b.ratio)[0];
+    const layer = doc.scenes.find((s) => s.id === i.sceneId)?.layers.find((l) => l.id === i.layerId);
+    if (!m || layer?.kind !== "text") return [];
+    return [{ scene: doc.scenes.findIndex((s) => s.id === i.sceneId) + 1, frame: m.frame + 1, layerId: i.layerId, text: layer.text.slice(0, 120), ratio: m.ratio, textColor: m.text, background: m.background, halo: m.halo }];
+  });
   const vo = doc.audio.filter((t) => t.kind === "voiceover" && t.anchor.type === "scene");
   const voRows = vo.length ? await db.query.assets.findMany({ where: and(eq(schema.assets.workspaceId, ctx.job.workspaceId), inArray(schema.assets.id, vo.map((t) => t.assetId))) }) : [];
   const voiceoverSec: Record<string, number> = {};
@@ -53,7 +62,7 @@ export const critique: Handler = async (ctx) => {
   await ctx.stage("Claude is reviewing");
   let run;
   try {
-    run = await runCritic(client, { doc, templateName: template.name, frames, measured, voiceoverSec, focus: typeof ctx.job.input.focus === "string" ? ctx.job.input.focus.slice(0, 500) : undefined }, { signal: ctx.signal, effort: (ctx.job.input.effort as ClaudeEffort | undefined) ?? "high" });
+    run = await runCritic(client, { doc, templateName: template.name, frames, measured, contrast, voiceoverSec, focus: typeof ctx.job.input.focus === "string" ? ctx.job.input.focus.slice(0, 500) : undefined }, { signal: ctx.signal, effort: (ctx.job.input.effort as ClaudeEffort | undefined) ?? "high" });
   } catch (e) {
     await noteLimit(ctx.job.workspaceId, e);
     throw toJobError(e);
@@ -77,12 +86,13 @@ export const critique: Handler = async (ctx) => {
     findings,
     frames: stored,
     measured,
+    contrast,
     focus: ctx.job.input.focus ?? null,
     model: run.usage.at(-1)?.model ?? null,
     runtime: client.kind,
     attempts: run.attempts,
     elapsedSec: Math.round((Date.now() - t0) / 1000),
-    limitations: ["Judged from still frames: motion between frames is not seen.", "Audio is judged from the script and measured timings, not by listening."],
+    limitations: ["Judged from still frames: motion between frames is not seen.", "Contrast is measured on the sampled frames only (DOM text; text drawn inside graphics layers is not measured).", "Audio is judged from the script and measured timings, not by listening."],
   };
   const id = newId("crt");
   await db.insert(schema.critiques).values({ id, workspaceId: ctx.job.workspaceId, projectId, revisionId, jobId: ctx.job.id, report });

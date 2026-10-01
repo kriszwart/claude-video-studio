@@ -3,6 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { runOk, FFMPEG } from "./exec";
 import { resolveChromePath } from "./render";
+import { HIDE_GLYPHS_CSS, measureContrast, PROBE_TEXT, type ContrastMeasure, type TextRun } from "./contrast";
 
 export interface StillsRequest {
   bundleDir: string;
@@ -14,6 +15,8 @@ export interface StillsRequest {
   outPath: (index: number) => string;
   signal?: AbortSignal;
   webgpu?: boolean;
+  /** Measure text contrast on every frame (one extra capture per frame with text). */
+  probeText?: boolean;
   /** Called with the page before capturing (tests: e.g. simulate device loss). */
   beforeCapture?: (page: import("playwright-core").Page, index: number) => Promise<void>;
 }
@@ -23,6 +26,8 @@ export interface PageReport {
   missingFonts: string[];
   /** Text that had to shrink below 75% of its designed size to fit (layer DOM ids). */
   shrunk?: { id: string; ratio: number; px?: number }[];
+  /** Measured text contrast per frame (when requested). */
+  contrast?: ContrastMeasure[];
   skia?: unknown;
   redraw?: unknown;
 }
@@ -48,6 +53,7 @@ export async function captureStills(req: StillsRequest): Promise<StillsResult> {
     await page.goto(`${server.url}/index.html`, { waitUntil: "load", timeout: 60_000 });
     await page.waitForFunction(() => (window as unknown as { __renderReady?: boolean }).__renderReady === true, null, { timeout: 60_000 });
     const files: string[] = [];
+    const contrast: ContrastMeasure[] = [];
     for (let i = 0; i < req.times.length; i++) {
       if (req.signal?.aborted) throw new Error("canceled");
       const t = req.times[i]!;
@@ -61,11 +67,13 @@ export async function captureStills(req: StillsRequest): Promise<StillsResult> {
       const out = req.outPath(i);
       await page.locator("#root").screenshot({ path: out, type: out.endsWith(".png") ? "png" : "jpeg", quality: out.endsWith(".png") ? undefined : 85 });
       files.push(out);
+      if (req.probeText) contrast.push(...(await probeContrast(page, i, t)));
     }
     const report = (await page.evaluate(() => {
       const w = window as unknown as { __vsReport?: PageReport; __vsSkiaReport?: unknown; __vsRedrawReport?: unknown };
       return { ...(w.__vsReport ?? { overflow: [], missingFonts: [] }), skia: w.__vsSkiaReport ?? null, redraw: w.__vsRedrawReport ?? null };
     })) as PageReport;
+    if (req.probeText) report.contrast = contrast;
     return { files, report };
   } finally {
     await browser?.close();
@@ -111,4 +119,22 @@ async function injectVideoFrames(page: import("playwright-core").Page, bundleDir
       await img.decode().catch(() => {});
     })()`);
   }
+}
+
+/** Re-capture the frame with glyphs hidden and compare each text run with what's behind it. */
+async function probeContrast(page: import("playwright-core").Page, frame: number, timeSec: number): Promise<ContrastMeasure[]> {
+  const runs = (await page.evaluate(PROBE_TEXT)) as TextRun[];
+  if (!runs.length) return [];
+  const style = await page.addStyleTag({ content: HIDE_GLYPHS_CSS });
+  let png: Buffer;
+  try {
+    png = await page.locator("#root").screenshot({ type: "png" });
+  } finally {
+    await style.evaluate((el) => (el as unknown as { remove(): void }).remove());
+  }
+  const box = await page.locator("#root").boundingBox();
+  const width = Math.round(box?.width ?? 0), height = Math.round(box?.height ?? 0);
+  if (!width || !height) return [];
+  const raw = await runOk(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-i", "pipe:0", "-f", "rawvideo", "-pix_fmt", "rgb24", "-s", `${width}x${height}`, "-"], { input: png, timeoutMs: 60_000 });
+  return measureContrast(runs, new Uint8Array(raw.stdoutBuffer), width, height, frame, timeSec);
 }

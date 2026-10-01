@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { AppError, applyProjectOperations, getDb, getRevision, JobError, newId, schema } from "@vs/db";
 import { LAYOUTS } from "@vs/compositor";
 import { computeTimeline, cueIssues, ProjectDocument, repairCues, validateTimeline, type Operation, type QualityIssue } from "@vs/domain";
-import { captureStills, extractFrame, prepareBundle, renderProject, type PageReport } from "@vs/rendering";
+import { captureStills, extractFrame, lowContrast, MIN_CONTRAST, prepareBundle, renderProject, type PageReport } from "@vs/rendering";
 import { referencedAssetIds, registerFile, resolveAssets, type Handler, type JobContext } from "../context";
 import { graphicsCompilerFor, needsWebGpu } from "../graphics";
 import { programMixInputs } from "../program";
@@ -44,7 +44,7 @@ export async function visualPass(ctx: JobContext, doc: ProjectDocument, dir: str
   const assets = await resolveAssets(ctx.job.workspaceId, referencedAssetIds(doc));
   const b = await prepareBundle({ doc, assets, workDir: dir, output: join(dir, "unused.mp4"), scale: 0.5, quality: "draft", signal: ctx.signal, graphics: await graphicsCompilerFor(doc, ctx), webgpu: needsWebGpu(doc), extraMix: programMixInputs(doc, assets) }, { withAudio: false });
   const times = exactTimes ?? sampleTimes(doc, extraTimes);
-  const stills = await captureStills({ bundleDir: b.bundleDir, width: b.width, height: b.height, times, outPath: (i) => join(dir, `s${String(i).padStart(2, "0")}.jpg`), signal: ctx.signal, webgpu: needsWebGpu(doc) });
+  const stills = await captureStills({ bundleDir: b.bundleDir, width: b.width, height: b.height, times, outPath: (i) => join(dir, `s${String(i).padStart(2, "0")}.jpg`), signal: ctx.signal, webgpu: needsWebGpu(doc), probeText: true });
   return { times, files: stills.files, report: stills.report, height: b.height };
 }
 
@@ -72,6 +72,23 @@ export function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight
     if (!f || seen.has(f.layer.id) || px1080 === null || px1080 >= MIN_READABLE_PX_1080) continue;
     seen.add(f.layer.id);
     out.push({ code: "text_too_small", severity: "creative", message: `Text in “${f.scene.purpose}” had to shrink to ${Math.round(px1080)} px (at 1080p; minimum ${MIN_READABLE_PX_1080}) to fit and may be hard to read.`, sceneId: f.scene.id, layerId: f.layer.id, atSec: at(f.scene.id), repairable: !f.scene.locked });
+  }
+  // Contrast: the worst measured frame per text layer (and one issue for burned-in captions).
+  const worst = new Map<string, NonNullable<PageReport["contrast"]>[number]>();
+  for (const m of report.contrast ?? []) {
+    if (!lowContrast(m)) continue;
+    const k = m.id.startsWith("cap-") ? "captions" : m.id;
+    if (!worst.has(k) || worst.get(k)!.ratio > m.ratio) worst.set(k, m);
+  }
+  for (const [k, m] of worst) {
+    const advice = m.halo ? "even with its shadow/outline" : `aim for ${MIN_CONTRAST}:1 or more`;
+    if (k === "captions") {
+      out.push({ code: "low_contrast", severity: "creative", message: `Captions have low contrast with what's behind them (${m.ratio.toFixed(1)}:1, ${advice}). Try the Boxed caption style.`, atSec: m.timeSec, repairable: false });
+      continue;
+    }
+    const f = layerFor(doc, m.id);
+    if (!f || f.layer.kind !== "text") continue;
+    out.push({ code: "low_contrast", severity: "creative", message: `Text “${f.layer.text.slice(0, 40)}${f.layer.text.length > 40 ? "…" : ""}” in “${f.scene.purpose}” has low contrast with what's behind it (${m.ratio.toFixed(1)}:1 — text ${m.text} on ${m.background}; ${advice}). Change the text colour, darken the background or add a backing plate.`, sceneId: f.scene.id, layerId: f.layer.id, atSec: m.timeSec, repairable: false });
   }
   for (const fam of report.missingFonts) out.push({ code: "missing_font", severity: "hard", message: `Font “${fam}” did not load; a fallback was used.`, repairable: false });
   out.push(...cueIssues(doc));
@@ -216,7 +233,7 @@ export const qualityReview: Handler = async (ctx) => {
   const audio = { loudness: render.verification.loudness, speechIntervals: render.mix.speechIntervals, truePeakOk: (render.verification.loudness?.truePeakDb ?? -99) <= -1 };
   const limitations = [
     "No model-based visual review in this pass; all checks are measured. For Claude's visual review, use the Critic tab.",
-    "Contrast, presenter coverage and asset fidelity are not scored automatically; review the evidence frames.",
+    "Text contrast is measured on the sampled frames (DOM text only; text drawn inside graphics layers is not). Presenter framing is judged by the Claude critic, and product fidelity by the product check; review the evidence frames.",
     "Audio: decode, duration, loudness, peaks and ducking are measured; the naturalness of speech edits is not.",
     "Smooth motion is not proven by stills; transition strips are provided for review.",
   ];
