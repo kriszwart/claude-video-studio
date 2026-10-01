@@ -21,7 +21,7 @@ test.describe.serial("OmniVoice voices", () => {
   test("set up in Settings, voices listed, narration synthesised by OmniVoice with the designed voice", async ({ page, request }) => {
     // Settings UI: address + one designed voice.
     await page.goto("/settings");
-    const card = page.locator("li", { hasText: "OmniVoice (local voice server)" });
+    const card = page.locator("#provider-omnivoice");
     await card.getByLabel("Server address").fill(`${OV}/`);
     await card.getByRole("button", { name: "Add voice" }).click();
     await card.getByLabel("Voice name on the server").fill("studio_designed");

@@ -34,6 +34,9 @@ function psnr(a: string, b: string, w: number, h: number): number {
 }
 
 test.describe.serial("M7: Redraw + Skia in the shared pipeline", () => {
+  // Keyframe caches are content-keyed across the studio: a per-run seed makes this run's scenes new,
+  // so "first render renders both" holds on a database that already ran this test.
+  const RUN_SEED = 7 + (Date.now() % 100_000);
   test("A28 + A30: mixed HTML/media/Skia/Redraw composition; preview/export agree; caches invalidate per scene", async ({ page, request }) => {
     test.setTimeout(60 * 60_000);
     const bottle = await apiUpload(request, join(FIX, "product-bottle-teal.png"), "image/png");
@@ -42,7 +45,7 @@ test.describe.serial("M7: Redraw + Skia in the shared pipeline", () => {
     const p = await createProject(request, { templateId: "motion-reel", title: "M7 mixed graphics", inputs: { hook: "Mixed", headline: "Graphics", brandName: "Tidewave", music } });
     const id = p.project.id;
     const text = (sid: string, n: string, slot: string, role: string, t: string, backing = "none") => ({ id: `${sid}-${n}`, kind: "text", slot, role, text: t, hidden: false, style: { scale: 1, backing }, animation: { in: "rise", delayFrames: 6, stagger: false } });
-    const g = (sid: string, n: string, backend: string, component: string, params: Record<string, unknown>, box: object) => ({ id: `${sid}-${n}`, kind: "graphics", slot: "decor", backend, component, componentVersion: 1, params, seed: 7, hidden: false, box });
+    const g = (sid: string, n: string, backend: string, component: string, params: Record<string, unknown>, box: object) => ({ id: `${sid}-${n}`, kind: "graphics", slot: "decor", backend, component, componentVersion: 1, params, seed: RUN_SEED, hidden: false, box });
     const scenes = [
       {
         id: "scn_m7media0001", purpose: "B-roll with Skia annotation", recipeSlot: "hook", durationFrames: 90, layout: "fullbleed-media", background: { type: "color", color: "#0b1020" }, transitionIn: { type: "cut", durationFrames: 0 }, motionIntensity: 0.6,

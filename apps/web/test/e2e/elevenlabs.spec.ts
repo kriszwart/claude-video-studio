@@ -24,7 +24,7 @@ test.describe.serial("ElevenLabs voices", () => {
 
     // Settings UI: paste the key (never shown again).
     await page.goto("/settings");
-    const card = page.locator("li", { hasText: "ElevenLabs" }).first();
+    const card = page.locator("#provider-elevenlabs");
     await card.getByLabel(/ElevenLabs API key/).fill("el-test-key");
     await card.getByRole("button", { name: "Save key" }).click();
     await expect(card.getByRole("status")).toContainText("Saved");
