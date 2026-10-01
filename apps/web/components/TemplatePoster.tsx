@@ -2,8 +2,8 @@
 
 export interface Poster {
   url: string;
-  /** "own": the template's own image; "family": a frame rendered by the template it builds on. */
-  kind: "own" | "family";
+  /** "own": the template's own image; "frame": a frame it rendered; "family": a frame rendered by the template it builds on. */
+  kind: "own" | "frame" | "family";
 }
 
 /** A template's thumbnail (resolved by the server), or a gradient card with its name. */

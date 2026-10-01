@@ -1,8 +1,9 @@
 # Template thumbnails — GPT Image 2 prompts
 
 Each template card shows `apps/web/public/template-posters/<template-id>.png` (or `.jpg` /
-`.webp`) when that file exists; otherwise a real frame rendered by its template family, otherwise
-a gradient. Generate one image per template below, save it under the exact file name, and reload
+`.webp`) when that file exists; otherwise a real frame rendered by its template family
+(`template-posters/frames/`, kept separate so presets never borrow another template's art),
+otherwise a gradient. Generate one image per template below, save it under the exact file name, and reload
 the page — no code change or restart needed.
 
 **Settings:** landscape 1536×1024 (the card crops to 16:9, so keep the subject centred with
