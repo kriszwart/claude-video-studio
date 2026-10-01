@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { api, ApiError } from "@/lib/client/api";
+import { LogoMark } from "@/components/Logo";
 
 export default function Login() {
   const [email, setEmail] = useState("");
@@ -8,6 +9,7 @@ export default function Login() {
   const [err, setErr] = useState<string | null>(null);
   return (
     <main className="mx-auto mt-24 max-w-sm p-6">
+      <LogoMark size={40} className="mb-3" />
       <h1 className="mb-6 text-xl font-semibold">Sign in to Fluxtify</h1>
       <form
         className="card space-y-4 p-5"

@@ -1,6 +1,7 @@
 "use client";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
+import { Logo } from "./Logo";
 
 const ITEMS = [
   { href: "/projects", label: "Projects" },
@@ -19,7 +20,7 @@ export function Nav({ email, mode }: { email: string; mode: "local" | "password"
     <header className="border-b border-line bg-panel">
       <nav aria-label="Main" className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 py-2">
         <Link href="/projects" className="mr-4 shrink-0 font-semibold tracking-tight">
-          Fluxtify
+          <Logo />
         </Link>
         {ITEMS.map((i) => {
           const active = path.startsWith(i.href);

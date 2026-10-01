@@ -22,6 +22,7 @@ import { ShotPlanReview } from "./ShotPlanReview";
 import { useProject } from "./useProject";
 import { FlowBar } from "./FlowBar";
 import { projectFlow, type FlowAction } from "./flow";
+import { LogoMark } from "@/components/Logo";
 
 type Tab = "script" | "critic" | "scene" | "transcript" | "shots" | "assistant" | "audio" | "export" | "project";
 
@@ -77,8 +78,8 @@ export function Editor({ projectId }: { projectId: string }) {
   return (
     <div className="flex h-screen flex-col">
       <header className="flex flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-2">
-        <Link href="/projects" className="btn btn-ghost px-2 text-xs" aria-label="Back to projects">
-          ←
+        <Link href="/projects" className="btn btn-ghost gap-1 px-2 text-xs" aria-label="Back to projects">
+          ← <LogoMark size={16} />
         </Link>
         <div className="w-56 sm:w-72">
           <DebouncedText ariaLabel="Project title" value={doc.title} maxLength={160} onCommit={(v) => v.trim() && p.apply([{ op: "setTitle", title: v.trim() }])} />

@@ -1,3 +1,5 @@
+<img src="apps/web/public/brand/fluxtify-mark.svg" width="48" alt="">
+
 # Fluxtify
 
 A standalone, project-based video creation studio. Pick a template, add your content and
