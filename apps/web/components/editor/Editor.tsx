@@ -20,6 +20,8 @@ import { ScriptPanel } from "./ScriptPanel";
 import { CriticPanel } from "./CriticPanel";
 import { ShotPlanReview } from "./ShotPlanReview";
 import { useProject } from "./useProject";
+import { FlowBar } from "./FlowBar";
+import { projectFlow, type FlowAction } from "./flow";
 
 type Tab = "script" | "critic" | "scene" | "transcript" | "shots" | "assistant" | "audio" | "export" | "project";
 
@@ -63,8 +65,14 @@ export function Editor({ projectId }: { projectId: string }) {
   if (!p.doc || !p.view || !p.revisionId) return <main className="p-8 text-dim">Loading project…</main>;
   const { doc, view } = p;
   const scene = doc.scenes.find((s) => s.id === selected) ?? doc.scenes[0]!;
-  const planning = view.jobs.find((j) => j.type === "plan" && ["queued", "running"].includes(j.status));
   const paused = view.jobs.find((j) => (j.type === "plan" || j.type === "assistant") && j.status === "paused");
+  const flow = projectFlow({ doc, jobs: view.jobs, exports: view.exports, revisionId: p.revisionId, blocking });
+  const onFlow = (a: FlowAction) => {
+    if (a.kind === "review") return setReviewHidden(false);
+    if (a.kind !== "tab") return;
+    setReviewHidden(true);
+    setTab(a.tab === "script" && (doc.program || doc.template.family === "music-video") ? "scene" : a.tab === "shots" && !doc.scenes.some((s) => s.shot) ? "scene" : a.tab);
+  };
 
   return (
     <div className="flex h-screen flex-col">
@@ -90,23 +98,7 @@ export function Editor({ projectId }: { projectId: string }) {
           <button className="ml-auto underline" onClick={p.clearNotice}>Dismiss</button>
         </div>
       )}
-      {doc.review?.status === "pending" && reviewHidden && (
-        <div role="status" className="flex items-center gap-2 border-b border-line bg-accent/10 px-3 py-1 text-xs">
-          The shot plan is waiting for your approval{doc.review.next.voiceId ? "; the voiceover is recorded after it" : ""}.
-          <button className="ml-auto underline" onClick={() => setReviewHidden(false)}>Review the shot plan</button>
-        </div>
-      )}
-      {doc.script?.status === "draft" && !planning && tab !== "script" && (
-        <div role="status" className="flex items-center gap-2 border-b border-line bg-warn/10 px-3 py-1 text-xs">
-          The script is waiting for your approval; the storyboard is planned from it.
-          <button className="ml-auto underline" onClick={() => setTab("script")}>Review the script</button>
-        </div>
-      )}
-      {planning && (
-        <div role="status" className="border-b border-line bg-panel-2 px-3 py-1 text-xs">
-          Claude is planning the storyboard ({planning.stage}). You can keep editing; a plan that arrives after newer edits is not applied over them.
-        </div>
-      )}
+      <FlowBar flow={flow} projectId={projectId} revisionId={p.revisionId} onAction={onFlow} />
       {paused && (
         <div role="status" className="flex items-center gap-2 border-b border-line bg-panel-2 px-3 py-1 text-xs">
           <span className="text-warn">Claude paused:</span> {paused.error?.message}
