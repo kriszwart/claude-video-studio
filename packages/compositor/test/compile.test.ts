@@ -130,3 +130,30 @@ describe("A15: hostile project text cannot escape into markup or script", () => 
     expect(document.body.textContent).toContain("window.pwned=1"); // shown as text, inert
   });
 });
+
+describe("media layers follow the asset's real kind", () => {
+  it("draws an image placed in a video slot as an image, and a video in an image slot as a video", () => {
+    let n = 0;
+    const doc = instantiateTemplate(BUILTIN_TEMPLATES.find((t) => t.id === "anime-opening")!, { title: "T", brand: DEFAULT_BRAND, inputs: { song: "song", excerptStart: 0, excerptEnd: 30, title: "X", synopsis: "Y", characters: ["A"], direction: "anime" }, newId: (p) => `${p}${++n}`, sourceDurationSec: 60 });
+    const vScene = doc.scenes.find((s) => s.layers.some((l) => l.kind === "video" && l.slot === "media"))!;
+    const vLayer = vScene.layers.find((l) => l.kind === "video" && l.slot === "media")!;
+    if (vLayer.kind === "video") vLayer.assetId = "still";
+    const assets = new Map<string, StagedAsset>([
+      ["still", { file: "assets/still.png", kind: "image", width: 1280, height: 720 }],
+      ["song", { file: "assets/song.m4a", kind: "audio", durationSec: 60 }],
+    ]);
+    const { document } = parseHTML(compileComposition(doc, { scale: 0.5, assets, fonts: [], gsapFile: "gsap.min.js" } as never).html);
+    const el = document.getElementById(`l-${vScene.id}-${vLayer.id}`)!;
+    expect(el.querySelector("video")).toBeNull();
+    expect(el.querySelector("img")!.getAttribute("src")).toBe("assets/still.png");
+
+    const { doc: pl } = build("16:9");
+    const iScene = pl.scenes.find((s) => s.layers.some((l) => l.kind === "image" && l.assetId === "s1"))!;
+    const iLayer = iScene.layers.find((l) => l.kind === "image" && l.assetId === "s1")!;
+    const clips = new Map<string, StagedAsset>([["s1", { file: "assets/clip.mp4", kind: "video", durationSec: 8 }]]);
+    const html = parseHTML(compileComposition(pl, { scale: 0.5, assets: clips, fonts: [], gsapFile: "gsap.min.js" } as never).html).document;
+    const v = html.getElementById(`l-${iScene.id}-${iLayer.id}`)!.querySelector("video")!;
+    expect(v.getAttribute("src")).toBe("assets/clip.mp4");
+    expect(v.getAttribute("data-media-start")).toBe("0");
+  });
+});

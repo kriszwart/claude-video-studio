@@ -305,7 +305,7 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           break;
         }
         case "image":
-          parts.push(imageHtml(layer, lid, box, z, ctx, brand, unit, warnings, scene));
+          parts.push(imageHtml(layer, lid, box, z, ctx, brand, unit, warnings, scene, start, dur));
           tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m));
           exits.push(`#${lid}`);
           if (layer.animation.kenBurns) {
@@ -313,7 +313,7 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           }
           break;
         case "video": {
-          parts.push(videoHtml(layer, lid, box, z, ctx, start, dur, unit, warnings, scene));
+          parts.push(videoHtml(layer, lid, box, z, ctx, start, dur, unit, warnings, scene, brand));
           tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m));
           if (layer.animation.punchIn > 1) {
             tweens.push(`tl.fromTo("#${lid} .media-inner",{scale:1},{scale:${f3(layer.animation.punchIn)},duration:${f3(Math.min(dur, 0.6))},ease:"power2.inOut"},${f3(start + dur * 0.45)});`);
@@ -670,23 +670,27 @@ function mediaStyle(fit: string, focal: { x: number; y: number }, frame: string)
   return `width:100%;height:100%;${device || fit === "cover" ? "object-fit:cover;" : "object-fit:contain;"}object-position:${f3(focal.x * 100)}% ${f3(focal.y * 100)}%;`;
 }
 
-function imageHtml(layer: ImageLayer, lid: string, box: Box, z: number, ctx: CompileContext, brand: BrandSnapshot, unit: number, warnings: string[], scene: Scene): string {
+function imageHtml(layer: ImageLayer, lid: string, box: Box, z: number, ctx: CompileContext, brand: BrandSnapshot, unit: number, warnings: string[], scene: Scene, start: number, dur: number): string {
   const asset = layer.assetId ? ctx.assets.get(layer.assetId) : undefined;
   if (!asset) {
     warnings.push(`Scene "${scene.purpose}": image slot "${layer.slot}" is empty and is omitted from the render.`);
     return "";
   }
+  // A clip placed in an image slot (e.g. supplied footage) plays as video from its start.
+  if (asset.kind === "video") return videoHtml({ ...layer, kind: "video", sourceInSec: 0, sourceOutSec: null, muted: true, animation: { in: layer.animation.in, delayFrames: layer.animation.delayFrames, punchIn: 1 } }, lid, box, z, ctx, start, dur, unit, warnings, scene, brand);
   const img = `<div class="media-inner"><img src="${asset.file}" alt="${escapeHtml(layer.alt)}" style="${mediaStyle(layer.fit, layer.focal, layer.frame)}"></div>`;
   const w = frameWrap(layer.frame, img, brand, unit);
   return `<div class="layer media" id="${lid}" style="left:${f3(box.left)}px;top:${f3(box.top)}px;width:${f3(box.width)}px;height:${f3(box.height)}px;z-index:${z};${w.outerCss}">${w.html}</div>`;
 }
 
-function videoHtml(layer: VideoLayer, lid: string, box: Box, z: number, ctx: CompileContext, start: number, dur: number, unit: number, warnings: string[], scene: Scene): string {
+function videoHtml(layer: VideoLayer, lid: string, box: Box, z: number, ctx: CompileContext, start: number, dur: number, unit: number, warnings: string[], scene: Scene, brand: BrandSnapshot): string {
   const asset = layer.assetId ? ctx.assets.get(layer.assetId) : undefined;
   if (!asset) {
     warnings.push(`Scene "${scene.purpose}": video slot "${layer.slot}" is empty and is omitted from the render.`);
     return "";
   }
+  // A still placed in a video slot (an image shot, a keyframe, a supplied photo) is drawn as an image.
+  if (asset.kind === "image" || asset.kind === "svg") return imageHtml({ ...layer, kind: "image", alt: "", animation: { in: layer.animation.in, delayFrames: layer.animation.delayFrames, kenBurns: false } }, lid, box, z, ctx, brand, unit, warnings, scene, start, dur);
   const available = asset.durationSec !== undefined ? Math.max(0, (layer.sourceOutSec ?? asset.durationSec) - layer.sourceInSec) : dur;
   const playDur = f3(Math.min(dur, available));
   if (playDur < dur - 0.05) warnings.push(`Scene "${scene.purpose}": video "${layer.slot}" is shorter than the scene; its last frame holds.`);
