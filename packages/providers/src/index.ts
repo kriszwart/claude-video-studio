@@ -21,3 +21,5 @@ export * from "./media/openrouter";
 export * from "./media/codex";
 export * from "./jev/client";
 export * from "./jev/suggest";
+export * from "./lanternist/mcp";
+export * from "./lanternist/lanternist";

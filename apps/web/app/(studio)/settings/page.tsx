@@ -63,6 +63,7 @@ export default function Settings() {
             {p.provider === "omnivoice" && <OmniVoiceSettingsForm settings={(p.settings ?? {}) as OmniSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "omnivoice", settings } }))} />}
             {p.provider === "openrouter" && <OpenRouterModel settings={(p.settings ?? {}) as OrSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "openrouter", settings } }))} />}
             {p.provider === "elevenlabs" && p.configured && <ElevenLabsMusic settings={(p.settings ?? {}) as ElMusicSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "elevenlabs", settings } }))} />}
+            {p.provider === "lanternist" && <LanternistSettingsForm settings={(p.settings ?? {}) as { mcpUrl?: string }} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "lanternist", settings } }))} />}
             {p.provider === "jev" && <JevSettingsForm settings={(p.settings ?? {}) as JevForm} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "jev", settings } }))} />}
             {p.provider === "fal" && <FalModels settings={(p.settings ?? {}) as FalModelSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "fal", settings } }))} />}
             {(msg[p.provider] || p.lastCheck) && <p className="mt-2 text-xs text-dim" role="status">{msg[p.provider] ?? `Last check ${new Date(p.lastCheck!.at).toLocaleString()}: ${p.lastCheck!.ok ? "✓" : "✗"} ${p.lastCheck!.message}`}</p>}
@@ -443,6 +444,25 @@ function JevSettingsForm({ settings, onSave }: { settings: JevForm; onSave: (s: 
       <label className="flex flex-col gap-1">API address<input className="input" aria-label="Jev API address" value={baseUrl} onChange={(e) => setBaseUrl(e.target.value)} /></label>
       <label className="flex flex-col gap-1">Model<input className="input" aria-label="Jev model" value={model} onChange={(e) => setModel(e.target.value)} /></label>
       <button className="btn sm:col-span-2">Save Jev settings</button>
+    </form>
+  );
+}
+
+/** Lanternist's MCP address: where Fluxtify sends shot plans (the token goes in the key field above). */
+function LanternistSettingsForm({ settings, onSave }: { settings: { mcpUrl?: string }; onSave: (s: { mcpUrl: string }) => void }) {
+  const [mcpUrl, setMcpUrl] = useState(settings.mcpUrl ?? "https://lanternist.app/mcp");
+  return (
+    <form
+      className="mt-3 grid grid-cols-1 gap-2 border-t border-line pt-3 text-xs"
+      aria-label="Lanternist settings"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ mcpUrl: mcpUrl.trim() });
+      }}
+    >
+      <p className="text-faint">Send to Lanternist (Export tab) turns a project&apos;s shot plan into a Lanternist film for storyboarding and client review. Use the MCP server address and access token from Lanternist&apos;s settings for connecting an assistant.</p>
+      <label className="flex flex-col gap-1">MCP server address<input className="input" aria-label="Lanternist MCP address" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} /></label>
+      <button className="btn">Save Lanternist address</button>
     </form>
   );
 }

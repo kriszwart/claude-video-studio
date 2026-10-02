@@ -17,6 +17,11 @@
  *   POST /jev/v1/systemone — key "jev-test-key"; answers each question deterministically from
  *   keywords in state.request (vertical/tiktok → 9:16, "15 second" → 15, lesson → professor…).
  *   Request "SLOW" → answers after 5 s (the app gives up); GET /__jev → requests received.
+ *
+ * Also a TEST-ONLY Lanternist MCP stand-in (Streamable HTTP) at POST /lantern/mcp, token
+ * "lantern-test-key": initialize (JSON reply + Mcp-Session-Id), tools/call (SSE reply) for
+ * create_project, get_project, list_projects, make_picture, create_review_link.
+ * GET /__lantern → calls and films received.
  */
 import { execFileSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
@@ -37,6 +42,7 @@ const control = { duplicateWebhooks: false, staleAfter: false, delayMs: 1500, we
 const stats = { submits: 0, statusCalls: 0, resultCalls: 0, cancels: 0, webhooksSent: 0, authFailures: 0 };
 let n = 0;
 const jevRequests: unknown[] = [];
+const lantern = { calls: [] as { name: string; args: unknown }[], films: new Map<string, { id: string; title: unknown; aspect_ratio: unknown; style: unknown; shots: { id: string; scene_number: number; start_time: number; end_time: number; description: string; voiceover_script: string | null; image_prompt: string | null; generated_image: string | null }[]; reviewUrl: string | null }>() };
 const orRequests: Record<string, unknown>[] = [];
 
 function media(id: string, kind: "video" | "image") {
@@ -102,6 +108,58 @@ http
     }
     if (u.pathname === "/__or") return json(res, 200, orRequests);
     if (u.pathname === "/__jev") return json(res, 200, jevRequests);
+    if (u.pathname === "/__lantern") return json(res, 200, { calls: lantern.calls, films: [...lantern.films.values()] });
+    if (u.pathname === "/lantern/mcp" && req.method === "POST") {
+      if (req.headers.authorization !== "Bearer lantern-test-key") return json(res, 401, { error: "unauthorized" });
+      const m = JSON.parse(bodyText || "{}") as { id?: number; method: string; params?: { name?: string; arguments?: Record<string, unknown> } };
+      if (m.method === "notifications/initialized") {
+        res.writeHead(202);
+        return res.end();
+      }
+      if (m.method === "initialize") {
+        res.writeHead(200, { "content-type": "application/json", "mcp-session-id": "lantern-session-1" });
+        return res.end(JSON.stringify({ jsonrpc: "2.0", id: m.id, result: { protocolVersion: "2025-06-18", capabilities: { tools: {} }, serverInfo: { name: "fake-lanternist", version: "0" } } }));
+      }
+      if (req.headers["mcp-session-id"] !== "lantern-session-1") return json(res, 400, { jsonrpc: "2.0", id: m.id, error: { code: -32000, message: "no session" } });
+      const name = m.params?.name ?? "";
+      const a = m.params?.arguments ?? {};
+      lantern.calls.push({ name, args: a });
+      let out: unknown;
+      let isError = false;
+      if (name === "create_project") {
+        const id = `film-${lantern.films.size + 1}`;
+        let t = 0;
+        const shots = ((a.shots as { description: string; duration?: number; narration?: string; image_prompt?: string }[]) ?? []).map((sh, i) => {
+          const d = sh.duration ?? 5;
+          const row = { id: `${id}-shot-${i + 1}`, scene_number: i + 1, start_time: t, end_time: t + d, description: sh.description, voiceover_script: sh.narration ?? null, image_prompt: sh.image_prompt ?? null, generated_image: null as string | null };
+          t += d;
+          return row;
+        });
+        lantern.films.set(id, { id, title: a.title, aspect_ratio: a.aspect_ratio, style: a.style, shots, reviewUrl: null as string | null });
+        out = { project_id: id, shots: shots.length, editor_url: `https://lanternist.example/editor?project=${id}` };
+      } else if (name === "get_project") {
+        const f = lantern.films.get(String(a.project_id));
+        out = f ?? null;
+        isError = !f;
+      } else if (name === "list_projects") out = { projects: [...lantern.films.values()].map((f) => ({ id: f.id, title: f.title })) };
+      else if (name === "make_picture") {
+        const shot = [...lantern.films.values()].flatMap((f) => f.shots).find((x) => x.id === a.scene_id);
+        if (shot) shot.generated_image = `https://lanternist.example/img/${shot.id}.png`;
+        out = shot ? { ok: true } : null;
+        isError = !shot;
+      } else if (name === "create_review_link") {
+        const f = lantern.films.get(String(a.project_id));
+        if (f) f.reviewUrl = `https://lanternist.example/v/${f.id}`;
+        out = f ? { review_url: f.reviewUrl } : null;
+        isError = !f;
+      } else {
+        isError = true;
+        out = `unknown tool ${name}`;
+      }
+      const result = { content: [{ type: "text", text: typeof out === "string" ? out : JSON.stringify(out) }], isError };
+      res.writeHead(200, { "content-type": "text/event-stream" });
+      return res.end(`event: message\ndata: ${JSON.stringify({ jsonrpc: "2.0", id: m.id, result })}\n\n`);
+    }
     if (u.pathname === "/jev/v1/systemone" && req.method === "POST") {
       if (req.headers.authorization !== "Bearer jev-test-key") return json(res, 401, { error: "invalid api key" });
       const b = JSON.parse(bodyText || "{}") as { model?: string; state?: { request?: string } | string; questions?: Record<string, { type: string; criteria?: Record<string, string> | string[] }> };

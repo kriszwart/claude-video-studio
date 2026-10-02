@@ -7,6 +7,7 @@ import { useClaudeStatus } from "@/lib/client/claude";
 import { AssistantPanel } from "./AssistantPanel";
 import { AudioPanel } from "./AudioPanel";
 import { ExportPanel } from "./ExportPanel";
+import { LanternistPanel } from "./LanternistPanel";
 import { QualityPanel } from "./QualityPanel";
 import { DebouncedText } from "./fields";
 import { Preview, type PreviewClock, type PreviewHandle } from "./Preview";
@@ -179,6 +180,7 @@ export function Editor({ projectId }: { projectId: string }) {
               <div className="space-y-6">
                 <QualityPanel projectId={projectId} revisionId={p.revisionId} jobs={view.jobs} blocking={blocking.length > 0} />
                 <ExportPanel projectId={projectId} doc={doc} revisionId={p.revisionId} exports={view.exports} jobs={view.jobs} blocking={blocking.length > 0} />
+                <LanternistPanel projectId={projectId} jobs={view.jobs} />
               </div>
             )}
             {tab === "project" && <ProjectPanel doc={doc} view={view} apply={p.apply} />}
