@@ -54,11 +54,13 @@ test.describe.serial("Jev suggestions", () => {
     expect(sent.at(-1)!.state.request).toContain("vertical TikTok launch");
   });
 
-  test("templates built from your own recording are suggested only when footage is attached", async ({ request }) => {
+  test("templates built from your own recording are suggested before footage is attached, marked as needing it", async ({ request }) => {
     await request.put("/api/settings/providers", { data: { provider: "jev", secret: "jev-test-key" } });
-    const ask = async (video: number) => (await (await request.post("/api/compose/suggest", { data: { prompt: "A short course lesson that teaches focus time", attachments: { video } } })).json()).suggestion.templateId?.value;
-    expect(await ask(0)).not.toBe("course-lesson");
-    expect(await ask(1)).toBe("course-lesson");
+    const ask = async (video: number) => (await (await request.post("/api/compose/suggest", { data: { prompt: "A short course lesson that teaches focus time", attachments: { video } } })).json()).suggestion.templateId;
+    expect(await ask(0)).toMatchObject({ value: "course-lesson", needsRecording: true });
+    const withFootage = await ask(1);
+    expect(withFootage.value).toBe("course-lesson");
+    expect(withFootage.needsRecording).toBeUndefined();
   });
 
   test("a slow answer is dropped without blocking anything", async ({ request }) => {

@@ -127,6 +127,26 @@ spectrum and level measurements (this environment has no speakers — "listened"
 Suites not re-run for §28 (no code path they cover changed beyond the job-state enum and API
 origin check): `m2`–`m7`, `generation`, `a16-templates`; their results above stand.
 
+## Full regression run (2026-10-02, all suites)
+
+Every unit and end-to-end suite against the committed code after Send to Lanternist and picture
+hosting, the glitch/phone/loop checks, sound effects, screen demos, counting numbers, lock to the
+beat, the critic's "what I'd still change" and notes as problem + result, and the pro editor UI.
+Local stand-ins as before (Claude Agent SDK test double, fake fal/OpenRouter/Jev/Lanternist/S3,
+fake OmniVoice/ElevenLabs).
+
+| Suite | Result |
+| --- | --- |
+| Unit/integration (`pnpm test`, vitest, 45 files) | 239 passed, 1 skipped (macOS-only) |
+| Typecheck (all packages + web + worker) | clean |
+| End-to-end on the dev server (39 specs, 1.5 h, including `m7-graphics` Redraw + Skia, 12.7 min) | 86 passed, 1 failed, 1 not run (next test in that serial group) |
+| `jev` re-run after the test fix below | 4 passed |
+| `security` (A14, A15, A33) vs password-mode production build | 5 passed |
+
+The one failure: `jev` still expected templates built from the owner's recording to be hidden until
+footage is attached. Since 2026-10-01 they are suggested beforehand, marked "add your recording"
+(commit bc69b48); the test now checks that. No application code changed as a result.
+
 ## Full regression run (2026-10-01, all suites)
 
 Every unit and end-to-end suite, run against the committed code after the phase 1–4 features, the
