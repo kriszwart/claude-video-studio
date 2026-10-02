@@ -261,3 +261,21 @@ describe("screen demo text while zoomed", () => {
     expect(backed.fadedOut).not.toContain(backed.headlineSel);
   });
 });
+
+describe("non-breaking spaces", () => {
+  it("keep words joined by a non-breaking space in one word, so a line never breaks there", () => {
+    const { doc } = build("16:9");
+    const cta = doc.scenes.at(-1)!;
+    const label = cta.layers.find((l) => l.kind === "text")!;
+    if (label.kind === "text") label.text = "Call 01472 250390 today";
+    const assets = new Map<string, StagedAsset>([
+      ["s1", { file: "assets/s1.png", kind: "image", width: 1440, height: 900 }],
+      ["s2", { file: "assets/s2.png", kind: "image", width: 1440, height: 900 }],
+      ["logo", { file: "assets/logo.png", kind: "image" }],
+    ]);
+    const out = compileComposition(doc, { scale: 1, assets, fonts: [{ family: "Space Grotesk", weight: 700, file: "fonts/sg.woff2" }], gsapFile: "vendor/gsap.min.js", audioMix: null } as never);
+    const { document } = parseHTML(out.html);
+    const words = [...document.querySelectorAll(`#l-${cta.id}-${label.id} .w`)].map((w) => w.textContent);
+    expect(words).toEqual(["Call", "01472 250390", "today"]);
+  });
+});

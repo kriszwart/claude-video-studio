@@ -294,7 +294,7 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
         case "text": {
           // Display text rises word by word from behind a mask (the "kinetic" reveal); other
           // roles keep their block entrance. Words stay in place for fitting and captions.
-          const masked = !layer.count && layer.animation.in === "rise" && !layer.animation.stagger && MASKED_ROLES.has(layer.role) && layer.text.split(/\s+/).length <= 18;
+          const masked = !layer.count && layer.animation.in === "rise" && !layer.animation.stagger && MASKED_ROLES.has(layer.role) && layer.text.split(WORD_GAP).length <= 18;
           if (layer.count) {
             // Every frame shows its exact value (no tweening between frames, so nothing in between is ever drawn).
             let last = "";
@@ -305,13 +305,13 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           }
           parts.push(textHtml(layer, lid, box, z, slot, brand, profile.typeScale * unit, masked));
           if (masked) {
-            const n = Math.max(1, layer.text.split(/\s+/).filter(Boolean).length);
+            const n = Math.max(1, layer.text.split(WORD_GAP).filter(Boolean).length);
             tweens.push(`tl.fromTo("#${lid} .wm > .w",{yPercent:115},{yPercent:0,duration:${f3(Math.max(0.35, Number(m.dur) * 0.9))},stagger:${f3(Math.min(0.09, (dur * 0.3) / n))},ease:"power4.out"},${delay});`);
           } else {
             tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m, layer.animation.stagger));
           }
           if (layer.animation.in === "type" || layer.animation.stagger) {
-            tweens.push(`tl.fromTo("#${lid} .w",{opacity:0,y:${f3(m.dist * 0.4)}},{opacity:1,y:0,duration:${f3(m.dur * 0.6)},stagger:${f3(Math.min(0.12, (dur * 0.35) / Math.max(1, layer.text.split(/\s+/).length)))},ease:"power2.out"},${delay});`);
+            tweens.push(`tl.fromTo("#${lid} .w",{opacity:0,y:${f3(m.dist * 0.4)}},{opacity:1,y:0,duration:${f3(m.dur * 0.6)},stagger:${f3(Math.min(0.12, (dur * 0.35) / Math.max(1, layer.text.split(WORD_GAP).length)))},ease:"power2.out"},${delay});`);
           }
           // Gentle drift while on screen, so held frames are never frozen.
           tweens.push(`tl.fromTo("#${lid} .fit",{y:0},{y:${f3(-(6 + 10 * m.k) * unit)},duration:${dur},ease:"none"},${start});`);
@@ -726,7 +726,7 @@ function textHtml(layer: TextLayer, lid: string, box: Box, z: number, slot: Slot
   const words = layer.count
     ? `<span class="w num" id="${lid}-num" style="font-variant-numeric:tabular-nums;white-space:nowrap">${escapeHtml(widestCount(layer.count))}</span>`
     : escapeHtml(layer.text)
-        .split(/(\s+)/)
+        .split(/([ \t\n\r]+)/)
         .map((w) => (w.trim() ? (masked ? `<span class="wm"><span class="w">${w}</span></span>` : `<span class="w">${w}</span>`) : w))
         .join("");
   const inner =
@@ -778,6 +778,9 @@ function mediaStyle(fit: string, focal: { x: number; y: number }, frame: string)
  * ripples in the same camera (so they zoom with it). Camera and cursor are set on every frame from
  * demoMotion, so every frame is an exact function of time.
  */
+/** Word boundaries in display text: ordinary whitespace only. A non-breaking space joins words. */
+const WORD_GAP = /[ \t\n\r]+/;
+
 /** Stacking for a screen demo layer: above decoration (z 0-9), below text and media slots (z 20+). */
 const DEMO_Z = 15;
 
