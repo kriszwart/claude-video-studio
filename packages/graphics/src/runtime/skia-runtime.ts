@@ -7,6 +7,7 @@
  *    listener returns. No wall clock, no requestAnimationFrame, seeded randomness only.
  */
 import { sketchIconFor } from "../../../compositor/src/sketch";
+import { inflate, lerp3, morphAt, norm, SOLIDS, subdivide, type Tri, type V3 } from "./polyhedra";
 import type { Canvas, CanvasKit, Image, Paint, Path, Surface, Typeface } from "canvaskit-wasm";
 
 declare const CanvasKitInit: (opts: { locateFile: (f: string) => string }) => Promise<CanvasKit>;
@@ -355,11 +356,161 @@ function sketch(ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number) {
   paint.delete();
 }
 
+
+/**
+ * platonic-morph v1: a lit, slowly turning 3D platonic solid that mutates through a sequence of
+ * solids. Each solid inflates into a sphere and the next deflates out of it (seamless at the
+ * sphere); faces drift through the palette, edges curve as it inflates. Pure function of t.
+ */
+const platonicCache = new Map<string, Tri[]>();
+function platonicMorph(ck: CanvasKit, c: Canvas, L: Layer, t: number) {
+  const p = L.spec.params;
+  const seq = String(p.sequence ?? "tetrahedron,cube,octahedron,dodecahedron,icosahedron").split(",").map((x) => x.trim().toLowerCase()).filter((x) => SOLIDS[x]);
+  if (!seq.length) return;
+  const hold = Math.max(0.2, Number(p.holdSec ?? 1.6));
+  const morph = Math.max(0.2, Number(p.morphSec ?? 1.4));
+  const detail = Math.max(1, Math.min(3, Math.round(Number(p.detail ?? 2))));
+  const st = morphAt(t, seq.length, hold, morph);
+  const solid = SOLIDS[seq[st.index]!]!;
+  const key = `${solid.name}@${detail}`;
+  if (!platonicCache.has(key)) platonicCache.set(key, subdivide(solid, detail));
+  const tris = platonicCache.get(key)!;
+  const palette = String(p.colors ?? "#8b5cf6,#ec4899,#fb7a5a").split(",").map((x) => x.trim()).filter((x) => /^#[0-9a-f]{6}$/i.test(x));
+  const cols = (palette.length ? palette : ["#8b5cf6"]).map((h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]);
+  const W = L.spec.width, H = L.spec.height, unit = L.spec.unit ?? 1;
+  const R = Math.min(W, H) * 0.5 * Math.max(0.2, Math.min(1.2, Number(p.size ?? 0.85)));
+  const cx = W / 2, cy = H / 2, D = 4.2;
+  const spin = Number(p.spin ?? 0.35);
+  const yaw = t * spin * Math.PI * 0.6, pitch = 0.45 + 0.22 * Math.sin(t * 0.37), roll = 0.12 * Math.sin(t * 0.23);
+  const [cyw, syw, cp, sp, cr, sr] = [Math.cos(yaw), Math.sin(yaw), Math.cos(pitch), Math.sin(pitch), Math.cos(roll), Math.sin(roll)];
+  const breathe = 1 + 0.035 * Math.sin(t * 1.3) + 0.06 * st.inflation;
+  const rot = (q: V3): V3 => {
+    let [x, y, z] = q;
+    [x, z] = [x * cyw + z * syw, -x * syw + z * cyw];
+    [y, z] = [y * cp - z * sp, y * sp + z * cp];
+    [x, y] = [x * cr - y * sr, x * sr + y * cr];
+    return [x * breathe, y * breathe, z * breathe];
+  };
+  const proj = (q: V3): [number, number] => {
+    const k = D / (D - q[2]);
+    return [cx + q[0] * R * k, cy - q[1] * R * k];
+  };
+  const light = norm([-0.45, 0.62, 0.65]);
+  const half = norm([light[0], light[1], light[2] + 1]);
+  const faces = solid.faces.length;
+  // Current palette colour, for the glow behind the solid.
+  const gpos = (st.progress * 1.5 * cols.length) % cols.length;
+  const g0 = cols[Math.floor(gpos)]!, g1 = cols[(Math.floor(gpos) + 1) % cols.length]!, gf = gpos - Math.floor(gpos);
+  const glowRgb = g0.map((v, k) => Math.round(v + (g1[k]! - v) * gf));
+  if (p.glow !== false) {
+    const halo: Paint = new ck.Paint();
+    halo.setAntiAlias(true);
+    halo.setShader(ck.Shader.MakeRadialGradient([cx, cy], R * 1.9, [ck.Color(glowRgb[0]!, glowRgb[1]!, glowRgb[2]!, 0.34), ck.Color(glowRgb[0]!, glowRgb[1]!, glowRgb[2]!, 0)], [0, 1], ck.TileMode.Clamp));
+    c.drawCircle(cx, cy, R * 1.9, halo);
+    halo.delete();
+    // A soft shadow on an imagined floor, so the solid floats.
+    const shadow: Paint = new ck.Paint();
+    shadow.setAntiAlias(true);
+    shadow.setColor(ck.Color(0, 0, 0, 0.45));
+    shadow.setMaskFilter(ck.MaskFilter.MakeBlur(ck.BlurStyle.Normal, R * 0.09, false));
+    const sw = R * (1.05 + 0.08 * st.inflation);
+    c.drawOval(ck.LTRBRect(cx - sw, cy + R * 1.18, cx + sw, cy + R * 1.34), shadow);
+    shadow.delete();
+  }
+  const drawn: { z: number; pts: [number, number][]; rgb: number[]; a: number }[] = [];
+  for (const tri of tris) {
+    const q = tri.p.map((v) => rot(inflate(v, st.inflation))) as [V3, V3, V3];
+    const e1: V3 = [q[1][0] - q[0][0], q[1][1] - q[0][1], q[1][2] - q[0][2]];
+    const e2: V3 = [q[2][0] - q[0][0], q[2][1] - q[0][1], q[2][2] - q[0][2]];
+    const n = norm([e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0]]);
+    if (n[2] <= 0) continue; // facing away
+    const diff = Math.max(0, n[0] * light[0] + n[1] * light[1] + n[2] * light[2]);
+    const spec = Math.pow(Math.max(0, n[0] * half[0] + n[1] * half[1] + n[2] * half[2]), 28);
+    // Palette position drifts with time and differs per original face.
+    const pos = ((tri.face / faces) * 0.6 + st.progress * 1.5) * cols.length;
+    const i0 = Math.floor(pos) % cols.length, i1 = (i0 + 1) % cols.length, f = pos - Math.floor(pos);
+    const base = cols[i0]!.map((v, k) => v + (cols[i1]![k]! - v) * f);
+    // Key light, a rim light from behind (edges glow in the palette colour) and a specular hit.
+    const rim = Math.pow(1 - n[2], 2.2) * 0.55;
+    const shade = 0.32 + 0.82 * diff;
+    const rgb = base.map((v, k) => Math.min(255, v * shade + glowRgb[k]! * rim + 255 * spec * 0.6));
+    drawn.push({ z: (q[0][2] + q[1][2] + q[2][2]) / 3, pts: q.map(proj), rgb, a: 0.94 });
+  }
+  drawn.sort((a, b) => a.z - b.z);
+  const fill: Paint = new ck.Paint();
+  fill.setAntiAlias(true);
+  const seam: Paint = new ck.Paint();
+  seam.setAntiAlias(true);
+  seam.setStyle(ck.PaintStyle.Stroke);
+  seam.setStrokeWidth(Math.max(0.8, 0.9 * unit));
+  for (const d of drawn) {
+    const pb = new ck.PathBuilder();
+    pb.moveTo(d.pts[0]![0], d.pts[0]![1]);
+    pb.lineTo(d.pts[1]![0], d.pts[1]![1]);
+    pb.lineTo(d.pts[2]![0], d.pts[2]![1]);
+    pb.close();
+    const path = pb.detach();
+    const col = ck.Color(Math.round(d.rgb[0]!), Math.round(d.rgb[1]!), Math.round(d.rgb[2]!), d.a);
+    fill.setColor(col);
+    seam.setColor(col);
+    c.drawPath(path, fill);
+    c.drawPath(path, seam); // closes hairline gaps between neighbouring triangles
+    path.delete();
+  }
+  // Edges of the solid itself: curved as it inflates, fading toward the sphere.
+  const edgeA = (1 - st.inflation * 0.85) * (p.edges === false ? 0 : 1);
+  if (edgeA > 0.02) {
+    const edgeHex = String(p.edgeColor ?? "#ffffff");
+    const glow: Paint = new ck.Paint();
+    glow.setAntiAlias(true);
+    glow.setStyle(ck.PaintStyle.Stroke);
+    glow.setStrokeCap(ck.StrokeCap.Round);
+    glow.setStrokeWidth(9 * unit);
+    glow.setColor(hex(ck, edgeHex, 0.14 * edgeA));
+    const line: Paint = new ck.Paint();
+    line.setAntiAlias(true);
+    line.setStyle(ck.PaintStyle.Stroke);
+    line.setStrokeCap(ck.StrokeCap.Round);
+    line.setStrokeWidth(2.4 * unit);
+    line.setColor(hex(ck, edgeHex, 0.92 * edgeA));
+    for (const [a, b] of solid.edges) {
+      const va = solid.vertices[a]!, vb = solid.vertices[b]!;
+      const mid = rot(inflate(lerp3(va, vb, 0.5), st.inflation));
+      if (mid[2] < -0.05) continue; // behind the solid
+      const pb = new ck.PathBuilder();
+      for (let k = 0; k <= 16; k++) {
+        const [x, y] = proj(rot(inflate(lerp3(va, vb, k / 16), st.inflation)));
+        if (k === 0) pb.moveTo(x, y);
+        else pb.lineTo(x, y);
+      }
+      const path = pb.detach();
+      c.drawPath(path, glow);
+      c.drawPath(path, line);
+      path.delete();
+    }
+    const dot: Paint = new ck.Paint();
+    dot.setAntiAlias(true);
+    dot.setColor(hex(ck, edgeHex, edgeA));
+    for (const v of solid.vertices) {
+      const q = rot(inflate(v, st.inflation));
+      if (q[2] < -0.05) continue;
+      const [x, y] = proj(q);
+      c.drawCircle(x, y, 4.2 * unit, dot);
+    }
+    glow.delete();
+    line.delete();
+    dot.delete();
+  }
+  fill.delete();
+  seam.delete();
+}
+
 const COMPONENTS: Record<string, (ck: CanvasKit, c: Canvas, L: Layer, t: number, dur: number) => void> = {
   "path-diagram@1": pathDiagram,
   "sketch@1": sketch,
   "mask-reveal@1": maskReveal,
   "type-overlay@1": typeOverlay,
+  "platonic-morph@1": platonicMorph,
 };
 
 // ---------------------------------------------------------------------------
