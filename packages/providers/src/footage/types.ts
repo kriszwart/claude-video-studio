@@ -122,17 +122,27 @@ export function attributionLine(i: { title: string; creator: string | null; lice
 /** Licences that may be imported (unknown only with the owner's explicit confirmation). */
 export const IMPORTABLE: LicenseStatus[] = ["public_domain", "cc0", "attribution", "platform", "unknown"];
 
+/** Identifies the app to the sources (Wikimedia asks every client for a name and a link). */
+export const FOOTAGE_USER_AGENT = "Fluxtify/1.0 (https://fluxtify.com; footage search)";
+
 export async function getJson(f: Fetch, url: string, init: RequestInit = {}, timeoutMs = 15_000): Promise<unknown> {
-  const ac = new AbortController();
-  const t = setTimeout(() => ac.abort(), timeoutMs);
-  let r: Response;
-  try {
-    r = await f(url, { ...init, signal: ac.signal, headers: { Accept: "application/json", "User-Agent": "claude-video-studio (footage search)", ...(init.headers ?? {}) } });
-  } catch {
-    throw new FootageError("provider_error", "The footage service could not be reached.");
-  } finally {
-    clearTimeout(t);
+  let r: Response | undefined;
+  // A rate-limited request is retried once after the wait the source asks for (up to 15 s).
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const ac = new AbortController();
+    const t = setTimeout(() => ac.abort(), timeoutMs);
+    try {
+      r = await f(url, { ...init, signal: ac.signal, headers: { Accept: "application/json", "User-Agent": FOOTAGE_USER_AGENT, ...(init.headers ?? {}) } });
+    } catch {
+      throw new FootageError("provider_error", "The footage service could not be reached.");
+    } finally {
+      clearTimeout(t);
+    }
+    if (r.status !== 429 || attempt === 1) break;
+    const wait = Number(r.headers.get("retry-after"));
+    await new Promise((res) => setTimeout(res, Math.min(15, Number.isFinite(wait) && wait > 0 ? wait : 3) * 1000));
   }
+  if (!r) throw new FootageError("provider_error", "The footage service could not be reached.");
   if (r.status === 429) throw new FootageError("rate_limited", "The footage service is rate-limiting requests. Try again in a minute.", 429);
   if (r.status === 404) throw new FootageError("not_found", "That item no longer exists at the source.", 404);
   if (r.status === 401 || r.status === 403) throw new FootageError("not_configured", "The footage service rejected the API key.", 412);

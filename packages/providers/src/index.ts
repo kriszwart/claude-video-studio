@@ -23,3 +23,4 @@ export * from "./jev/client";
 export * from "./jev/suggest";
 export * from "./lanternist/mcp";
 export * from "./lanternist/lanternist";
+export * from "./claude/footage";

@@ -4,6 +4,7 @@ import { secondsToFrames, TRANSITION_TYPES, type Background, type Layer, type Op
 import { useEffect, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
 import { FootageSearch } from "@/components/FootageSearch";
+import { MatchFootage } from "./MatchFootage";
 import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
 import { projectVoiceId, VoiceDirectionControls } from "./VoiceDirectionControls";
@@ -13,7 +14,7 @@ const TRANSITION_LABEL: Record<(typeof TRANSITION_TYPES)[number], string> = { cu
 const FRAMES = ["none", "card", "laptop", "phone", "circle", "rounded"] as const;
 const ENTRANCES = ["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw"] as const;
 
-export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; scene: Scene; apply: (ops: Operation[]) => Promise<boolean> }) {
+export function SceneInspector({ projectId, doc, scene, apply }: { projectId: string; doc: ProjectDocument; scene: Scene; apply: (ops: Operation[]) => Promise<boolean> }) {
   const fps = doc.format.fps;
   const locked = scene.locked;
   const colors = doc.brand.colors as Record<string, string>;
@@ -24,6 +25,7 @@ export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; sc
 
   return (
     <div className="space-y-4">
+      <MatchFootage projectId={projectId} doc={doc} apply={apply} />
       <div className="flex items-start justify-between gap-2">
         <div>
           <h3 className="font-medium">
@@ -128,6 +130,13 @@ function BackgroundEditor({ bg, colors, query, onChange }: { bg: Background; col
   // "asset" can be chosen before an image or clip is picked; the scene changes once one is.
   const [mode, setMode] = useState<Background["type"]>(bg.type);
   const [finding, setFinding] = useState(false);
+  // Which picker shows the current background: look up whether it is an image or a clip.
+  const [bgKind, setBgKind] = useState<string | null>(null);
+  const bgAsset = bg.type === "asset" ? bg.assetId : null;
+  useEffect(() => {
+    if (!bgAsset) return setBgKind(null);
+    api<{ asset: { kind: string } }>(`/api/assets/${bgAsset}`).then((r) => setBgKind(r.asset.kind)).catch(() => setBgKind(null));
+  }, [bgAsset]);
   const setAsset = (assetId: string | undefined) => assetId && onChange({ type: "asset", assetId, dim: bg.type === "asset" ? bg.dim : 0.35, blur: bg.type === "asset" ? bg.blur : 0 });
   return (
     <div>
@@ -161,11 +170,11 @@ function BackgroundEditor({ bg, colors, query, onChange }: { bg: Background; col
             <div className="grid grid-cols-2 gap-2 text-xs">
               <div>
                 <div className="mb-1 text-dim">Image</div>
-                <AssetPicker kind="image" value={bg.type === "asset" ? [bg.assetId] : []} onChange={(ids) => setAsset(ids[0])} />
+                <AssetPicker kind="image" value={bgAsset && bgKind !== "video" ? [bgAsset] : []} onChange={(ids) => setAsset(ids[0])} />
               </div>
               <div>
                 <div className="mb-1 text-dim">Video clip</div>
-                <AssetPicker kind="video" value={bg.type === "asset" ? [bg.assetId] : []} onChange={(ids) => setAsset(ids[0])} />
+                <AssetPicker kind="video" value={bgAsset && bgKind === "video" ? [bgAsset] : []} onChange={(ids) => setAsset(ids[0])} />
               </div>
             </div>
             {bg.type === "asset" && (
