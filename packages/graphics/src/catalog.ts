@@ -15,7 +15,7 @@ export interface ComponentParam {
 export interface ComponentDef {
   id: string;
   version: number;
-  backend: "skia" | "redraw";
+  backend: "skia" | "redraw" | "three";
   name: string;
   description: string;
   params: ComponentParam[];
@@ -106,11 +106,36 @@ export const COMPONENTS: ComponentDef[] = [
       { name: "edgeColor", kind: "color", default: "#ffffff", label: "Edge colour" },
       { name: "edges", kind: "boolean", default: true, label: "Show edges" },
       { name: "spin", kind: "number", default: 0.35, min: 0, max: 3, label: "Spin speed" },
-      { name: "size", kind: "number", default: 0.85, min: 0.2, max: 1.2, label: "Size (share of the box)" },
+      // Not "size": the compiler scales a "size" param as pixels at 1080p.
+      { name: "fill", kind: "number", default: 0.62, min: 0.2, max: 1.2, label: "Size (share of the box)" },
       { name: "glow", kind: "boolean", default: true, label: "Glow and floor shadow" },
       { name: "detail", kind: "number", default: 2, min: 1, max: 3, label: "Smoothness of the sphere stage" },
     ],
     notes: ["Rendered in 3D on the CPU (Skia): exact and repeatable on every render."],
+    seekable: true,
+  },
+  {
+    id: "platonic-shader",
+    version: 1,
+    backend: "three",
+    name: "Platonic shader morph",
+    description: "An iridescent, shader-lit platonic solid on the GPU: each solid melts into a rippling, twisting sphere and the next one grows out of it, with a glow shell and drifting particles.",
+    params: [
+      { name: "sequence", kind: "text", default: "tetrahedron,cube,octahedron,dodecahedron,icosahedron", label: "Solids in order (separate with ,)" },
+      { name: "holdSec", kind: "number", default: 2, min: 0.2, max: 10, label: "Seconds each solid holds" },
+      { name: "morphSec", kind: "number", default: 1.8, min: 0.2, max: 10, label: "Seconds per mutation" },
+      { name: "colors", kind: "text", default: "#8b5cf6,#ec4899,#fb7a5a,#38bdf8", label: "Colours (hex, separate with ,)" },
+      { name: "edgeColor", kind: "color", default: "#f5f3ff", label: "Edge colour" },
+      { name: "edges", kind: "boolean", default: true, label: "Show edges" },
+      { name: "mutation", kind: "number", default: 1, min: 0, max: 2, label: "Ripple and twist during a mutation" },
+      { name: "iridescence", kind: "number", default: 1, min: 0, max: 2, label: "Iridescent sheen" },
+      { name: "spin", kind: "number", default: 0.4, min: 0, max: 3, label: "Spin speed" },
+      // Not "size": the compiler scales a "size" param as pixels at 1080p.
+      { name: "fill", kind: "number", default: 0.6, min: 0.2, max: 1.2, label: "Size (share of the box)" },
+      { name: "particles", kind: "number", default: 420, min: 0, max: 2000, label: "Particles" },
+      { name: "detail", kind: "number", default: 3, min: 2, max: 4, label: "Mesh detail" },
+    ],
+    notes: ["Rendered with three.js (WebGL) shaders; requires a worker that reports three.js support."],
     seekable: true,
   },
   {

@@ -98,7 +98,7 @@ export async function routingStatus(db: DbOrTx, requires: string[]) {
   const live = await db.query.workerCapabilities.findMany({ where: gt(workerCapabilities.heartbeatAt, new Date(Date.now() - 120_000)) });
   const ok = live.some((w) => requires.every((r) => (w.capabilities as { graphics?: Record<string, unknown> }).graphics?.[r] === true));
   if (ok) return { blocked: false as const };
-  const names = requires.map((r) => (r === "redraw" ? "Redraw (WebGPU)" : r === "skia" ? "Skia" : r)).join(" + ");
+  const names = requires.map((r) => (r === "redraw" ? "Redraw (WebGPU)" : r === "skia" ? "Skia" : r === "three" ? "three.js (WebGL)" : r)).join(" + ");
   return { blocked: true as const, reason: `No online worker can render ${names} layers. The job waits until a compatible worker is available; you can cancel it, or hide/replace those layers with a reviewed alternative.` };
 }
 

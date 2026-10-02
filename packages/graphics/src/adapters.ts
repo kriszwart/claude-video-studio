@@ -1,4 +1,4 @@
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { mkdir, readdir, stat } from "node:fs/promises";
 import { createRequire } from "node:module";
 import { dirname, join } from "node:path";
@@ -9,6 +9,8 @@ import { findComponent } from "./catalog";
 import { redrawAvailable, redrawRuntime } from "./redraw";
 
 const require = createRequire(import.meta.url);
+// three's "exports" map hides package.json; read it next to the resolved build file.
+const THREE_VERSION: string = (JSON.parse(readFileSync(join(dirname(require.resolve("three")), "..", "package.json"), "utf8")) as { version: string }).version;
 const here = dirname(new URL(import.meta.url).pathname);
 
 export interface GraphicsCompilerLike {
@@ -20,6 +22,7 @@ export interface GraphicsCompilerLike {
 export interface GraphicsCapabilities {
   skia: { available: boolean; version: string; binding: "canvaskit-wasm"; surface: "cpu-raster" };
   redraw: { available: boolean; version: string | null; checksum: string | null; reason?: string };
+  three: { available: boolean; version: string };
 }
 
 export async function graphicsCapabilities(): Promise<GraphicsCapabilities> {
@@ -27,6 +30,8 @@ export async function graphicsCapabilities(): Promise<GraphicsCapabilities> {
   return {
     skia: { available: true, version: "canvaskit-wasm@0.42.0", binding: "canvaskit-wasm", surface: "cpu-raster" },
     redraw: { available: r.available, version: r.version, checksum: r.checksum, reason: r.reason },
+    // WebGL in the render browser: hardware GPU when there is one, SwiftShader otherwise.
+    three: { available: true, version: `three@${THREE_VERSION}` },
   };
 }
 
@@ -45,7 +50,7 @@ function specScript(spec: Record<string, unknown>): string {
  * Build a compiler for the backends a document needs. Throws GraphicsUnavailableError
  * when a required backend is not usable on this worker (never a blank layer).
  */
-export async function createGraphicsCompiler(backends: Set<"skia" | "redraw">, cacheDir: string): Promise<GraphicsCompilerLike> {
+export async function createGraphicsCompiler(backends: Set<"skia" | "redraw" | "three">, cacheDir: string): Promise<GraphicsCompilerLike> {
   await mkdir(cacheDir, { recursive: true });
   const files: { path: string; source: string }[] = [];
   const versions: Record<string, string> = {};
@@ -54,6 +59,12 @@ export async function createGraphicsCompiler(backends: Set<"skia" | "redraw">, c
     const runtime = await bundleRuntime(join(here, "runtime", "skia-runtime.ts"), join(cacheDir, "skia"), { external: ["canvaskit-wasm"] });
     files.push({ path: "vendor/canvaskit.js", source: join(ckDir, "canvaskit.js") }, { path: "vendor/canvaskit.wasm", source: join(ckDir, "canvaskit.wasm") }, { path: "vendor/vs-skia.js", source: runtime });
     versions.skia = `canvaskit-wasm@0.42.0; runtime ${runtime.split("/").pop()}`;
+  }
+  if (backends.has("three")) {
+    // three.js is bundled into the runtime (it has no wasm or separate assets).
+    const runtime = await bundleRuntime(join(here, "runtime", "three-runtime.ts"), join(cacheDir, "three"));
+    files.push({ path: "vendor/vs-three.js", source: runtime });
+    versions.three = `three@${THREE_VERSION}; runtime ${runtime.split("/").pop()}`;
   }
   if (backends.has("redraw")) {
     const r = await redrawRuntime(cacheDir);
@@ -87,7 +98,7 @@ export async function createGraphicsCompiler(backends: Set<"skia" | "redraw">, c
       return {
         html: `<canvas id="gfx-${layer.id}" width="${w}" height="${h}" style="width:100%;height:100%;display:block"></canvas>`,
         script: specScript(spec),
-        scriptSrcs: layer.backend === "skia" ? ["vendor/canvaskit.js", "vendor/vs-skia.js"] : ["vendor/vs-redraw.js"],
+        scriptSrcs: layer.backend === "skia" ? ["vendor/canvaskit.js", "vendor/vs-skia.js"] : layer.backend === "three" ? ["vendor/vs-three.js"] : ["vendor/vs-redraw.js"],
         files,
       };
     },

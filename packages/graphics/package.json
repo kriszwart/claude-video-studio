@@ -17,9 +17,11 @@
     "@vs/compositor": "workspace:*",
     "@vs/domain": "workspace:*",
     "canvaskit-wasm": "0.42.0",
+    "three": "0.181.2",
     "typegpu": "0.12.6"
   },
   "devDependencies": {
+    "@types/three": "0.181.0",
     "@vs/rendering": "workspace:*",
     "@vs/templates": "workspace:*",
     "@webgpu/types": "0.1.74",

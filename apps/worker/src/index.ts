@@ -45,7 +45,7 @@ async function main() {
   const caps = await workerCapabilities();
   // Capability routing (FR-21): jobs whose composition needs graphics backends go to a queue
   // named after those backends; this worker only consumes queues it can actually run.
-  const backends = (["redraw", "skia"] as const).filter((b) => caps.graphics[b]);
+  const backends = (["redraw", "skia", "three"] as const).filter((b) => caps.graphics[b]);
   const subsets = backends.reduce<string[][]>((acc, b) => [...acc, ...acc.map((x) => [...x, b])], [[]]);
   // Live previews get their own queues so the editor's player never waits behind a long export.
   const consumed = [...subsets.map((sub) => queueNameFor(QUEUE, sub)), ...subsets.map((sub) => queueNameFor(`${QUEUE}-live`, sub))];
@@ -68,7 +68,7 @@ async function main() {
 
   const publish = async (job: { id: string; type: string; runAfter: Date; input: unknown }) => {
     const delay = Math.max(0, job.runAfter.getTime() - Date.now());
-    const requires = ((job.input as { requires?: string[] }).requires ?? []).filter((r) => r === "redraw" || r === "skia");
+    const requires = ((job.input as { requires?: string[] }).requires ?? []).filter((r) => r === "redraw" || r === "skia" || r === "three");
     // jobId + attempt marker keeps BullMQ deduplication while allowing retries to republish.
     await queueFor(queueNameFor(job.type === "live_preview" ? `${QUEUE}-live` : QUEUE, requires)).add(job.type, { jobId: job.id }, { jobId: `${job.id}-${Date.now()}`, delay, removeOnComplete: true, removeOnFail: true });
   };

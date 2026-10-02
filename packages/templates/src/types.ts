@@ -95,7 +95,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("graphics"),
     slot: z.string(),
-    backend: z.enum(["redraw", "skia"]),
+    backend: z.enum(["redraw", "skia", "three"]),
     component: z.string(),
     componentVersion: z.number().int().positive(),
     params: z.record(z.string(), z.union([z.number(), z.string(), z.boolean()])).default({}),

@@ -199,7 +199,7 @@ export type ShapeLayer = z.infer<typeof ShapeLayer>;
 /** GPU/WASM graphics layer (section 27). Exactly one backend per layer. */
 export const GraphicsLayer = LayerBase.extend({
   kind: z.literal("graphics"),
-  backend: z.enum(["redraw", "skia"]),
+  backend: z.enum(["redraw", "skia", "three"]),
   component: z.string().regex(/^[a-z][a-z0-9-]{1,40}$/),
   componentVersion: z.number().int().positive(),
   params: z.record(z.string().max(40), z.union([z.number(), z.string().max(400), z.boolean()])).default({}),

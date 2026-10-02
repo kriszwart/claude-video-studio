@@ -205,11 +205,11 @@ function BackgroundEditor({ bg, colors, query, onChange }: { bg: Background; col
   );
 }
 
-type GraphicsComponent = { id: string; version: number; backend: "skia" | "redraw"; name: string; description: string; params: { name: string; kind: string; default: string | number | boolean }[] };
+type GraphicsComponent = { id: string; version: number; backend: "skia" | "redraw" | "three"; name: string; description: string; params: { name: string; kind: string; default: string | number | boolean }[] };
 
 /** Add an image, a video clip or a graphics effect (Skia; Redraw when installed) to this scene. */
 function AddToScene({ scene, query, brand, apply }: { scene: Scene; query: string; brand: Record<string, string>; apply: (ops: Operation[]) => Promise<boolean> }) {
-  const [catalog, setCatalog] = useState<{ available: { skia: boolean; redraw: boolean }; redrawReason: string | null; components: GraphicsComponent[] } | null>(null);
+  const [catalog, setCatalog] = useState<{ available: { skia: boolean; redraw: boolean; three: boolean }; redrawReason: string | null; components: GraphicsComponent[] } | null>(null);
   const [adding, setAdding] = useState<"" | "image" | "video" | `fx:${string}`>("");
   const [finding, setFinding] = useState(false);
   useEffect(() => {
@@ -258,7 +258,7 @@ function AddToScene({ scene, query, brand, apply }: { scene: Scene; query: strin
           <option value="">+ Graphics effect…</option>
           {catalog?.components.map((c) => (
             <option key={c.id} value={`fx:${c.id}`} disabled={!catalog.available[c.backend]}>
-              {c.name} ({c.backend === "skia" ? "Skia" : "Redraw"}){catalog.available[c.backend] ? "" : " — not installed"}
+              {c.name} ({c.backend === "skia" ? "Skia" : c.backend === "three" ? "three.js" : "Redraw"}){catalog.available[c.backend] ? "" : " — not installed"}
             </option>
           ))}
         </select>

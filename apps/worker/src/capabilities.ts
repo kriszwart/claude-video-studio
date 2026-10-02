@@ -15,7 +15,7 @@ export async function workerCapabilities() {
     transcription: { subtitleImport: true, whisperCpp: WhisperCppStt.available(), elevenlabs: "configured per workspace in Settings" },
     graphics: await (async () => {
       const g = await graphicsCapabilities();
-      return { skia: g.skia.available, redraw: g.redraw.available, skiaVersion: g.skia.version, redrawVersion: g.redraw.version, redrawChecksum: g.redraw.checksum, redrawReason: g.redraw.reason ?? null, webgpu: gpu === "hardware" ? "hardware GPU (WebGPU via the system graphics API)" : "software adapter via --enable-unsafe-webgpu (no hardware GPU detected)" };
+      return { skia: g.skia.available, redraw: g.redraw.available, three: g.three.available, threeVersion: g.three.version, skiaVersion: g.skia.version, redrawVersion: g.redraw.version, redrawChecksum: g.redraw.checksum, redrawReason: g.redraw.reason ?? null, webgpu: gpu === "hardware" ? "hardware GPU (WebGPU via the system graphics API)" : "software adapter via --enable-unsafe-webgpu (no hardware GPU detected)" };
     })(),
     gpu,
     gpuMode: renderGpuMode(),

@@ -378,7 +378,7 @@ function platonicMorph(ck: CanvasKit, c: Canvas, L: Layer, t: number) {
   const palette = String(p.colors ?? "#8b5cf6,#ec4899,#fb7a5a").split(",").map((x) => x.trim()).filter((x) => /^#[0-9a-f]{6}$/i.test(x));
   const cols = (palette.length ? palette : ["#8b5cf6"]).map((h) => [parseInt(h.slice(1, 3), 16), parseInt(h.slice(3, 5), 16), parseInt(h.slice(5, 7), 16)]);
   const W = L.spec.width, H = L.spec.height, unit = L.spec.unit ?? 1;
-  const R = Math.min(W, H) * 0.5 * Math.max(0.2, Math.min(1.2, Number(p.size ?? 0.85)));
+  const R = Math.min(W, H) * 0.5 * Math.max(0.2, Math.min(1.2, Number(p.fill ?? 0.62)));
   const cx = W / 2, cy = H / 2, D = 4.2;
   const spin = Number(p.spin ?? 0.35);
   const yaw = t * spin * Math.PI * 0.6, pitch = 0.45 + 0.22 * Math.sin(t * 0.37), roll = 0.12 * Math.sin(t * 0.23);
