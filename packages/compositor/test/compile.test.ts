@@ -211,3 +211,53 @@ describe("motion-grammar transitions", () => {
   });
 });
 
+
+describe("screen demo stacking", () => {
+  it("keeps the scene's text above the zooming screenshot, and the screenshot above decoration", () => {
+    const { doc } = build("16:9");
+    const scene = doc.scenes[1]!;
+    const media = scene.layers.find((l) => l.kind === "image")!;
+    scene.layout = "screen-demo";
+    scene.demo = { layerId: media.id, zoomOut: true, steps: [{ x: 0.5, y: 0.5, zoom: 2.5, atFrames: 10, action: "click", label: "Go" }] } as never;
+    const assets = new Map<string, StagedAsset>([
+      ["s1", { file: "assets/s1.png", kind: "image", width: 1440, height: 900 }],
+      ["s2", { file: "assets/s2.png", kind: "image", width: 1440, height: 900 }],
+      ["logo", { file: "assets/logo.png", kind: "image" }],
+    ]);
+    const out = compileComposition(doc, { scale: 1, assets, fonts: [{ family: "Space Grotesk", weight: 700, file: "fonts/sg.woff2" }], gsapFile: "vendor/gsap.min.js", audioMix: null } as never);
+    const { document } = parseHTML(out.html);
+    const z = (el: Element | null) => Number(/z-index:\s*(-?\d+)/.exec(el?.getAttribute("style") ?? "")?.[1]);
+    const demoLayer = document.querySelector(".layer.demo");
+    const sceneEl = demoLayer!.closest("[id]")!.parentElement!;
+    const texts = [...document.querySelectorAll(".layer")].filter((el) => el !== demoLayer && el.querySelector(".fit") && sceneEl.contains(el));
+    expect(texts.length).toBeGreaterThan(0);
+    for (const t of texts) expect(z(t)).toBeGreaterThan(z(demoLayer));
+    expect(z(demoLayer)).toBeGreaterThanOrEqual(10);
+  });
+});
+
+describe("screen demo text while zoomed", () => {
+  const compileDemo = (backing: "none" | "translucent") => {
+    const { doc } = build("16:9");
+    const scene = doc.scenes[1]!;
+    const media = scene.layers.find((l) => l.kind === "image")!;
+    scene.layout = "screen-demo";
+    scene.demo = { layerId: media.id, zoomOut: true, steps: [{ x: 0.5, y: 0.5, zoom: 2.5, atFrames: 10, action: "click", label: "Go" }] } as never;
+    const headline = scene.layers.find((l) => l.kind === "text" && l.role === "headline")!;
+    if (headline.kind === "text") headline.style = { ...headline.style, backing };
+    const assets = new Map<string, StagedAsset>([
+      ["s1", { file: "assets/s1.png", kind: "image", width: 1440, height: 900 }],
+      ["s2", { file: "assets/s2.png", kind: "image", width: 1440, height: 900 }],
+      ["logo", { file: "assets/logo.png", kind: "image" }],
+    ]);
+    const out = compileComposition(doc, { scale: 1, assets, fonts: [{ family: "Space Grotesk", weight: 700, file: "fonts/sg.woff2" }], gsapFile: "vendor/gsap.min.js", audioMix: null } as never);
+    const fadedOut = (out.html.match(/tl\.to\("([^"]+)",\{opacity:0,duration:0\.3/g) ?? []).join(" ");
+    return { fadedOut, headlineSel: `#l-${scene.id}-${headline.id}` };
+  };
+  it("lets text step aside during the close-up, unless the owner gave it a backing to sit on the screenshot", () => {
+    const plain = compileDemo("none");
+    expect(plain.fadedOut).toContain(plain.headlineSel);
+    const backed = compileDemo("translucent");
+    expect(backed.fadedOut).not.toContain(backed.headlineSel);
+  });
+});

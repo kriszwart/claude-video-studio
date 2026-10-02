@@ -310,12 +310,15 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
         }
         case "image":
           if (scene.demo?.layerId === layer.id && scene.demo.steps.length && ctx.assets.get(layer.assetId ?? "")?.kind === "image") {
-            const d = demoHtml(scene, layer, lid, box, z, ctx.assets.get(layer.assetId!)!, unit, width, height, fps, start, scene.durationFrames, demoTail(doc, scene.id));
+            // The demo's camera fills the frame when it zooms: keep it above decoration but below the
+            // scene's text, so a zoomed screenshot never covers the headline.
+            const d = demoHtml(scene, layer, lid, box, DEMO_Z, ctx.assets.get(layer.assetId!)!, unit, width, height, fps, start, scene.durationFrames, demoTail(doc, scene.id));
             parts.push(d.html);
             tweens.push(...d.tweens, ...entrance(`#${lid}`, layer.animation.in, delay, m));
             // Text in the scene steps aside while the camera is in close, and returns for the wide shot.
+            // Text the owner gave a backing stays: it is meant to sit on the screenshot (and is above it).
             if (d.zoomed) {
-              const others = scene.layers.filter((x) => x.kind === "text" && !x.hidden).map((x) => `#l-${scene.id}-${x.id}`);
+              const others = scene.layers.filter((x) => x.kind === "text" && !x.hidden && x.style.backing === "none").map((x) => `#l-${scene.id}-${x.id}`);
               if (others.length) {
                 tweens.push(`tl.to(${JSON.stringify(others.join(","))},{opacity:0,duration:0.3,ease:"power1.in"},${f3(start + d.zoomed[0] / fps)});`);
                 if (d.zoomed[1] < scene.durationFrames) tweens.push(`tl.to(${JSON.stringify(others.join(","))},{opacity:1,duration:0.35,ease:"power1.out"},${f3(start + d.zoomed[1] / fps + 0.3)});`);
@@ -757,6 +760,9 @@ function mediaStyle(fit: string, focal: { x: number; y: number }, frame: string)
  * ripples in the same camera (so they zoom with it). Camera and cursor are set on every frame from
  * demoMotion, so every frame is an exact function of time.
  */
+/** Stacking for a screen demo layer: above decoration (z 0-9), below text and media slots (z 20+). */
+const DEMO_Z = 15;
+
 function demoHtml(scene: Scene, layer: ImageLayer, lid: string, box: Box, z: number, asset: StagedAsset, unit: number, W: number, H: number, fps: number, start: number, frames: number, tail: number): { html: string; tweens: string[]; zoomed: [number, number] | null } {
   const screen = containRect({ x: box.left, y: box.top, w: box.width, h: box.height }, asset.width, asset.height);
   const { frames: path, clicks, zoomed } = demoMotion(scene.demo!, screen, W, H, fps, frames, tail);
