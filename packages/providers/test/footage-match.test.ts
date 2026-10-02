@@ -81,3 +81,22 @@ describe("footage requests", () => {
     expect(FOOTAGE_USER_AGENT).toMatch(/^Fluxtify\/.+fluxtify\.com/);
   });
 });
+
+describe("runFootageReview", () => {
+  it("sends every candidate thumbnail labelled by scene and maps Claude's 1-based picks, ignoring invalid ones", async () => {
+    const { runFootageReview } = await import("../src");
+    let images: { label: string }[] = [];
+    const backend = {
+      kind: "api" as const,
+      structured: async (call: { images: { label: string }[] }) => {
+        images = call.images;
+        return { json: { scenes: [{ sceneId: "s1", best: 2, reason: "candle" }, { sceneId: "s2", best: null, reason: "all crowds" }, { sceneId: "s3", best: 9, reason: "?" }] }, text: "", usage: {} as never };
+      },
+    };
+    const img = { label: "", mediaType: "image/jpeg" as const, data: "QUJD" };
+    const sc = (sceneId: string, n: number) => ({ sceneId, purpose: sceneId, headline: "", narration: "", candidates: Array.from({ length: n }, (_, i) => ({ title: `${sceneId}-${i}`, image: img })) });
+    const r = await runFootageReview(backend as never, { title: "T", scenes: [sc("s1", 2), sc("s2", 2), sc("s3", 1)] });
+    expect(images.map((i) => i.label)).toEqual(["Scene 1, candidate 1: s1-0", "Scene 1, candidate 2: s1-1", "Scene 2, candidate 1: s2-0", "Scene 2, candidate 2: s2-1", "Scene 3, candidate 1: s3-0"]);
+    expect(r.picks).toEqual([{ sceneId: "s1", best: 1, reason: "candle" }, { sceneId: "s2", best: null, reason: "all crowds" }, { sceneId: "s3", best: null, reason: "?" }]);
+  });
+});

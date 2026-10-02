@@ -4,6 +4,7 @@ import { secondsToFrames, TRANSITION_TYPES, type Background, type Layer, type Op
 import { useEffect, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
 import { FootageSearch } from "@/components/FootageSearch";
+import { brandEffectParams } from "./brandEffects";
 import { MatchFootage } from "./MatchFootage";
 import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
@@ -106,7 +107,7 @@ export function SceneInspector({ projectId, doc, scene, apply, jobs }: { project
       </fieldset>
 
       <fieldset disabled={locked} className="disabled:opacity-60">
-        <AddToScene key={scene.id} scene={scene} query={footageQuery(scene)} apply={apply} />
+        <AddToScene key={scene.id} scene={scene} query={footageQuery(scene)} brand={colors} apply={apply} />
       </fieldset>
 
       <div>
@@ -206,7 +207,7 @@ function BackgroundEditor({ bg, colors, query, onChange }: { bg: Background; col
 type GraphicsComponent = { id: string; version: number; backend: "skia" | "redraw"; name: string; description: string; params: { name: string; kind: string; default: string | number | boolean }[] };
 
 /** Add an image, a video clip or a graphics effect (Skia; Redraw when installed) to this scene. */
-function AddToScene({ scene, query, apply }: { scene: Scene; query: string; apply: (ops: Operation[]) => Promise<boolean> }) {
+function AddToScene({ scene, query, brand, apply }: { scene: Scene; query: string; brand: Record<string, string>; apply: (ops: Operation[]) => Promise<boolean> }) {
   const [catalog, setCatalog] = useState<{ available: { skia: boolean; redraw: boolean }; redrawReason: string | null; components: GraphicsComponent[] } | null>(null);
   const [adding, setAdding] = useState<"" | "image" | "video" | `fx:${string}`>("");
   const [finding, setFinding] = useState(false);
@@ -238,8 +239,8 @@ function AddToScene({ scene, query, apply }: { scene: Scene; query: string; appl
           backend: c.backend,
           component: c.id,
           componentVersion: c.version,
-          // Text effects start from this scene's headline; everything else from the component's defaults.
-          params: Object.fromEntries(c.params.map((p) => [p.name, p.name === "text" && query ? query : p.default])),
+          // Brand colours, and the scene's headline for text effects.
+          params: brandEffectParams(c.id, c.params, brand, query),
           seed: 1,
           box: c.id === "type-overlay" ? { x: 0.08, y: 0.08, w: 0.84, h: 0.16 } : { x: 0.1, y: 0.2, w: 0.8, h: 0.6 },
         },

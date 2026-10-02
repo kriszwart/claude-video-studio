@@ -1,6 +1,10 @@
+import { readFile, writeFile } from "node:fs/promises";
+import { join } from "node:path";
 import { getDb, getProject, getProviderSecret } from "@vs/db";
-import { FOOTAGE_SOURCES, footageAdapter, rankFootage, runFootageQueries, sceneSearchWords, searchLadder, type FootageAdapter, type FootageItem, type FootageQuery, type FootageScene, type FootageSearchParams } from "@vs/providers";
-import type { Handler } from "../context";
+import { FFMPEG, runOk } from "@vs/rendering";
+import { FOOTAGE_SOURCES, footageAdapter, rankFootage, runFootageQueries, runFootageReview, sceneSearchWords, searchLadder, type ClaudeBackend, type FootageReviewScene, type FootageAdapter, type FootageItem, type FootageQuery, type FootageScene, type FootageSearchParams } from "@vs/providers";
+import type { Handler, JobContext } from "../context";
+import { safeFetch } from "../net/safeFetch";
 import { claudeFor, noteLimit, recordUsage } from "./ai";
 
 /**
@@ -42,8 +46,10 @@ export const matchFootage: Handler = async (ctx) => {
   await ctx.stage("Claude is choosing what to search for");
   let queries: FootageQuery[] = [];
   let via: "claude" | "words" = "words";
+  let claude: ClaudeBackend | null = null;
   try {
-    const run = await runFootageQueries(await claudeFor(ctx.job.workspaceId, projectId), { title: doc.title, aspect: doc.format.aspect, scenes }, { signal: ctx.signal });
+    claude = await claudeFor(ctx.job.workspaceId, projectId);
+    const run = await runFootageQueries(claude, { title: doc.title, aspect: doc.format.aspect, scenes }, { signal: ctx.signal });
     await noteLimit(ctx.job.workspaceId, null, run.usage);
     await recordUsage(ctx.job.workspaceId, projectId, ctx.job.id, run.usage, "footage-queries");
     queries = run.queries;
@@ -51,6 +57,7 @@ export const matchFootage: Handler = async (ctx) => {
   } catch (e) {
     // Claude off, at its limit or failing: the scenes' own words still give useful results.
     await noteLimit(ctx.job.workspaceId, e);
+    claude = null;
   }
   const bySceneQuery = new Map(queries.map((q) => [q.sceneId, q]));
 
@@ -61,7 +68,7 @@ export const matchFootage: Handler = async (ctx) => {
   }
 
   const cache = new Map<string, FootageItem[]>();
-  const out = [];
+  const out: (Match & Record<string, unknown>)[] = [];
   for (const [i, scene] of scenes.entries()) {
     if (ctx.signal.aborted) break;
     const q = bySceneQuery.get(scene.id) ?? { sceneId: scene.id, query: sceneSearchWords(scene), kind: "video" as const };
@@ -88,5 +95,63 @@ export const matchFootage: Handler = async (ctx) => {
       .map((c) => ({ source: c.source, id: c.id, kind: c.kind, title: c.title.slice(0, 120), thumbUrl: c.thumbUrl, pageUrl: c.pageUrl, license: c.license.name, durationSec: c.durationSec ?? null, width: c.width ?? null, height: c.height ?? null }));
     out.push({ sceneId: scene.id, query: used, kind: q.kind, candidates, ...(failed.size ? { unavailable: [...failed].map(([source, error]) => ({ source, error })) } : {}) });
   }
-  return { via, scenes: out };
+  let reviewed = false;
+  if (claude && via === "claude" && !ctx.signal.aborted) reviewed = await reviewWithClaude(ctx, claude, doc.title, scenes, out);
+  return { via, reviewed, scenes: out };
 };
+
+type Match = { sceneId: string; candidates: { title: string; thumbUrl: string | null }[]; pick?: { best: boolean; reason: string } };
+
+/**
+ * Claude looks at the candidate thumbnails and puts the best fit first in each scene, or marks
+ * the scene as having no good match. Ranking alone can't tell a candle from a crowd. Best effort:
+ * if thumbnails or Claude are unavailable, the search ranking stands.
+ */
+async function reviewWithClaude(ctx: JobContext, claude: ClaudeBackend, title: string, scenes: FootageScene[], out: Match[]): Promise<boolean> {
+  await ctx.stage("Claude is looking at the footage");
+  const review: FootageReviewScene[] = [];
+  const kept: Map<string, number[]> = new Map();
+  for (const [si, m] of out.entries()) {
+    const scene = scenes.find((s) => s.id === m.sceneId)!;
+    const cands: FootageReviewScene["candidates"] = [];
+    const idx: number[] = [];
+    for (const [ci, c] of m.candidates.entries()) {
+      if (!c.thumbUrl) continue;
+      try {
+        const raw = join(ctx.workDir, `thumb-${si}-${ci}`);
+        const jpg = `${raw}.jpg`;
+        await writeFile(raw, (await safeFetch(c.thumbUrl, { maxBytes: 4 * 1024 * 1024, allowedTypes: /^image\//, timeoutMs: 15_000, signal: ctx.signal })).body);
+        await runOk(FFMPEG, ["-hide_banner", "-nostdin", "-v", "error", "-y", "-i", raw, "-vf", "scale='min(384,iw)':-2", "-frames:v", "1", "-q:v", "5", jpg], { timeoutMs: 30_000 });
+        cands.push({ title: c.title, image: { label: "", mediaType: "image/jpeg", data: (await readFile(jpg)).toString("base64") } });
+        idx.push(ci);
+      } catch {
+        /* a thumbnail that can't be fetched is just not shown to Claude */
+      }
+    }
+    if (cands.length) {
+      review.push({ sceneId: m.sceneId, purpose: scene.purpose, headline: scene.headline, narration: scene.narration, candidates: cands });
+      kept.set(m.sceneId, idx);
+    }
+  }
+  if (!review.length) return false;
+  try {
+    const run = await runFootageReview(claude, { title, scenes: review }, { signal: ctx.signal });
+    await noteLimit(ctx.job.workspaceId, null, run.usage);
+    await recordUsage(ctx.job.workspaceId, ctx.job.projectId, ctx.job.id, run.usage, "footage-review");
+    for (const p of run.picks) {
+      const m = out.find((x) => x.sceneId === p.sceneId);
+      const idx = kept.get(p.sceneId);
+      if (!m || !idx) continue;
+      if (p.best === null) m.pick = { best: false, reason: p.reason };
+      else {
+        const at = idx[p.best]!;
+        m.candidates = [m.candidates[at]!, ...m.candidates.filter((_, i) => i !== at)];
+        m.pick = { best: true, reason: p.reason };
+      }
+    }
+    return true;
+  } catch (e) {
+    await noteLimit(ctx.job.workspaceId, e);
+    return false;
+  }
+}
