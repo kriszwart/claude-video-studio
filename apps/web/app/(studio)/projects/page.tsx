@@ -112,7 +112,7 @@ export default function Projects() {
       )}
       {err && <p role="alert" className="mb-4 text-sm text-bad">{err}</p>}
       {!projects ? (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3" aria-busy="true" aria-label="Loading projects">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4" aria-busy="true" aria-label="Loading projects">
           {[0, 1, 2].map((i) => (
             <li key={i} className="card overflow-hidden">
               <div className="aspect-video animate-pulse bg-panel-2" />
@@ -121,7 +121,7 @@ export default function Projects() {
           ))}
         </ul>
       ) : (
-        <ul className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-3">
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4">
           {projects.map((p) => (
             <li key={p.id} className="card group overflow-hidden transition-colors hover:border-accent/50">
               <Link href={`/projects/${p.id}`} className="block">

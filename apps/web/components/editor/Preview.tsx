@@ -4,6 +4,7 @@ import { computeTimeline, type ProjectDocument } from "@vs/domain";
 import { api, ApiError, fmtDuration } from "@/lib/client/api";
 import { LivePlayer, type LivePlayerHandle, type LiveState } from "./LivePlayer";
 import type { ExportDTO, JobDTO } from "./types";
+import { timecode } from "./timecode";
 
 export interface PreviewClock {
   time: number;
@@ -120,15 +121,17 @@ export const Preview = forwardRef<
 
   const [aw, ah] = doc.format.aspect.split(":").map(Number) as [number, number];
   return (
-    <section aria-label="Preview" className="flex h-full min-h-0 flex-col gap-2">
-      <div className="flex items-center gap-1 text-xs" role="tablist" aria-label="Preview mode">
-        <button role="tab" aria-selected={mode === "live"} className={`seg ${mode === "live" ? "seg-on" : ""}`} onClick={() => setMode("live")}>Live</button>
-        <button role="tab" aria-selected={mode === "rendered"} className={`seg ${mode === "rendered" ? "seg-on" : ""}`} onClick={() => setMode("rendered")}>Rendered draft</button>
-        <span className="ml-2 hidden truncate text-faint xl:inline">{mode === "live" ? "Your latest edits, playing instantly — the same composition the export renders." : "The last rendered MP4 — the authority for final pixels and sound."}</span>
+    <section aria-label="Preview" className="flex h-full min-h-0 flex-col">
+      <div className="dock-head" role="tablist" aria-label="Preview mode">
+        <span className="dock-name mr-1">Program</span>
+        <button role="tab" aria-selected={mode === "live"} className={`seg h-8 rounded-none ${mode === "live" ? "seg-on" : ""}`} onClick={() => setMode("live")}>Live</button>
+        <button role="tab" aria-selected={mode === "rendered"} className={`seg h-8 rounded-none ${mode === "rendered" ? "seg-on" : ""}`} onClick={() => setMode("rendered")}>Rendered draft</button>
+        <span className="ml-2 hidden truncate text-[11px] text-faint xl:inline">{mode === "live" ? "Your latest edits, playing instantly — the same composition the export renders." : "The last rendered MP4 — the authority for final pixels and sound."}</span>
+        <span className="ml-auto chip">{doc.format.aspect} · {doc.format.fps} fps</span>
       </div>
-      {/* Stage: fills the space at the project's aspect ratio. */}
-      <div className="relative min-h-[220px] flex-1" style={{ containerType: "size" }}>
-        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg bg-black shadow-2xl ring-1 ring-line" style={{ width: `min(100cqw, calc(100cqh * ${aw / ah}))`, aspectRatio: `${aw} / ${ah}` }}>
+      {/* Stage: fills the space at the project's aspect ratio, on a black monitor well. */}
+      <div className="relative min-h-[220px] flex-1 bg-[#0c0c0c]" style={{ containerType: "size" }}>
+        <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 overflow-hidden bg-black shadow-[0_0_0_1px_#262626]" style={{ width: `min(calc(100cqw - 24px), calc((100cqh - 24px) * ${aw / ah}))`, aspectRatio: `${aw} / ${ah}` }}>
           {mode === "live" ? (
             <LivePlayer ref={live} projectId={projectId} revisionId={revisionId} onState={setLiveState} muted={muted} />
           ) : shown ? (
@@ -146,19 +149,13 @@ export const Preview = forwardRef<
         </div>
       </div>
 
-      <div className="flex flex-wrap items-center gap-2" aria-label="Playback">
-        <button className="btn btn-icon" onClick={() => seek(0)} disabled={!ready} aria-label="Go to start" title="Go to start">⏮</button>
-        <button className="btn btn-play" onClick={toggle} disabled={!ready} aria-label={playing ? "Pause" : "Play"} title="Play/pause (Space)">
-          {playing ? "❚❚" : "▶"}
-        </button>
-        <span className="w-28 font-mono text-xs tabular-nums text-dim" aria-live="off">
-          {fmtDuration(time)} / {fmtDuration(total)}
-        </span>
+      {/* Monitor controls: scrub bar, then current timecode · transport · duration, like a program monitor. */}
+      <div className="border-t border-[#141414] bg-[#1a1a1a] px-3 pb-2 pt-2" aria-label="Playback">
         {mode === "live" && (
           <input
             type="range"
             aria-label="Scrub"
-            className="scrub min-w-24 flex-1"
+            className="scrub mb-2 w-full"
             min={0}
             max={total}
             step={1 / doc.format.fps}
@@ -168,31 +165,46 @@ export const Preview = forwardRef<
             onPointerUp={(e) => live.current?.seek(Number((e.target as HTMLInputElement).value), "commit")}
           />
         )}
-        {mode === "live" && (
-          <button className="btn btn-icon" onClick={() => setMuted(!muted)} aria-pressed={muted} aria-label={muted ? "Unmute" : "Mute"} title={muted ? "Unmute" : "Mute"}>
-            {muted ? "🔇" : "🔊"}
-          </button>
-        )}
-        <span className="ml-auto" />
-        {running ? (
-          <span className="text-xs text-dim" aria-live="polite">
-            {running.type === "export" ? "Export" : "Draft"}: {running.status === "queued" ? "queued" : running.stage}
-            {running.progress != null && running.status === "running" ? ` · ${Math.round(running.progress * 100)}%` : ""}
-            <button className="ml-2 underline" onClick={() => api(`/api/jobs/${running.id}/cancel`, { method: "POST" })}>Cancel</button>
+        <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-2">
+          <span className="tc text-[15px] text-sel" aria-live="off" data-testid="monitor-timecode" title={fmtDuration(time)}>
+            {timecode(time, doc.format.fps)}
           </span>
-        ) : null}
-        <button className="btn btn-primary" onClick={render} disabled={!!running || blockingIssues.length > 0} title={blockingIssues.join("\n")}>
-          {running ? "Rendering…" : current ? "Re-render draft" : "Render draft with audio"}
-        </button>
+          <div className="flex items-center gap-0.5">
+            <button className="btn btn-icon" onClick={() => seek(0)} disabled={!ready} aria-label="Go to start" title="Go to start">⏮</button>
+            <button className="btn btn-icon" onClick={() => seek(Math.max(0, time - 1 / doc.format.fps))} disabled={!ready} aria-label="Back one frame" title="Back one frame (Shift+←)">◂</button>
+            <button className="btn btn-play" onClick={toggle} disabled={!ready} aria-label={playing ? "Pause" : "Play"} title="Play/pause (Space)">
+              {playing ? "❚❚" : "▶"}
+            </button>
+            <button className="btn btn-icon" onClick={() => seek(Math.min(total, time + 1 / doc.format.fps))} disabled={!ready} aria-label="Forward one frame" title="Forward one frame (Shift+→)">▸</button>
+            {mode === "live" && (
+              <button className="btn btn-icon" onClick={() => setMuted(!muted)} aria-pressed={muted} aria-label={muted ? "Unmute" : "Mute"} title={muted ? "Unmute" : "Mute"}>
+                {muted ? "🔇" : "🔊"}
+              </button>
+            )}
+          </div>
+          <span className="tc justify-self-end text-[12px] text-dim" title={fmtDuration(total)}>{timecode(total, doc.format.fps)}</span>
+        </div>
+        <div className="mt-2 flex flex-wrap items-center justify-end gap-2">
+          {running ? (
+            <span className="text-[11px] text-dim" aria-live="polite">
+              {running.type === "export" ? "Export" : "Draft"}: {running.status === "queued" ? "queued" : running.stage}
+              {running.progress != null && running.status === "running" ? ` · ${Math.round(running.progress * 100)}%` : ""}
+              <button className="ml-2 underline" onClick={() => api(`/api/jobs/${running.id}/cancel`, { method: "POST" })}>Cancel</button>
+            </span>
+          ) : null}
+          <button className="btn btn-primary" onClick={render} disabled={!!running || blockingIssues.length > 0} title={blockingIssues.join("\n")}>
+            {running ? "Rendering…" : current ? "Re-render draft" : "Render draft with audio"}
+          </button>
+        </div>
       </div>
       {!running && failed && (
-        <p className="text-xs text-bad" role="alert">
+        <p className="px-3 pb-2 text-xs text-bad" role="alert">
           Last render failed: {failed.error?.message} {failed.error?.recovery && <span className="text-dim">{failed.error.recovery}</span>}
           <button className="ml-2 underline" onClick={() => api(`/api/jobs/${failed.id}/retry`, { method: "POST" }).catch((e) => setErr(e.message))}>Retry</button>
         </p>
       )}
-      {blockingIssues.length > 0 && <p className="text-xs text-bad">Fix {blockingIssues.length} timeline error(s) before rendering.</p>}
-      {err && <p className="text-xs text-bad" role="alert">{err}</p>}
+      {blockingIssues.length > 0 && <p className="px-3 pb-2 text-xs text-bad">Fix {blockingIssues.length} timeline error(s) before rendering.</p>}
+      {err && <p className="px-3 pb-2 text-xs text-bad" role="alert">{err}</p>}
     </section>
   );
 });

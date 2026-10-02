@@ -33,14 +33,14 @@ export function FlowBar({ flow, projectId, revisionId, onAction }: { flow: Retur
   };
 
   return (
-    <nav aria-label="Project steps" data-testid="flow-bar" className="flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-line bg-panel-2 px-3 py-1.5 text-xs">
+    <nav aria-label="Project steps" data-testid="flow-bar" className="flex flex-wrap items-center gap-x-4 gap-y-1 border-b border-black/60 bg-[#191919] px-2 py-1 text-[12px]">
       <ol className="flex items-center gap-1 overflow-x-auto">
         {steps.map((s, i) => (
           <li key={s.id} className="flex shrink-0 items-center gap-1">
             {i > 0 && <span aria-hidden className={`h-px w-3 ${steps[i - 1]!.state === "done" ? "bg-ok/60" : "bg-line"}`} />}
             <button
               type="button"
-              className={`flex items-center gap-1 rounded px-1 py-0.5 hover:bg-panel ${s.state === "next" ? "text-ink font-medium" : s.state === "todo" ? "text-faint" : "text-dim"}`}
+              className={`flex items-center gap-1 rounded-[3px] px-1.5 py-1 hover:bg-panel-2 ${s.state === "next" ? "font-medium text-ink shadow-[inset_0_-2px_0_var(--color-sel)]" : s.state === "todo" ? "text-faint" : "text-dim"}`}
               disabled={!s.action || s.action.kind === "render"}
               title={s.hint}
               aria-current={s === next ? "step" : undefined}

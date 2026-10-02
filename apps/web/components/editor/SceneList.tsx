@@ -26,9 +26,9 @@ export function SceneList({ doc, view, selected, onSelect, apply }: { doc: Proje
 function SceneItem({ scene, index, count, kf, selected, onSelect, apply, aspect, fps }: { scene: Scene; index: number; count: number; kf?: { url: string; fresh: boolean }; selected: boolean; onSelect: () => void; apply: (ops: Operation[]) => Promise<boolean>; aspect: string; fps: number }) {
   const [aw, ah] = aspect.split(":").map(Number) as [number, number];
   return (
-    <li className={`group rounded-lg border p-1.5 transition-colors ${selected ? "border-accent/70 bg-accent/10" : "border-transparent hover:border-line hover:bg-panel"}`}>
+    <li className={`group rounded-[4px] border p-1.5 transition-colors ${selected ? "border-sel/80 bg-sel/10" : "border-transparent hover:border-line hover:bg-panel-2"}`}>
       <button onClick={onSelect} className="block w-full text-left" aria-current={selected ? "true" : undefined}>
-        <div className="relative flex h-24 items-center justify-center overflow-hidden rounded-md bg-black/60">
+        <div className="relative flex h-24 items-center justify-center overflow-hidden rounded-[3px] bg-black">
           {kf ? (
             // eslint-disable-next-line @next/next/no-img-element
             <img src={kf.url} alt={`Keyframe of scene ${index + 1}`} className={`h-full object-cover ${kf.fresh ? "" : "opacity-40"}`} style={{ aspectRatio: `${aw} / ${ah}` }} />

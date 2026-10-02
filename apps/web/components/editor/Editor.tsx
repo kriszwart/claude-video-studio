@@ -77,8 +77,8 @@ export function Editor({ projectId }: { projectId: string }) {
   };
 
   return (
-    <div className="flex h-screen flex-col">
-      <header className="flex flex-wrap items-center gap-2 border-b border-line bg-panel px-3 py-2">
+    <div className="flex h-screen flex-col bg-bg">
+      <header className="flex flex-wrap items-center gap-2 border-b border-black/60 bg-[#191919] px-2 py-1.5">
         <Link href="/projects" className="btn btn-ghost gap-1 px-2 text-xs" aria-label="Back to projects">
           ← <LogoMark size={16} />
         </Link>
@@ -128,14 +128,14 @@ export function Editor({ projectId }: { projectId: string }) {
           onDismiss={() => setReviewHidden(true)}
         />
       ) : (
-      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[216px_minmax(0,1fr)_368px] lg:grid-rows-[minmax(0,1fr)_auto] lg:overflow-hidden">
-        <aside className="order-4 min-h-0 border-line p-2.5 lg:order-none lg:col-start-1 lg:row-start-1 lg:overflow-y-auto lg:border-r">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-[3px] overflow-y-auto p-[3px] lg:grid-cols-[216px_minmax(0,1fr)_368px] lg:grid-rows-[minmax(0,1fr)_auto] lg:overflow-hidden">
+        <aside className="dock order-4 p-2 lg:order-none lg:col-start-1 lg:row-start-1 lg:overflow-y-auto">
           <SceneList doc={doc} view={view} selected={scene.id} onSelect={(id) => { setSelected(id); setTab("scene"); }} apply={p.apply} />
         </aside>
-        <main className="order-1 flex min-h-[360px] flex-col p-3 lg:order-none lg:col-start-2 lg:row-start-1 lg:min-h-0">
+        <main className="dock order-1 min-h-[360px] lg:order-none lg:col-start-2 lg:row-start-1 lg:min-h-0">
           <Preview ref={previewRef} projectId={projectId} doc={doc} revisionId={p.revisionId} exports={view.exports} jobs={view.jobs} blockingIssues={blocking} onClock={onClock} />
         </main>
-        <div className="order-2 min-w-0 border-line p-2 lg:order-none lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:max-h-[40vh] lg:overflow-y-auto lg:border-t">
+        <div className="dock order-2 min-w-0 lg:order-none lg:col-span-2 lg:col-start-1 lg:row-start-2 lg:max-h-[40vh] lg:overflow-y-auto">
           <Timeline
             doc={doc}
             view={view}
@@ -147,10 +147,10 @@ export function Editor({ projectId }: { projectId: string }) {
             apply={p.apply}
           />
         </div>
-        <aside className="order-3 flex min-h-0 flex-col border-line bg-panel/40 lg:order-none lg:col-start-3 lg:row-span-2 lg:row-start-1 lg:border-l">
-          <div role="tablist" aria-label="Inspector" className="flex gap-0.5 overflow-x-auto border-b border-line px-2 py-1.5">
+        <aside className="dock order-3 lg:order-none lg:col-start-3 lg:row-span-2 lg:row-start-1">
+          <div role="tablist" aria-label="Inspector" className="dock-head h-auto min-h-8 gap-0 overflow-x-auto py-0">
             {([...(doc.program ? ["transcript"] : []), ...(!doc.program && doc.template.family !== "music-video" ? ["script"] : []), "scene", ...(doc.scenes.some((s) => s.shot) ? ["shots"] : []), "assistant", "critic", "audio", "export", "project"] as Tab[]).map((t) => (
-              <button key={t} role="tab" aria-selected={tab === t} className={`seg shrink-0 capitalize ${tab === t ? "seg-on" : ""}`} onClick={() => setTab(t)}>
+              <button key={t} role="tab" aria-selected={tab === t} className={`seg h-8 shrink-0 rounded-none px-[7px] capitalize ${tab === t ? "seg-on" : ""}`} onClick={() => setTab(t)}>
                 {t === "assistant" ? "Assistant" : t}
               </button>
             ))}

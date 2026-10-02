@@ -2,6 +2,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { computeTimeline, resolveAudio, resolveCaptions, type Operation, type ProjectDocument } from "@vs/domain";
 import type { ProjectViewDTO as ProjectView } from "./types";
+import { timecode } from "./timecode";
 
 const LABEL_W = 76;
 const MIN_SCENE_SEC = 0.5;
@@ -148,10 +149,11 @@ export function Timeline({
   }
 
   return (
-    <section aria-label="Timeline" className="rounded-lg border border-line bg-panel">
-      <div className="flex items-center gap-2 border-b border-line px-2 py-1 text-[11px] text-dim">
-        <span className="font-medium text-ink">Timeline</span>
-        <span className="font-mono">{fmt(time)} / {fmt(total)}</span>
+    <section aria-label="Timeline" className="bg-panel">
+      <div className="dock-head text-[11px]">
+        <span className="dock-name">Timeline</span>
+        <span className="tc text-[13px] text-sel" title={`${fmt(time)} / ${fmt(total)}`}>{timecode(time, fps)}</span>
+        <span className="tc text-faint">/ {timecode(total, fps)}</span>
         <span className="ml-auto" />
         <button className="btn btn-ghost px-1.5 py-0 text-xs" aria-label="Zoom out" onClick={() => setZoom(Math.max(4, (zoom ?? fitPps) / 1.5))}>−</button>
         <button className="btn btn-ghost px-1.5 py-0 text-xs" onClick={() => setZoom(null)} aria-pressed={zoom === null}>Fit</button>
@@ -160,16 +162,17 @@ export function Timeline({
       <div ref={scroller} className="relative overflow-x-auto overflow-y-hidden" style={{ height }} data-testid="timeline">
         <div className="relative" style={{ width: contentW, height }} onPointerMove={(e) => (trimStart.current ? onTrimMove(e) : onScrubMove(e))} onPointerUp={(e) => (trimStart.current ? onTrimUp() : onScrubUp(e))}>
           {/* Ruler */}
-          <div className="absolute left-0 right-0 top-0 cursor-ew-resize border-b border-line bg-panel-2" style={{ height: RULER }} onPointerDown={onScrubDown} role="slider" aria-label="Timeline position" aria-valuemin={0} aria-valuemax={Number(total.toFixed(2))} aria-valuenow={Number(time.toFixed(2))} tabIndex={-1}>
+          <div className="absolute left-0 right-0 top-0 cursor-ew-resize border-b border-[#141414] bg-[#1a1a1a]" style={{ height: RULER }} onPointerDown={onScrubDown} role="slider" aria-label="Timeline position" aria-valuemin={0} aria-valuemax={Number(total.toFixed(2))} aria-valuenow={Number(time.toFixed(2))} tabIndex={-1}>
             {ticks.map((t) => (
-              <div key={t} className="absolute top-0 h-full border-l border-line/70 pl-1 font-mono text-[10px] leading-[22px] text-faint" style={{ left: x(t) }}>
+              <div key={t} className="tc absolute bottom-0 h-2/5 border-l border-[#4a4a4a] pl-1 text-[9px] leading-none text-faint" style={{ left: x(t) }}>
                 {Number.isInteger(t) && (t % (step < 1 ? 1 : step) === 0) ? fmt(t) : ""}
               </div>
             ))}
           </div>
           {/* Row labels (sticky) */}
           {rows.map((r) => (
-            <div key={r.key} className="sticky left-0 z-20 flex items-center bg-panel pl-2 text-[11px] text-faint" style={{ position: "absolute", top: rowY[r.key], height: r.h, width: LABEL_W - 6 }}>
+            <div key={r.key} className="sticky left-0 z-20 flex items-center gap-1.5 border-r border-[#141414] bg-[#1a1a1a] pl-1.5 text-[11px] text-dim" style={{ position: "absolute", top: rowY[r.key], height: r.h, width: LABEL_W - 6 }}>
+              <span className={`tc rounded-[2px] px-1 text-[9px] font-semibold ${TRACK[r.key]!.cls}`}>{TRACK[r.key]!.id}</span>
               {r.label}
             </div>
           ))}
@@ -189,7 +192,7 @@ export function Timeline({
                     onSelectScene(s.id);
                     onSeek(t.start / fps + 0.01, "commit");
                   }}
-                  className={`group relative flex h-full w-full items-stretch overflow-hidden rounded-md border text-left ${sel ? "border-accent bg-accent/15 ring-1 ring-accent" : "border-line bg-panel-2 hover:border-faint"}`}
+                  className={`group relative flex h-full w-full items-stretch overflow-hidden rounded-[3px] border text-left ${sel ? "border-sel bg-clip/45 ring-1 ring-sel" : "border-clip/60 bg-clip/25 hover:bg-clip/35"}`}
                   aria-label={`Scene ${i + 1}: ${s.purpose}, ${(t.duration / fps).toFixed(1)} seconds`}
                   aria-pressed={sel}
                 >
@@ -227,8 +230,8 @@ export function Timeline({
               const left = x(a.startFrame / fps);
               const w = (a.durationFrames / fps) * pps;
               return (
-                <div key={a.track.id} className={`absolute overflow-hidden rounded border ${row === "voice" ? "border-ok/40 bg-ok/10" : "border-accent/40 bg-accent/10"}`} style={{ left, width: w, top: rowY[row], height: 34 }} title={`${m?.name ?? a.track.kind} · ${(a.durationFrames / fps).toFixed(1)}s · ${a.track.gainDb} dB`}>
-                  <Wave peaks={m?.peaks ?? null} mediaSec={m?.durationSec ?? null} fromSec={a.track.sourceInSec} lenSec={a.durationFrames / fps} width={w} height={34} className={row === "voice" ? "fill-ok/70" : "fill-accent/70"} />
+                <div key={a.track.id} className={`absolute overflow-hidden rounded-[3px] border ${row === "voice" ? "border-clip-audio/60 bg-clip-audio/20" : "border-clip-audio/50 bg-clip-audio/15"}`} style={{ left, width: w, top: rowY[row], height: 34 }} title={`${m?.name ?? a.track.kind} · ${(a.durationFrames / fps).toFixed(1)}s · ${a.track.gainDb} dB`}>
+                  <Wave peaks={m?.peaks ?? null} mediaSec={m?.durationSec ?? null} fromSec={a.track.sourceInSec} lenSec={a.durationFrames / fps} width={w} height={34} className={row === "voice" ? "fill-clip-audio" : "fill-clip-audio/80"} />
                   <span className="absolute left-1 top-0.5 truncate rounded bg-black/50 px-1 text-[10px] text-ink/90" style={{ maxWidth: w - 6 }}>{m?.name ?? a.track.kind}</span>
                 </div>
               );
@@ -237,7 +240,7 @@ export function Timeline({
 
           {/* Captions */}
           {cues.map((c) => (
-            <div key={c.cue.id} className="absolute truncate rounded bg-panel-2 px-1 text-[10px] leading-[24px] text-dim" style={{ left: x(c.start / fps), width: Math.max(2, ((c.end - c.start) / fps) * pps - 1), top: rowY.captions, height: 24 }} title={c.cue.text}>
+            <div key={c.cue.id} className="absolute truncate rounded-[3px] border border-[#5a5a5a]/50 bg-[#3a3a3a]/60 px-1 text-[10px] leading-[22px] text-dim" style={{ left: x(c.start / fps), width: Math.max(2, ((c.end - c.start) / fps) * pps - 1), top: rowY.captions, height: 24 }} title={c.cue.text}>
               {c.cue.text}
             </div>
           ))}
@@ -248,14 +251,23 @@ export function Timeline({
           ))}
 
           {/* Playhead */}
-          <div className="pointer-events-none absolute top-0 z-30 w-px bg-accent" style={{ left: x(Math.min(time, total)), height }}>
-            <div className="absolute -left-[5px] top-0 h-2.5 w-2.5 rotate-45 bg-accent" />
+          <div className="pointer-events-none absolute top-0 z-30 w-px bg-sel" style={{ left: x(Math.min(time, total)), height }}>
+            <div className="absolute -left-[6px] top-0 h-[14px] w-[13px] bg-sel [clip-path:polygon(0_0,100%_0,100%_60%,50%_100%,0_60%)]" />
           </div>
         </div>
       </div>
     </section>
   );
 }
+
+/** Track headers, as in an NLE: video, audio and the rest. */
+const TRACK: Record<string, { id: string; cls: string }> = {
+  scenes: { id: "V1", cls: "bg-clip/40 text-ink" },
+  voice: { id: "A1", cls: "bg-clip-audio/35 text-ink" },
+  music: { id: "A2", cls: "bg-clip-audio/35 text-ink" },
+  captions: { id: "T", cls: "bg-[#4a4a4a] text-ink" },
+  markers: { id: "M", cls: "bg-warn/30 text-ink" },
+};
 
 /** Waveform of the slice [fromSec, fromSec + lenSec] of a file, from its ingest peaks. */
 function Wave({ peaks, mediaSec, fromSec, lenSec, width, height, className }: { peaks: number[] | null; mediaSec: number | null; fromSec: number; lenSec: number; width: number; height: number; className: string }) {

@@ -17,15 +17,15 @@ export function Nav({ email, mode }: { email: string; mode: "local" | "password"
   const path = usePathname();
   if (/^\/projects\/[^/]+$/.test(path) && path !== "/projects/new") return null; // the editor has its own header
   return (
-    <header className="border-b border-line bg-panel">
-      <nav aria-label="Main" className="mx-auto flex max-w-7xl items-center gap-1 overflow-x-auto px-4 py-2">
+    <header className="border-b border-black/60 bg-[#191919]">
+      <nav aria-label="Main" className="mx-auto flex max-w-7xl items-center gap-0.5 overflow-x-auto px-4 py-1">
         <Link href="/projects" className="mr-4 shrink-0 font-semibold tracking-tight">
           <Logo />
         </Link>
         {ITEMS.map((i) => {
           const active = path.startsWith(i.href);
           return (
-            <Link key={i.href} href={i.href} aria-current={active ? "page" : undefined} className={`shrink-0 rounded-md px-2.5 py-1.5 text-sm ${active ? "bg-panel-2 text-ink" : "text-dim hover:text-ink"}`}>
+            <Link key={i.href} href={i.href} aria-current={active ? "page" : undefined} className={`shrink-0 px-2.5 py-2 text-[13px] ${active ? "text-ink shadow-[inset_0_-2px_0_var(--color-sel)]" : "text-dim hover:text-ink"}`}>
               {i.label}
             </Link>
           );
