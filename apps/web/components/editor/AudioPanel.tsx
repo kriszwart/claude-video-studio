@@ -7,6 +7,7 @@ import { api, ApiError } from "@/lib/client/api";
 import { NumberField } from "./fields";
 import { newClientId } from "./ids";
 import { MarkersPanel } from "./MarkersPanel";
+import { SoundEffectsPanel } from "./SoundEffectsPanel";
 import type { JobDTO } from "./types";
 
 export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string; doc: ProjectDocument; apply: (ops: Operation[]) => Promise<boolean>; jobs: { type: string; status: string; stage: string; progress: number | null; result: Record<string, unknown> | null; error: { message: string; recovery?: string } | null }[] }) {
@@ -18,9 +19,11 @@ export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string;
       <p className="text-xs text-dim">The mix targets −16 LUFS integrated and −1 dBTP; each render records the measured result. Music ducks under narration and source speech.</p>
       {doc.audio.length === 0 && <p className="text-sm text-faint">No audio tracks. Add music below.</p>}
       <ul className="space-y-2">
-        {doc.audio.map((t) => (
-          <TrackEditor key={t.id} t={t} doc={doc} apply={apply} />
-        ))}
+        {doc.audio
+          .filter((t) => !t.sfx)
+          .map((t) => (
+            <TrackEditor key={t.id} t={t} doc={doc} apply={apply} />
+          ))}
       </ul>
       <div>
         <h4 className="label">{music.length ? "Replace music" : "Add music"}</h4>
@@ -36,6 +39,7 @@ export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string;
         />
       </div>
       <MusicGenerator projectId={projectId} doc={doc} jobs={jobs} hasMusic={music.length > 0} />
+      <SoundEffectsPanel projectId={projectId} doc={doc} apply={apply} jobs={jobs as JobDTO[]} />
     </div>
   );
 }

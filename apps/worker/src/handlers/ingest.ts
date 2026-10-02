@@ -2,8 +2,8 @@ import { parseSubtitles } from "@vs/domain";
 import { open, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { and, eq, sql } from "drizzle-orm";
-import { findDuplicate, getDb, getStore, JobError, schema, syncCollectionItemsForAsset, uploadLimitsFor } from "@vs/db";
-import { FFMPEG, opaqueLuma, probeMedia, resolveChromePath, run, runOk } from "@vs/rendering";
+import { findDuplicate, getDb, getStore, JobError, schema, syncCollectionItemsForAsset, uploadLimitsFor, MAX_KIT_SOUND_SEC } from "@vs/db";
+import { FFMPEG, measureHit, opaqueLuma, probeMedia, resolveChromePath, run, runOk } from "@vs/rendering";
 import { chromium } from "playwright-core";
 import { sha256File, type Handler } from "../context";
 
@@ -184,6 +184,11 @@ export const ingestAsset: Handler = async (ctx) => {
     if (p!.audio) {
       await ctx.stage("computing waveform");
       derived.peaks = await audioPeaks(path!);
+      // Short sounds may become sound effects: measure where each one hits (see @vs/rendering hit).
+      if (kind === "audio" && dur > 0 && dur <= MAX_KIT_SOUND_SEC) {
+        const h = await measureHit(path!, ctx.signal).catch(() => null);
+        if (h) media.sound = { hitSec: h.hitSec, peakSec: h.peakSec };
+      }
     }
   } else if (kind === "document") {
     // Subtitle/transcript files: must be UTF-8 text that parses as SRT or WebVTT.

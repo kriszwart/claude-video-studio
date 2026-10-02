@@ -17,3 +17,4 @@ export * from "./services/ledger";
 export * from "./services/collections";
 export * from "./services/quotes";
 export * from "./services/profiles";
+export * from "./services/soundkit";

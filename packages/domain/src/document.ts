@@ -348,6 +348,8 @@ export const AudioTrack = z.object({
   fadeOutFrames: Frames.default(0),
   /** Music only: lower under voiceover/source speech. */
   duck: z.object({ enabled: z.boolean().default(true), amountDb: z.number().min(-30).max(0).default(-12) }).default({ enabled: true, amountDb: -12 }),
+  /** Placed sound effect: its role in the sound kit and the moment it marks. */
+  sfx: z.object({ role: z.string().max(20), event: z.string().max(120) }).optional(),
   /** Generated narration records the text hash it was synthesised from, so edits invalidate it. */
   generatedFrom: z.object({ textHash: z.string(), voiceId: z.string(), provider: z.string() }).optional(),
 });

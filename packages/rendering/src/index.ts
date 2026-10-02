@@ -10,3 +10,4 @@ export * from "./fidelity";
 export * from "./contrast";
 export * from "./otio";
 export * from "./framescan";
+export * from "./hit";
