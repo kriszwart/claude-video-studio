@@ -14,6 +14,7 @@ export const PROVIDERS = {
   pixabay: { env: "PIXABAY_API_KEY", label: "Pixabay (free stock footage key)", capabilities: ["footage-search"] },
   openrouter: { env: "OPENROUTER_API_KEY", label: "OpenRouter (image models; never used for Claude)", capabilities: ["image-generation"] },
   lanternist: { env: "LANTERNIST_TOKEN", label: "Lanternist (storyboards and client review links)", capabilities: ["storyboard-export"] },
+  share: { env: "SHARE_SECRET_ACCESS_KEY", label: "Picture hosting (your S3-compatible bucket, for sending pictures to Lanternist)", capabilities: ["picture-links"] },
   jev: { env: "JEV_API_KEY", label: "Jev (TypeSafe decision model: instant suggestions)", capabilities: ["suggestions"] },
   // No key: the local Codex CLI signed in with ChatGPT. Turned on in Settings; never read from env.
   codex: { env: "", label: "Images with ChatGPT (Codex CLI)", capabilities: ["image-generation"] },

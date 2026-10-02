@@ -4,7 +4,7 @@ import { inArray } from "drizzle-orm";
 import { getDb, getRevision, keyframeHash, schema } from "@vs/db";
 import { computeTimeline, ProjectDocument, stableStringify, type Scene } from "@vs/domain";
 import { captureStills, prepareBundle, RENDERER_VERSIONS } from "@vs/rendering";
-import { referencedAssetIds, registerFile, resolveAssets, type Handler } from "../context";
+import { referencedAssetIds, registerFile, resolveAssets, type Handler, type JobContext } from "../context";
 import { graphicsCompilerFor, needsWebGpu } from "../graphics";
 
 /** A scene's look without its identifiers (ids don't change pixels; template reuse gets new ids). */
@@ -21,11 +21,13 @@ function normalizedScene(scene: Scene) {
  * capture scale, and the renderer/graphics build versions (FR-21, A30). A parameter edit
  * re-renders only the scenes it changed; identical scenes reuse the stored frame.
  */
-export const renderKeyframes: Handler = async (ctx) => {
+export const renderKeyframes: Handler = async (ctx) => sceneFrames(ctx, ctx.job.revisionId!, Number(ctx.job.input.scale ?? 0.35));
+
+/** One captured frame per scene of a revision (cached; see above). Also used to send pictures out. */
+export async function sceneFrames(ctx: JobContext, revisionId: string, scale: number) {
   const db = getDb();
-  const revision = await getRevision(db, ctx.job.projectId!, ctx.job.revisionId!);
+  const revision = await getRevision(db, ctx.job.projectId!, revisionId);
   const doc = ProjectDocument.parse(revision.document);
-  const scale = Number(ctx.job.input.scale ?? 0.35);
   const assets = await resolveAssets(ctx.job.workspaceId, referencedAssetIds(doc));
   const graphics = await graphicsCompilerFor(doc, ctx);
   const timeline = computeTimeline(doc);
@@ -74,4 +76,4 @@ export const renderKeyframes: Handler = async (ctx) => {
   }
   const keyframes = doc.scenes.map((scene, i) => ({ sceneId: scene.id, assetId: rendered.get(i) ?? hit.get(keys[i]!)!, timeSec: times[i], sceneHash: keyframeHash(doc, scene.id), cacheKey: keys[i]!.slice(0, 16), cached: !rendered.has(i) }));
   return { revisionId: revision.id, keyframes, rendered: rendered.size, reused: doc.scenes.length - rendered.size, report, bundleHash };
-};
+}

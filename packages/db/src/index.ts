@@ -3,6 +3,7 @@ export * from "./client";
 export * from "./ids";
 export * from "./errors";
 export * from "./storage";
+export * from "./share";
 export * from "./services/jobs";
 export * from "./services/projects";
 export * from "./services/assets";

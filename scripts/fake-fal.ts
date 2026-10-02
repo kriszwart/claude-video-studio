@@ -20,8 +20,13 @@
  *
  * Also a TEST-ONLY Lanternist MCP stand-in (Streamable HTTP) at POST /lantern/mcp, token
  * "lantern-test-key": initialize (JSON reply + Mcp-Session-Id), tools/call (SSE reply) for
- * create_project, get_project, list_projects, make_picture, create_review_link.
- * GET /__lantern → calls and films received.
+ * create_project, get_project, list_projects, make_picture, set_picture (fetches image_url and
+ * records it), create_review_link. GET /__lantern → calls and films received.
+ *
+ * Also a TEST-ONLY S3 stand-in for picture hosting on FAKE_S3_PORT (3911), path-style: PUT, GET,
+ * DELETE /<bucket>/<key>. Requests must be signed with access key id "share-test-access" (the
+ * credential is checked, the signature itself isn't). GET needs a signed link unless the bucket
+ * is "public-bucket". GET /__s3 → stored keys.
  */
 import { execFileSync } from "node:child_process";
 import { createHash, generateKeyPairSync, sign } from "node:crypto";
@@ -147,6 +152,18 @@ http
         if (shot) shot.generated_image = `https://lanternist.example/img/${shot.id}.png`;
         out = shot ? { ok: true } : null;
         isError = !shot;
+      } else if (name === "set_picture") {
+        const shot = [...lantern.films.values()].flatMap((f) => f.shots).find((x) => x.id === a.scene_id);
+        // Like the real service: the picture must be reachable at its address.
+        const got = shot && typeof a.image_url === "string" ? await fetch(a.image_url).catch(() => null) : null;
+        const type = got?.headers.get("content-type") ?? "";
+        if (shot && got?.ok && type.startsWith("image/")) {
+          shot.generated_image = String(a.image_url);
+          out = { ok: true, bytes: (await got.arrayBuffer()).byteLength };
+        } else {
+          isError = true;
+          out = `could not fetch the picture (${got?.status ?? "unreachable"})`;
+        }
       } else if (name === "create_review_link") {
         const f = lantern.films.get(String(a.project_id));
         if (f) f.reviewUrl = `https://lanternist.example/v/${f.id}`;
@@ -243,3 +260,30 @@ http
     json(res, 404, { detail: "not found" });
   })
   .listen(PORT, "127.0.0.1", () => console.log(`fake fal (TEST ONLY) on :${PORT}`));
+
+// ---- TEST-ONLY S3 stand-in (picture hosting) --------------------------------------------------
+const S3_PORT = Number(process.env.FAKE_S3_PORT ?? 3911);
+const s3 = new Map<string, { body: Buffer; type: string }>();
+http
+  .createServer(async (req, res) => {
+    const u = new URL(req.url ?? "/", `http://127.0.0.1:${S3_PORT}`);
+    const chunks: Buffer[] = [];
+    for await (const c of req) chunks.push(c as Buffer);
+    if (u.pathname === "/__s3") return json(res, 200, { keys: [...s3.keys()] });
+    const signedBy = /Credential=([^/]+)\//.exec(String(req.headers.authorization ?? ""))?.[1] ?? u.searchParams.get("X-Amz-Credential")?.split("/")[0];
+    const isPublic = u.pathname.startsWith("/public-bucket/") && req.method === "GET";
+    if (!isPublic && signedBy !== "share-test-access") return res.writeHead(403, { "content-type": "application/xml" }).end("<Error><Code>InvalidAccessKeyId</Code><Message>The access key does not exist.</Message></Error>");
+    const key = decodeURIComponent(u.pathname);
+    if (req.method === "PUT") {
+      s3.set(key, { body: Buffer.concat(chunks), type: String(req.headers["content-type"] ?? "application/octet-stream") });
+      return res.writeHead(200, { etag: '"x"' }).end();
+    }
+    if (req.method === "DELETE") {
+      s3.delete(key);
+      return res.writeHead(204).end();
+    }
+    const o = s3.get(key);
+    if (!o) return res.writeHead(404, { "content-type": "application/xml" }).end("<Error><Code>NoSuchKey</Code><Message>No such key</Message></Error>");
+    res.writeHead(200, { "content-type": o.type, "content-length": o.body.length }).end(req.method === "HEAD" ? undefined : o.body);
+  })
+  .listen(S3_PORT, "127.0.0.1", () => console.log(`fake S3 (TEST ONLY) on :${S3_PORT}`));

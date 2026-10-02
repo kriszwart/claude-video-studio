@@ -70,15 +70,28 @@ describe("Lanternist", () => {
     // A throwing tool handler becomes a transport error; wrap it as a tool error instead.
     const tolerant = async (url: string, init?: RequestInit) => srv.fetchImpl(url, init).catch(() => Response.json({ jsonrpc: "2.0", id: JSON.parse(String(init?.body)).id, result: { isError: true, content: [{ type: "text", text: "busy" }] } }));
     const stages: string[] = [];
-    const r = await sendToLanternist(new McpHttpClient("https://lantern.example/mcp", "tok", tolerant), doc, { reviewLink: true, pictures: true, onStage: (s) => void stages.push(s) });
+    const r = await sendToLanternist(new McpHttpClient("https://lantern.example/mcp", "tok", tolerant), doc, { reviewLink: true, pictures: "lanternist", onStage: (s) => void stages.push(s) });
     expect(r).toEqual({ projectId: "p1", editorUrl: "https://lantern.example/editor?project=p1", reviewUrl: "https://lantern.example/v/abc", shots: doc.scenes.length, pictures: { made: 2, failed: 1 } });
     const create = srv.calls.find((x) => x.params?.name === "create_project")!;
     expect(create.params.arguments).toMatchObject({ title: "Tidewave launch (from Fluxtify)" });
     expect(stages).toContain("Lanternist is drawing shot 3 of 3");
 
     const plain = server({ create_project: () => ({ project_id: "p2" }) });
-    const r2 = await sendToLanternist(new McpHttpClient("https://lantern.example/mcp", "tok", plain.fetchImpl), doc, { reviewLink: false, pictures: false });
+    const r2 = await sendToLanternist(new McpHttpClient("https://lantern.example/mcp", "tok", plain.fetchImpl), doc, { reviewLink: false, pictures: "none" });
     expect(r2).toMatchObject({ projectId: "p2", reviewUrl: null, editorUrl: null, pictures: { made: 0, failed: 0 } });
     expect(plain.calls.filter((x) => x.method === "tools/call").map((x) => x.params.name)).toEqual(["create_project"]);
+  });
+
+  it("attaches Fluxtify's own pictures by address, in film order, skipping scenes without one", async () => {
+    const srv = server({
+      create_project: () => ({ project_id: "p3" }),
+      get_project: () => ({ shots: [{ id: "b", scene_number: 2 }, { id: "a", scene_number: 1 }, { id: "c", scene_number: 3 }] }),
+      set_picture: () => ({ ok: true }),
+    });
+    const r = await sendToLanternist(new McpHttpClient("https://lantern.example/mcp", "tok", srv.fetchImpl), doc, { reviewLink: false, pictures: "fluxtify", pictureUrls: ["https://cdn.example/1.jpg", null, "https://cdn.example/3.jpg"] });
+    expect(r.pictures).toEqual({ made: 2, failed: 0 });
+    const sets = srv.calls.filter((x) => x.params?.name === "set_picture").map((x) => x.params.arguments);
+    expect(sets).toEqual([{ scene_id: "a", image_url: "https://cdn.example/1.jpg" }, { scene_id: "c", image_url: "https://cdn.example/3.jpg" }]);
+    expect(srv.calls.some((x) => x.params?.name === "make_picture")).toBe(false);
   });
 });

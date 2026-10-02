@@ -64,6 +64,7 @@ export default function Settings() {
             {p.provider === "openrouter" && <OpenRouterModel settings={(p.settings ?? {}) as OrSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "openrouter", settings } }))} />}
             {p.provider === "elevenlabs" && p.configured && <ElevenLabsMusic settings={(p.settings ?? {}) as ElMusicSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "elevenlabs", settings } }))} />}
             {p.provider === "lanternist" && <LanternistSettingsForm settings={(p.settings ?? {}) as { mcpUrl?: string }} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "lanternist", settings } }))} />}
+            {p.provider === "share" && <ShareSettingsForm settings={(p.settings ?? {}) as ShareForm} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "share", settings } }))} />}
             {p.provider === "jev" && <JevSettingsForm settings={(p.settings ?? {}) as JevForm} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "jev", settings } }))} />}
             {p.provider === "fal" && <FalModels settings={(p.settings ?? {}) as FalModelSettings} onSave={(settings) => call(p.provider, () => api("/api/settings/providers", { method: "PATCH", json: { provider: "fal", settings } }))} />}
             {(msg[p.provider] || p.lastCheck) && <p className="mt-2 text-xs text-dim" role="status">{msg[p.provider] ?? `Last check ${new Date(p.lastCheck!.at).toLocaleString()}: ${p.lastCheck!.ok ? "✓" : "✗"} ${p.lastCheck!.message}`}</p>}
@@ -463,6 +464,40 @@ function LanternistSettingsForm({ settings, onSave }: { settings: { mcpUrl?: str
       <p className="text-faint">Send to Lanternist (Export tab) turns a project&apos;s shot plan into a Lanternist film for storyboarding and client review. Use the MCP server address and access token from Lanternist&apos;s settings for connecting an assistant.</p>
       <label className="flex flex-col gap-1">MCP server address<input className="input" aria-label="Lanternist MCP address" value={mcpUrl} onChange={(e) => setMcpUrl(e.target.value)} /></label>
       <button className="btn">Save Lanternist address</button>
+    </form>
+  );
+}
+
+type ShareForm = { endpoint?: string; bucket?: string; region?: string; accessKeyId?: string; publicBaseUrl?: string; linkDays?: number };
+
+/** Picture hosting: the owner's S3-compatible bucket (the secret access key goes in the key field above). */
+function ShareSettingsForm({ settings, onSave }: { settings: ShareForm; onSave: (s: Required<ShareForm>) => void }) {
+  const [f, setF] = useState({ endpoint: settings.endpoint ?? "", bucket: settings.bucket ?? "", region: settings.region ?? "auto", accessKeyId: settings.accessKeyId ?? "", publicBaseUrl: settings.publicBaseUrl ?? "", linkDays: String(settings.linkDays ?? 7) });
+  const field = (k: keyof typeof f, label: string, placeholder = "") => (
+    <label className="flex flex-col gap-1">
+      {label}
+      <input className="input" aria-label={`Picture hosting ${label.toLowerCase()}`} placeholder={placeholder} value={f[k]} onChange={(e) => setF((x) => ({ ...x, [k]: e.target.value }))} />
+    </label>
+  );
+  return (
+    <form
+      className="mt-3 grid grid-cols-1 gap-2 border-t border-line pt-3 text-xs sm:grid-cols-2"
+      aria-label="Picture hosting settings"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSave({ endpoint: f.endpoint.trim(), bucket: f.bucket.trim(), region: f.region.trim() || "auto", accessKeyId: f.accessKeyId.trim(), publicBaseUrl: f.publicBaseUrl.trim(), linkDays: Math.min(7, Math.max(1, Number(f.linkDays) || 7)) });
+      }}
+    >
+      <p className="text-faint sm:col-span-2">
+        Lanternist only takes pictures by web address, so Fluxtify uploads the frames you send to your own bucket (Cloudflare R2, AWS S3, Backblaze B2, MinIO…) under unguessable names. Use a bucket and key for this alone: the key needs to put and read objects in it. Without a public address, links are signed and stop working after the days below. Anyone with a link can see that picture. Paste the secret access key in the key field above.
+      </p>
+      {field("endpoint", "S3 address", "https://<account>.r2.cloudflarestorage.com (empty for AWS)")}
+      {field("bucket", "Bucket", "fluxtify-share")}
+      {field("region", "Region", "auto")}
+      {field("accessKeyId", "Access key ID")}
+      {field("publicBaseUrl", "Public address (optional)", "https://pictures.example.com")}
+      {field("linkDays", "Signed links last (days, 1–7)")}
+      <button className="btn sm:col-span-2">Save picture hosting</button>
     </form>
   );
 }

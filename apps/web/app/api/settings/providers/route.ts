@@ -1,5 +1,8 @@
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { z } from "zod";
-import { AppError, getDb, subscriptionRuntimeAllowed, getOmniVoiceConfig, getProviderSecret, getProviderSettings, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
+import { AppError, checkShare, getDb, ShareSettings, subscriptionRuntimeAllowed, getOmniVoiceConfig, getProviderSecret, getProviderSettings, PROVIDERS, providerStatus, recordProviderCheck, setProviderSecret, setProviderSettings, type ProviderId } from "@vs/db";
 import { checkClaude, checkCodexRuntime, CodexSettings, FalSettings, normalizeBaseUrl, OmniVoiceTts, VOICE_NAME, ElevenLabsSettings, OpenRouterSettings, JevClient, JevSettings, LanternistSettings, McpHttpClient } from "@vs/providers";
 import { requireOwner } from "@/lib/server/auth";
 import { body, json, route } from "@/lib/server/http";
@@ -51,6 +54,20 @@ export const POST = route(async (req) => {
     } catch (e) {
       result = { ok: false, message: e instanceof Error ? e.message : String(e) };
     }
+  } else if (b.provider === "share") {
+    const share = ShareSettings.safeParse(await getProviderSettings(getDb(), s.workspaceId, "share"));
+    if (!share.success) result = { ok: false, message: "Save the bucket settings first." };
+    else {
+      // A 1×1 PNG: uploaded, fetched through its link like Lanternist would, then deleted.
+      const dir = await mkdtemp(join(tmpdir(), "share-check-"));
+      try {
+        const file = join(dir, "check.png");
+        await writeFile(file, Buffer.from("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR4nGNgYPj/HwADAgH/ScvNnwAAAABJRU5ErkJggg==", "base64"));
+        result = await checkShare(share.data, secret.secret, file);
+      } finally {
+        await rm(dir, { recursive: true, force: true });
+      }
+    }
   } else if (b.provider === "jev") result = await new JevClient(secret.secret, JevSettings.parse(await getProviderSettings(getDb(), s.workspaceId, "jev"))).check();
   else result = { ok: false, message: "A live check for this provider is not implemented; its integration is unverified." };
   await recordProviderCheck(getDb(), s.workspaceId, b.provider, { ...result, at: new Date().toISOString() });
@@ -82,6 +99,12 @@ export const PATCH = route(async (req) => {
     const parsed = LanternistSettings.safeParse(b.settings);
     if (!parsed.success) throw new AppError(422, "invalid_input", parsed.error.issues[0]?.message ?? "Invalid Lanternist address.");
     await setProviderSettings(getDb(), s.workspaceId, "lanternist", parsed.data);
+    return json({ providers: await providerStatus(getDb(), s.workspaceId) });
+  }
+  if (b.provider === "share") {
+    const parsed = ShareSettings.safeParse(b.settings);
+    if (!parsed.success) throw new AppError(422, "invalid_input", parsed.error.issues[0]?.message ?? "Invalid picture hosting settings.");
+    await setProviderSettings(getDb(), s.workspaceId, "share", parsed.data);
     return json({ providers: await providerStatus(getDb(), s.workspaceId) });
   }
   if (b.provider === "jev") {

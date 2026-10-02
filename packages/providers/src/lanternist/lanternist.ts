@@ -5,7 +5,8 @@ import { McpHttpClient } from "./mcp";
 /**
  * Send a project's shot plan to Lanternist (a storyboard and review app) through its MCP server:
  * one shot per scene with what we see, the narration, an image prompt and the timing. Optional:
- * a public review link, and pictures drawn by Lanternist's own image generation (its credits).
+ * a public review link, and pictures: drawn by Lanternist's own image generation (its credits), or
+ * Fluxtify's own frames, attached by web address after the caller uploads them.
  */
 
 export const LanternistSettings = z.object({
@@ -51,7 +52,19 @@ export interface SendResult {
   pictures: { made: number; failed: number };
 }
 
-export async function sendToLanternist(client: McpHttpClient, doc: ProjectDocument, opts: { reviewLink: boolean; pictures: boolean; onStage?: (s: string) => Promise<void> | void }): Promise<SendResult> {
+export type PictureSource = "none" | "lanternist" | "fluxtify";
+
+export async function sendToLanternist(
+  client: McpHttpClient,
+  doc: ProjectDocument,
+  opts: {
+    reviewLink: boolean;
+    pictures: PictureSource;
+    /** For "fluxtify": a public https address of each scene's picture, by scene index (null: none). */
+    pictureUrls?: (string | null)[];
+    onStage?: (s: string) => Promise<void> | void;
+  },
+): Promise<SendResult> {
   await opts.onStage?.("creating the film in Lanternist");
   const created = await client.callTool<{ project_id?: string; editor_url?: string }>("create_project", {
     title: clip(`${doc.title} (from Fluxtify)`, 200),
@@ -62,12 +75,16 @@ export async function sendToLanternist(client: McpHttpClient, doc: ProjectDocume
   const projectId = created?.project_id;
   if (!projectId) throw new Error("Lanternist didn't return a project id.");
   const pictures = { made: 0, failed: 0 };
-  if (opts.pictures) {
-    const film = await client.callTool<{ shots?: { id: string }[] }>("get_project", { project_id: projectId });
-    for (const [i, shot] of (film?.shots ?? []).entries()) {
-      await opts.onStage?.(`Lanternist is drawing shot ${i + 1} of ${film!.shots!.length}`);
+  if (opts.pictures !== "none") {
+    const film = await client.callTool<{ shots?: { id: string; scene_number?: number }[] }>("get_project", { project_id: projectId });
+    // Shots come back in film order; scene_number (when given) is authoritative.
+    const shots = [...(film?.shots ?? [])].sort((a, b) => (a.scene_number ?? 0) - (b.scene_number ?? 0));
+    for (const [i, shot] of shots.entries()) {
+      const url = opts.pictures === "fluxtify" ? opts.pictureUrls?.[i] : undefined;
+      if (opts.pictures === "fluxtify" && !url) continue;
+      await opts.onStage?.(opts.pictures === "lanternist" ? `Lanternist is drawing shot ${i + 1} of ${shots.length}` : `attaching picture ${i + 1} of ${shots.length}`);
       try {
-        await client.callTool("make_picture", { scene_id: shot.id });
+        await client.callTool(opts.pictures === "lanternist" ? "make_picture" : "set_picture", opts.pictures === "lanternist" ? { scene_id: shot.id } : { scene_id: shot.id, image_url: url });
         pictures.made++;
       } catch {
         pictures.failed++;
