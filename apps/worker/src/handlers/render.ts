@@ -3,7 +3,7 @@ import { join } from "node:path";
 import { and, eq } from "drizzle-orm";
 import { getDb, getRevision, JobError, newId, schema } from "@vs/db";
 import { GraphicsUnavailableError } from "@vs/compositor";
-import { computeTimeline, ProjectDocument, toSrt, toVtt, validateTimeline } from "@vs/domain";
+import { AspectRatio, computeTimeline, ProjectDocument, toSrt, toVtt, validateTimeline } from "@vs/domain";
 import { extractFrame, renderProject } from "@vs/rendering";
 import { referencedAssetIds, registerFile, resolveAssets, type Handler } from "../context";
 import { graphicsCompilerFor, needsWebGpu } from "../graphics";
@@ -22,7 +22,11 @@ export const renderRevision: Handler = async (ctx) => {
 
   const revisionId = ctx.job.revisionId!;
   const revision = await getRevision(db, ctx.job.projectId!, revisionId);
-  const doc = ProjectDocument.parse(revision.document);
+  const saved = ProjectDocument.parse(revision.document);
+  // An extra export size renders the same revision in another aspect; layouts adapt per aspect.
+  const aspect = AspectRatio.safeParse(ctx.job.input.aspect);
+  const sized = aspect.success && aspect.data !== saved.format.aspect;
+  const doc: ProjectDocument = sized ? { ...saved, format: { ...saved.format, aspect: aspect.data } } : saved;
   const hard = validateTimeline(doc).filter((i) => i.severity === "error");
   if (hard.length) throw new JobError("invalid_timeline", hard.map((i) => i.message).join(" "), false, "Fix the listed timeline problems and render again.");
 
@@ -61,7 +65,7 @@ export const renderRevision: Handler = async (ctx) => {
   const timeline = computeTimeline(doc);
   const video = await registerFile(ctx.job.workspaceId, output, {
     kind: "render",
-    originalName: `${slug(doc.title)}-${kind}-r${revision.seq}.mp4`,
+    originalName: `${slug(doc.title)}-${kind}${sized ? `-${doc.format.aspect.replace(":", "x")}` : ""}-r${revision.seq}.mp4`,
     mime: "video/mp4",
     provenance: { source: "render", kind, projectId: ctx.job.projectId, revisionId, jobId: ctx.job.id, bundleHash: result.bundleHash },
   });

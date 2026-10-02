@@ -9,6 +9,8 @@ export function ExportPanel({ projectId, doc, revisionId, exports, jobs, blockin
   const running = jobs.find((j) => j.type === "export" && ["queued", "running", "cancel_requested"].includes(j.status));
   const finals = exports.filter((e) => e.kind === "final");
   const [showTpl, setShowTpl] = useState(false);
+  const own = doc.format.aspect;
+  const [sizes, setSizes] = useState<string[]>([own]);
   return (
     <div className="space-y-4">
       <Credits projectId={projectId} revisionId={revisionId} />
@@ -20,14 +22,25 @@ export function ExportPanel({ projectId, doc, revisionId, exports, jobs, blockin
           onClick={async () => {
             setErr(null);
             try {
-              await api(`/api/projects/${projectId}/exports`, { method: "POST", idempotent: true, json: { revisionId } });
+              await api(`/api/projects/${projectId}/exports`, { method: "POST", idempotent: true, json: sizes.length > 1 || sizes[0] !== own ? { revisionId, aspects: sizes } : { revisionId } });
             } catch (e) {
               setErr(e instanceof ApiError ? e.message : String(e));
             }
           }}
         >
-          {running ? "Exporting…" : "Export final MP4 (1080p, H.264/AAC)"}
+          {running ? "Exporting…" : sizes.length > 1 ? `Export ${sizes.length} sizes (1080p, H.264/AAC)` : "Export final MP4 (1080p, H.264/AAC)"}
         </button>
+        <fieldset className="mt-2 flex flex-wrap items-center gap-3 text-xs" aria-label="Export sizes">
+          <legend className="sr-only">Export sizes</legend>
+          {(["16:9", "9:16", "1:1"] as const).map((a) => (
+            <label key={a} className="flex items-center gap-1.5">
+              <input type="checkbox" checked={sizes.includes(a)} disabled={sizes.length === 1 && sizes[0] === a} onChange={(e) => setSizes((cur) => (e.target.checked ? [...cur, a] : cur.filter((x) => x !== a)))} />
+              {a === "16:9" ? "16:9 landscape" : a === "9:16" ? "9:16 vertical" : "1:1 square"}
+              {a === own && <span className="text-faint">(project)</span>}
+            </label>
+          ))}
+        </fieldset>
+        {sizes.some((a) => a !== own) && <p className="mt-1 text-xs text-faint">Other sizes reuse this project; each scene is laid out again for that size. Check them before publishing.</p>}
         {running && (
           <p className="mt-1 text-xs text-dim" aria-live="polite">
             {running.status === "queued" ? "Queued" : running.stage}

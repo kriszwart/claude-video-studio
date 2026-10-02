@@ -7,6 +7,7 @@ import {
   historyForRedo,
   historyForUndo,
   initialHistory,
+  exportSizes,
   Operation,
   OperationError,
   ProjectDocument,
@@ -212,5 +213,14 @@ describe("setCaptions", () => {
     doc = applyOperations(doc, ops([{ op: "setCaptions", captions: { enabled: false } }]), "user").doc;
     expect(doc.captions).toMatchObject({ enabled: false, style: "bold", position: "top" });
     expect(doc.captions.cues.map((c) => c.text)).toEqual(["Hello"]);
+  });
+});
+
+describe("exportSizes", () => {
+  it("exports the project's own size by default; extra sizes follow it, without repeats", () => {
+    expect(exportSizes("16:9")).toEqual(["16:9"]);
+    expect(exportSizes("16:9", ["9:16", "16:9", "1:1", "9:16"])).toEqual(["16:9", "9:16", "1:1"]);
+    expect(exportSizes("9:16", ["1:1"])).toEqual(["1:1"]);
+    expect(exportSizes("16:9", [])).toEqual(["16:9"]);
   });
 });

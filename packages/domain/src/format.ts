@@ -48,3 +48,13 @@ export const SAFE_AREA_PRESETS = {
 } as const;
 export type SafeAreaPresetId = keyof typeof SAFE_AREA_PRESETS;
 export const SafeAreaPresetIdSchema = z.enum(["none@1", "reels-shorts@2026-09"]);
+
+/**
+ * Sizes to export in one go: the requested ones in order without repeats, or just the project's
+ * own size when none are requested. The project's size is listed first when it is requested.
+ */
+export function exportSizes(projectAspect: AspectRatio, requested?: AspectRatio[]): AspectRatio[] {
+  const wanted = [...new Set(requested ?? [])];
+  if (!wanted.length) return [projectAspect];
+  return wanted.includes(projectAspect) ? [projectAspect, ...wanted.filter((a) => a !== projectAspect)] : wanted;
+}
