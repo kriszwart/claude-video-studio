@@ -412,6 +412,10 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       for (const [id, s] of locked) if (!next.some((n) => n.id === id)) next.splice(Math.min(doc.scenes.findIndex((x) => x.id === id), next.length), 0, s);
       for (const s of next) if (!locked.has(s.id)) changed.add(s.id);
       doc.scenes = next;
+      // As in deleteScene: narration and captions of scenes that are gone go with them.
+      const kept = new Set(next.map((s) => s.id));
+      doc.audio = doc.audio.filter((t) => !(t.kind === "voiceover" && t.anchor.type === "scene" && !kept.has(t.anchor.sceneId)));
+      doc.captions.cues = doc.captions.cues.filter((c) => !(c.anchor.type === "scene" && !kept.has(c.anchor.sceneId)));
       return doc;
     }
     case "setFormat":

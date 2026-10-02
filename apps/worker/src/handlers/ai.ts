@@ -226,15 +226,19 @@ export const assistantEdit: Handler = async (ctx) => {
   }
   await noteLimit(ctx.job.workspaceId, null, [res.usage]);
   await recordUsage(ctx.job.workspaceId, ctx.job.projectId, ctx.job.id, [res.usage], "assistant");
-  if (res.output.clarificationQuestion) return { status: "clarify", question: res.output.clarificationQuestion, explanation: res.output.explanation };
+  // A question with no edits changes nothing: don't pass on an explanation that reads as if it did.
+  // A question with edits applies those edits, then asks (status "clarify" with the revision).
+  const question = res.output.clarificationQuestion || null;
+  if (question && res.ops.length === 0) return { status: "clarify", question, explanation: "Nothing has been changed yet." };
   if (res.ops.length === 0) return { status: "no_change", explanation: res.output.explanation };
+  const done = question ? "clarify" : "applied";
 
   await ctx.stage("applying edits");
   const attempt = async (baseId: string) =>
     db.transaction((tx) => applyProjectOperations(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId: baseId, ops: res.ops, actor: "assistant", action: `assistant: ${String(ctx.job.input.request).slice(0, 60)}` }));
   try {
     const r = await attempt(baseRevisionId);
-    return { status: "applied", revisionId: r.revision.id, changedSceneIds: r.changedSceneIds, explanation: res.output.explanation, operations: res.ops };
+    return { status: done, ...(question ? { question } : {}), revisionId: r.revision.id, changedSceneIds: r.changedSceneIds, explanation: res.output.explanation, operations: res.ops };
   } catch (e) {
     if (e instanceof AppError && e.status === 409 && e.code === "stale_revision") {
       const { revision, doc: current } = await getProject(db, ctx.job.projectId!, ctx.job.workspaceId);
@@ -244,7 +248,7 @@ export const assistantEdit: Handler = async (ctx) => {
       }
       try {
         const r = await attempt(revision.id);
-        return { status: "applied", rebased: true, revisionId: r.revision.id, changedSceneIds: r.changedSceneIds, explanation: res.output.explanation, operations: res.ops };
+        return { status: done, ...(question ? { question } : {}), rebased: true, revisionId: r.revision.id, changedSceneIds: r.changedSceneIds, explanation: res.output.explanation, operations: res.ops };
       } catch (e2) {
         throw toJobError(e2);
       }

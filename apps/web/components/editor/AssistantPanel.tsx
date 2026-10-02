@@ -139,7 +139,13 @@ function AssistantResult({ job }: { job: JobDTO }) {
   if (job.status === "paused") return <PausedJob job={job} />;
   if (!r) return <p className="text-dim">Waiting…</p>;
   const status = String(r.status ?? "");
-  if (status === "clarify") return <p><span className="text-warn">Question:</span> {String(r.question)}</p>;
+  if (status === "clarify")
+    return (
+      <div className="space-y-1">
+        <p className={r.revisionId ? "" : "text-dim"}>{r.revisionId ? `Done so far: ${String(r.explanation ?? "")}` : String(r.explanation ?? "Nothing has been changed yet.")}</p>
+        <p><span className="text-warn">Question:</span> {String(r.question)}</p>
+      </div>
+    );
   if (status === "rejected_stale" || status === "stale" || status === "refused") return <p className="text-warn">{String(r.message)}</p>;
   if (job.type === "plan") {
     return (

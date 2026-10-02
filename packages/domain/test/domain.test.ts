@@ -224,3 +224,17 @@ describe("exportSizes", () => {
     expect(exportSizes("16:9", [])).toEqual(["16:9"]);
   });
 });
+
+describe("replaceScenes", () => {
+  it("drops narration and captions anchored to scenes that are gone, like deleteScene does", () => {
+    const base = makeDoc();
+    const [a, b] = base.scenes;
+    const vo = (id: string, sceneId: string) => ({ id, kind: "voiceover" as const, assetId: `ast_${id}`, anchor: { type: "scene" as const, sceneId, offsetFrames: 0 } });
+    const cue = (id: string, sceneId: string) => ({ id, text: id, anchor: { type: "scene" as const, sceneId, offsetFrames: 0 }, startFrame: 0, endFrame: 10 });
+    const music = { id: "mus", kind: "music" as const, assetId: "ast_m", anchor: { type: "scene" as const, sceneId: b!.id, offsetFrames: 0 } };
+    let doc = applyOperations(base, [{ op: "addAudioTrack", track: vo("vA", a!.id) }, { op: "addAudioTrack", track: vo("vB", b!.id) }, { op: "addAudioTrack", track: music }, { op: "setCaptionCues", cues: [cue("cA", a!.id), cue("cB", b!.id)] }].map((o) => Operation.parse(o)), "user").doc;
+    doc = applyOperations(doc, [Operation.parse({ op: "replaceScenes", scenes: [doc.scenes[0]] })], "user").doc;
+    expect(doc.audio.map((t) => t.id)).toEqual(["vA", "mus"]); // music is not narration: it keeps its anchor
+    expect(doc.captions.cues.map((c) => c.id)).toEqual(["cA"]);
+  });
+});
