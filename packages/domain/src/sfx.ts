@@ -61,6 +61,8 @@ export function soundEvents(doc: ProjectDocument, density: "minimal" | "moderate
     const n = `Scene ${i + 1}`;
     // Transitions: the whoosh peaks where the move is fastest, a little past the middle.
     if (i > 0 && !noWhoosh && WHOOSH_TRANSITIONS.has(scene.transitionIn.type) && st.overlapIn > 0) out.push({ frame: st.start + Math.round(st.overlapIn * 0.6), role: "whoosh", label: `${n}: ${scene.transitionIn.type} transition`, priority: 1 });
+    // Screen demo: a click on every press (one frame after the cursor arrives).
+    for (const step of scene.demo?.steps ?? []) if (step.action === "click" && step.atFrames < st.duration) out.push({ frame: st.start + step.atFrames + 1, role: "click", label: `${n}: click${step.label ? ` “${step.label}”` : ""}`, priority: 2 });
     for (const l of scene.layers) {
       if (l.hidden || l.kind !== "text" || !l.text.trim()) continue;
       const at = st.start + l.animation.delayFrames;

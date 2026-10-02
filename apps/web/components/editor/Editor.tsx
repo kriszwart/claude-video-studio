@@ -173,7 +173,7 @@ export function Editor({ projectId }: { projectId: string }) {
                 }}
               />
             )}
-            {tab === "scene" && <SceneInspector projectId={projectId} doc={doc} scene={scene} apply={p.apply} />}
+            {tab === "scene" && <SceneInspector doc={doc} scene={scene} apply={p.apply} projectId={projectId} jobs={view.jobs} />}
             {tab === "assistant" && <AssistantPanel projectId={projectId} doc={doc} revisionId={p.revisionId} selected={scene.id} jobs={view.jobs} claude={claudeStatus?.readiness ?? null} />}
             {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}
             {tab === "export" && (

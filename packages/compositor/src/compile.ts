@@ -1,6 +1,7 @@
 import { characterSvg, characterTweens } from "./character";
 import {
   computeTimeline,
+  demoTail,
   programSegments,
   sourceToOutput,
   dimensionsFor,
@@ -19,6 +20,7 @@ import {
   type VideoLayer,
 } from "@vs/domain";
 import { resolveSlot, type SlotBox } from "./layouts";
+import { containRect, demoMotion } from "./demo";
 
 export interface StagedAsset {
   /** Path relative to the bundle root, e.g. "assets/ast_x.png". */
@@ -307,6 +309,21 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           break;
         }
         case "image":
+          if (scene.demo?.layerId === layer.id && scene.demo.steps.length && ctx.assets.get(layer.assetId ?? "")?.kind === "image") {
+            const d = demoHtml(scene, layer, lid, box, z, ctx.assets.get(layer.assetId!)!, unit, width, height, fps, start, scene.durationFrames, demoTail(doc, scene.id));
+            parts.push(d.html);
+            tweens.push(...d.tweens, ...entrance(`#${lid}`, layer.animation.in, delay, m));
+            // Text in the scene steps aside while the camera is in close, and returns for the wide shot.
+            if (d.zoomed) {
+              const others = scene.layers.filter((x) => x.kind === "text" && !x.hidden).map((x) => `#l-${scene.id}-${x.id}`);
+              if (others.length) {
+                tweens.push(`tl.to(${JSON.stringify(others.join(","))},{opacity:0,duration:0.3,ease:"power1.in"},${f3(start + d.zoomed[0] / fps)});`);
+                if (d.zoomed[1] < scene.durationFrames) tweens.push(`tl.to(${JSON.stringify(others.join(","))},{opacity:1,duration:0.35,ease:"power1.out"},${f3(start + d.zoomed[1] / fps + 0.3)});`);
+              }
+            }
+            exits.push(`#${lid}`);
+            break;
+          }
           parts.push(imageHtml(layer, lid, box, z, ctx, brand, unit, warnings, scene, start, dur));
           tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m));
           exits.push(`#${lid}`);
@@ -372,7 +389,8 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
     sceneHtml.push(
       `<div id="${sid}" class="clip scene" data-start="${start}" data-duration="${dur}" style="z-index:${index + 1};"><div class="cam" id="${sid}-cam">${parts.join("")}</div></div>`,
     );
-    tweens.push(`tl.fromTo("#${sid}-cam",{scale:1},{scale:${f3(1 + 0.02 + 0.03 * m.k)},duration:${dur},ease:"none"},${start});`);
+    // A screen demo has its own camera; the push would fight it.
+    if (!scene.demo?.steps.length) tweens.push(`tl.fromTo("#${sid}-cam",{scale:1},{scale:${f3(1 + 0.02 + 0.03 * m.k)},duration:${dur},ease:"none"},${start});`);
 
     // Content eases out just before a hard cut (not before overlapping transitions, which cover
     // it, not on the final scene, which holds, and not when cuts are timed to music markers).
@@ -732,6 +750,40 @@ function frameWrap(frame: string, inner: string, brand: BrandSnapshot, unit: num
 function mediaStyle(fit: string, focal: { x: number; y: number }, frame: string): string {
   const device = frame === "laptop" || frame === "phone" || frame === "circle";
   return `width:100%;height:100%;${device || fit === "cover" ? "object-fit:cover;" : "object-fit:contain;"}object-position:${f3(focal.x * 100)}% ${f3(focal.y * 100)}%;`;
+}
+
+/**
+ * Screen demo: the screenshot on a white card inside a full-frame camera, with a cursor and click
+ * ripples in the same camera (so they zoom with it). Camera and cursor are set on every frame from
+ * demoMotion, so every frame is an exact function of time.
+ */
+function demoHtml(scene: Scene, layer: ImageLayer, lid: string, box: Box, z: number, asset: StagedAsset, unit: number, W: number, H: number, fps: number, start: number, frames: number, tail: number): { html: string; tweens: string[]; zoomed: [number, number] | null } {
+  const screen = containRect({ x: box.left, y: box.top, w: box.width, h: box.height }, asset.width, asset.height);
+  const { frames: path, clicks, zoomed } = demoMotion(scene.demo!, screen, W, H, fps, frames, tail);
+  const r = 18 * unit;
+  const cur = 34 * unit;
+  const html =
+    `<div class="layer demo" id="${lid}" style="left:0;top:0;width:${W}px;height:${H}px;z-index:${z};overflow:hidden">` +
+    `<div id="${lid}-cam" style="position:absolute;left:0;top:0;width:${W}px;height:${H}px;transform-origin:0 0">` +
+    `<div style="position:absolute;left:${f3(screen.x)}px;top:${f3(screen.y)}px;width:${f3(screen.w)}px;height:${f3(screen.h)}px;border-radius:${f3(r)}px;overflow:hidden;background:#fff;border:1px solid rgba(21,32,27,.10);box-shadow:0 ${f3(12 * unit)}px ${f3(32 * unit)}px rgba(21,32,27,.16)"><img src="${asset.file}" alt="${escapeHtml(layer.alt)}" style="display:block;width:100%;height:100%"></div>` +
+    clicks.map((c, i) => `<div id="${lid}-rip${i}" style="position:absolute;left:${f3(c.x - 40 * unit)}px;top:${f3(c.y - 40 * unit)}px;width:${f3(80 * unit)}px;height:${f3(80 * unit)}px;border-radius:50%;background:rgba(59,130,246,.35);border:${f3(2 * unit)}px solid rgba(59,130,246,.7);opacity:0;transform:scale(.2)"></div>`).join("") +
+    `<svg id="${lid}-cur" viewBox="0 0 24 24" style="position:absolute;left:0;top:0;width:${f3(cur)}px;height:${f3(cur)}px;transform-origin:0 0;overflow:visible;filter:drop-shadow(0 ${f3(2 * unit)}px ${f3(3 * unit)}px rgba(0,0,0,.35))"><path d="M2 1.5 L2 20 L7 15.5 L10.4 22.5 L13.6 21 L10.3 14.2 L17 14 Z" fill="#111" stroke="#fff" stroke-width="1.6" stroke-linejoin="round"/></svg>` +
+    `</div></div>`;
+  const tweens: string[] = [];
+  let lastCam = "", lastCur = "";
+  path.forEach((p, f) => {
+    const t = f3(start + f / fps);
+    const cam = `x:${f3(p.tx)},y:${f3(p.ty)},scale:${p.zoom.toFixed(4)}`;
+    if (cam !== lastCam) tweens.push(`tl.set("#${lid}-cam",{${cam}},${t});`);
+    // The cursor's tip is its hotspot: place the element's top-left at the point.
+    const c = `x:${f3(p.cx - 2 * (cur / 24))},y:${f3(p.cy - 1.5 * (cur / 24))},scale:${p.press}`;
+    if (c !== lastCur) tweens.push(`tl.set("#${lid}-cur",{${c}},${t});`);
+    lastCam = cam;
+    lastCur = c;
+  });
+  tweens.push(`tl.fromTo("#${lid}-cur",{opacity:0},{opacity:1,duration:0.25,ease:"power1.out"},${f3(start + 0.1)});`);
+  clicks.forEach((c, i) => tweens.push(`tl.fromTo("#${lid}-rip${i}",{opacity:.9,scale:.2},{opacity:0,scale:1.4,duration:0.5,ease:"power2.out"},${f3(start + c.frame / fps)});`));
+  return { html, tweens, zoomed };
 }
 
 function imageHtml(layer: ImageLayer, lid: string, box: Box, z: number, ctx: CompileContext, brand: BrandSnapshot, unit: number, warnings: string[], scene: Scene, start: number, dur: number): string {

@@ -126,7 +126,10 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
     const items = recipe.repeatFor ? listOf(inputs[recipe.repeatFor]) : [undefined];
     items.forEach((item, idx) => {
       const extra: Record<string, string> = item !== undefined ? { item, index: String(idx + 1), index0: String(idx), count: String(items.length) } : {};
-      scenes.push(buildScene(recipe, inputs, brand, extra, factIdFor, opts.newId, fps, recipe.repeatFor ? idx : undefined));
+      const scene = buildScene(recipe, inputs, brand, extra, factIdFor, opts.newId, fps, recipe.repeatFor ? idx : undefined);
+      const screen = recipe.demo ? scene.layers.find((l) => l.slot === recipe.demo!.layer && (l.kind === "image" || l.kind === "video") && l.assetId) : undefined;
+      if (screen) scene.demo = { layerId: screen.id, steps: [], zoomOut: true };
+      scenes.push(scene);
     });
   }
   if (scenes.length === 0) throw new Error(`Template ${def.id} produced no scenes for these inputs.`);

@@ -8,13 +8,15 @@ import { MatchFootage } from "./MatchFootage";
 import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
 import { projectVoiceId, VoiceDirectionControls } from "./VoiceDirectionControls";
+import { DemoEditor } from "./DemoEditor";
+import type { JobDTO } from "./types";
 
 const TRANSITIONS = TRANSITION_TYPES;
 const TRANSITION_LABEL: Record<(typeof TRANSITION_TYPES)[number], string> = { cut: "Cut", fade: "Fade", slide: "Slide", wipe: "Wipe", zoom: "Zoom", flythrough: "Fly-through", portal: "Portal", fold: "Fold", tiles: "Tile wipe", colorfield: "Colour field" };
 const FRAMES = ["none", "card", "laptop", "phone", "circle", "rounded"] as const;
 const ENTRANCES = ["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw"] as const;
 
-export function SceneInspector({ projectId, doc, scene, apply }: { projectId: string; doc: ProjectDocument; scene: Scene; apply: (ops: Operation[]) => Promise<boolean> }) {
+export function SceneInspector({ projectId, doc, scene, apply, jobs }: { projectId: string; doc: ProjectDocument; scene: Scene; apply: (ops: Operation[]) => Promise<boolean>; jobs?: JobDTO[] }) {
   const fps = doc.format.fps;
   const locked = scene.locked;
   const colors = doc.brand.colors as Record<string, string>;
@@ -97,6 +99,10 @@ export function SceneInspector({ projectId, doc, scene, apply }: { projectId: st
             </div>
           )}
         </div>
+      </fieldset>
+
+      <fieldset disabled={locked} className="disabled:opacity-60">
+        <DemoEditor key={`demo-${scene.id}`} projectId={projectId} doc={doc} scene={scene} apply={apply} jobs={jobs} />
       </fieldset>
 
       <fieldset disabled={locked} className="disabled:opacity-60">

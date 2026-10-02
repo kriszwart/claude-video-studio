@@ -139,6 +139,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setAcquisitionPolicy"), policy: z.enum(["existing-only", "existing-plus-public", "generated-allowed"]) }),
   z.object({ op: z.literal("setAutoProductCheck"), enabled: z.boolean() }),
   z.object({ op: z.literal("setLoop"), loop: z.boolean() }),
+  z.object({ op: z.literal("setSceneDemo"), sceneId: Id, demo: Scene.shape.demo }),
 ]);
 export type Operation = z.infer<typeof Operation>;
 
@@ -161,6 +162,7 @@ export interface ApplyResult {
 }
 
 const SCENE_CONTENT_OPS = new Set<Operation["op"]>([
+  "setSceneDemo",
   "updateLayerText",
   "setLayerStyle",
   "setLayerAnimation",
@@ -326,6 +328,7 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
         throw new OperationError("approved_claim", "Approved claims cannot be removed by the assistant.");
       }
       sceneOp!.layers = sceneOp!.layers.filter((l) => l.id !== op.layerId);
+      if (sceneOp!.demo?.layerId === op.layerId) sceneOp!.demo = undefined;
       changed.add(sceneOp!.id);
       return doc;
     }
@@ -515,6 +518,19 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       if (actor !== "user") throw new OperationError("invalid", "Only the owner decides whether Claude checks takes automatically.");
       doc.autoProductCheck = op.enabled;
       return doc;
+    case "setSceneDemo": {
+      const sc = doc.scenes.find((x) => x.id === op.sceneId);
+      if (!sc) throw new OperationError("not_found", "Scene not found.");
+      if (op.demo) {
+        const l = sc.layers.find((x) => x.id === op.demo!.layerId);
+        if (!l || (l.kind !== "image" && l.kind !== "video")) throw new OperationError("invalid", "A screen demo needs an image layer holding the screenshot.");
+        if (op.demo.steps.some((st) => st.atFrames >= sc.durationFrames)) throw new OperationError("invalid", "Every demo step must happen within the scene.");
+        op.demo.steps.sort((a, b) => a.atFrames - b.atFrames);
+      }
+      sc.demo = op.demo ?? undefined;
+      changed.add(sc.id);
+      return doc;
+    }
     case "setLoop":
       doc.loop = op.loop;
       return doc;

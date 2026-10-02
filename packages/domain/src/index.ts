@@ -15,3 +15,4 @@ export * from "./effort";
 export * from "./script";
 export * from "./voice";
 export * from "./sfx";
+export * from "./demo";

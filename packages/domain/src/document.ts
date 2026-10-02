@@ -277,6 +277,32 @@ export const Scene = z.object({
   notes: z.string().max(1000).default(""),
   /** Frame offset (scene-local) used for the storyboard keyframe. */
   keyframeOffset: Frames.optional(),
+  /**
+   * Screen demo: a cursor works the real screenshot in `layerId` while the camera zooms to where
+   * the work happens. Steps are points on the screenshot (0–1 of its width/height), reached at
+   * `atFrames` (scene-local); the camera zooms in log space, so each doubling takes equal time.
+   */
+  demo: z
+    .object({
+      layerId: Id,
+      steps: z
+        .array(
+          z.object({
+            x: Unit,
+            y: Unit,
+            zoom: z.number().min(1).max(4).default(2),
+            atFrames: Frames,
+            action: z.enum(["click", "move"]).default("click"),
+            /** What is clicked, in a few words (shown in the editor and on the sound effect). */
+            label: z.string().max(80).default(""),
+          }),
+        )
+        .max(12)
+        .default([]),
+      /** Pull back to the whole screen at the end. */
+      zoomOut: z.boolean().default(true),
+    })
+    .optional(),
   /** Program (talking-head) scenes cover a source-time range; duration follows the EDL. */
   sourceRange: z.object({ startSec: z.number().min(0), endSec: z.number().min(0) }).optional(),
   /** Generated/supplied footage shot (T7, P6). Accepted media fills the scene's media layer. */

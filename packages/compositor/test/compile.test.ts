@@ -3,6 +3,18 @@ import { parseHTML } from "linkedom";
 import { BUILTIN_TEMPLATES, DEFAULT_BRAND, instantiateTemplate } from "@vs/templates";
 import { compileComposition, type StagedAsset } from "../src";
 
+const ctxFor = (_doc: unknown) => ({
+  scale: 1,
+  assets: new Map<string, StagedAsset>([
+    ["s1", { file: "assets/s1.png", kind: "image", width: 1440, height: 900 }],
+    ["s2", { file: "assets/s2.png", kind: "image", width: 1440, height: 900 }],
+    ["logo", { file: "assets/logo.png", kind: "image" }],
+  ]),
+  fonts: [{ family: "Space Grotesk", weight: 700, file: "fonts/sg.woff2" }, { family: "Inter", weight: 400, file: "fonts/i.woff2" }],
+  gsapFile: "vendor/gsap.min.js",
+  audioMix: { file: "audio/mix.wav" },
+});
+
 function build(aspect: "16:9" | "9:16" | "1:1", overrides: Record<string, unknown> = {}) {
   let n = 0;
   const doc = instantiateTemplate(BUILTIN_TEMPLATES.find((t) => t.id === "product-launch")!, {
@@ -80,10 +92,10 @@ describe("compileComposition", () => {
   });
 
   it("omits the proof scene when no proof is supplied, includes it when supplied", () => {
-    expect(build("16:9").doc.scenes.map((s) => s.recipeSlot)).toEqual(["hook", "reveal", "benefits", "cta"]);
+    expect(build("16:9").doc.scenes.map((s) => s.recipeSlot)).toEqual(["hook", "reveal", "benefits", "demo", "cta"]);
     const withProof = build("16:9", { proof: ["Cut planning time in half for our team"], proofSource: "Pilot customer" }).doc;
-    expect(withProof.scenes.map((s) => s.recipeSlot)).toEqual(["hook", "reveal", "benefits", "proof", "cta"]);
-    const q = withProof.scenes[3]!.layers.find((l) => l.kind === "text" && l.role === "quote");
+    expect(withProof.scenes.map((s) => s.recipeSlot)).toEqual(["hook", "reveal", "benefits", "demo", "proof", "cta"]);
+    const q = withProof.scenes[4]!.layers.find((l) => l.kind === "text" && l.role === "quote");
     expect(q && q.kind === "text" && q.approvedFactId).toBeTruthy();
   });
 
@@ -176,4 +188,26 @@ describe("motion-grammar transitions", () => {
       if (type === "portal") expect(script).toMatch(/circle\(0% at 50% 50%\)/);
     }
   });
+
+  it("a screen demo scene holds the screenshot until steps are planned, then films it with camera and cursor", () => {
+    const { doc } = build("16:9");
+    const demo = doc.scenes.find((s) => s.recipeSlot === "demo")!;
+    expect(demo.demo).toMatchObject({ layerId: demo.layers.find((l) => l.slot === "media")!.id, steps: [] });
+    expect(build("16:9", { screenshots: [] }).doc.scenes.some((s) => s.recipeSlot === "demo")).toBe(false);
+    const html0 = compileComposition(doc, ctxFor(doc)).html;
+    expect(html0).not.toContain(`l-${demo.id}-${demo.demo!.layerId}-cam`);
+    demo.demo!.steps = [
+      { x: 0.3, y: 0.4, zoom: 2, atFrames: 40, action: "click", label: "New invoice" },
+      { x: 0.6, y: 0.5, zoom: 2.5, atFrames: 100, action: "move", label: "" },
+    ];
+    const html = compileComposition(doc, ctxFor(doc)).html;
+    const lid = `l-${demo.id}-${demo.demo!.layerId}`;
+    expect(html).toContain(`id="${lid}-cam"`);
+    expect(html).toContain(`id="${lid}-cur"`);
+    expect(html.match(new RegExp(`id="${lid}-rip\\d+"`, "g"))).toHaveLength(1); // only the click ripples
+    // The scene's slow push is off; its own camera is set every frame it moves.
+    expect(html).not.toContain(`tl.fromTo("#${demo.id}-cam"`);
+    expect((html.match(new RegExp(`tl\\.set\\("#${lid}-cam"`, "g")) ?? []).length).toBeGreaterThan(40);
+  });
 });
+

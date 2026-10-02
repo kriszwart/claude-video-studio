@@ -227,6 +227,12 @@ export const LAYOUTS: Record<string, LayoutDef> = {
       decor: full,
     },
   },
+  // Screen demo: the real product screen large, a short caption above it; the camera zooms in.
+  "screen-demo": {
+    "16:9": { headline: { x: 0.05, y: 0.02, w: 0.9, h: 0.11, align: "start" }, media: { x: 0.06, y: 0.15, w: 0.88, h: 0.8, align: "center" }, decor: full },
+    "9:16": { headline: { x: 0.06, y: 0.06, w: 0.88, h: 0.12, align: "start" }, media: { x: 0.03, y: 0.22, w: 0.94, h: 0.6, align: "center" }, decor: full },
+    "1:1": { headline: { x: 0.05, y: 0.03, w: 0.9, h: 0.11, align: "start" }, media: { x: 0.04, y: 0.16, w: 0.92, h: 0.8, align: "center" }, decor: full },
+  },
   "media-grid": {
     "16:9": {
       media: { x: 0.02, y: 0.08, w: 0.3, h: 0.4 },

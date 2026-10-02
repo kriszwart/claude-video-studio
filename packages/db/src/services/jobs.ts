@@ -17,6 +17,7 @@ export const JOB_TYPES = [
   "check_fidelity",
   "send_lanternist",
   "place_sfx",
+  "plan_demo",
   "export_otio",
   "generate_music",
   "assistant",

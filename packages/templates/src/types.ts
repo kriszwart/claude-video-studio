@@ -120,6 +120,8 @@ export const SceneRecipe = z.object({
   repeatFor: z.string().optional(),
   narration: z.string().max(1200).default(""),
   layers: z.array(LayerRecipe).max(24),
+  /** Screen demo: the image layer in this slot is the screenshot a cursor works through (steps are planned later). */
+  demo: z.object({ layer: z.string().max(40) }).optional(),
   /** Footage shot (T7/P6): generated from the prompt or filled with supplied footage. */
   shot: z
     .object({

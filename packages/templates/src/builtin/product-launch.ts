@@ -6,8 +6,8 @@ export const productLaunch: TemplateDefinitionInput = {
   family: "product-launch",
   name: "Product Launch",
   description:
-    "Problem → product reveal → approved benefits → proof (only if you supply it) → call to action. Uses your screenshots, logo, brand kit and music.",
-  version: 2,
+    "Problem → product reveal → approved benefits → a screen demo of your product → proof (only if you supply it) → call to action. Uses your screenshots, logo, brand kit and music.",
+  version: 3,
   tags: { purpose: ["launch", "marketing"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -77,6 +77,24 @@ export const productLaunch: TemplateDefinitionInput = {
       ],
     },
     {
+      // Screen demo: a cursor works the real screenshot while the camera follows it. Its steps
+      // are planned in the Scene tab (click points, or Claude picks them); until then it holds.
+      slot: "demo",
+      purpose: "Product demo",
+      durationSec: 7,
+      layout: "screen-demo",
+      when: "screenshots",
+      transition: { type: "zoom", durationFrames: 14 },
+      background: { type: "color", color: "brand.background" },
+      motion: 0.5,
+      narration: "",
+      demo: { layer: "media" },
+      layers: [
+        { kind: "text", slot: "headline", role: "headline", text: "{{productName}} in action", scale: 0.55, animation: "rise" },
+        { kind: "image", slot: "media", asset: "{{screenshots[0]}}", fit: "contain", animation: "fade", alt: "Product screen" },
+      ],
+    },
+    {
       slot: "proof",
       purpose: "Proof",
       durationSec: 5,
@@ -112,7 +130,7 @@ export const productLaunch: TemplateDefinitionInput = {
   audio: { musicInput: "music", musicGainDb: -6, duckDb: -12, narration: "optional", captions: false, musicLocked: false },
   providers: { required: [], optional: ["planner", "tts"] },
   plannerGuidance:
-    "Structure: problem/hook → product reveal → benefits/demo → proof (only when supplied) → CTA. Use approved benefits verbatim; never invent metrics, testimonials or customer names. Keep headlines under 8 words. Screenshots go in media slots; do not describe features the brief does not state.",
+    "Structure: problem/hook → product reveal → benefits → screen demo (when screenshots are supplied) → proof (only when supplied) → CTA. Use approved benefits verbatim; never invent metrics, testimonials or customer names. Keep headlines under 8 words. Screenshots go in media slots; do not describe features the brief does not state.",
   checklist: [
     "Logo appears on the end card",
     "Every benefit is an approved claim, shown verbatim",

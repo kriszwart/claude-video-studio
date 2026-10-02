@@ -191,4 +191,15 @@ and e2e tests use the SDK test double.
   Presenter and subject framing is judged by the Claude critic from stills (tested with the test double
   only). Voiceover pacing is measured from the recordings (speaking rate, mid-line pauses, late starts,
   speech running past a cut); how natural the voice sounds is left to human review.
+- The rendered draft is scanned frame by frame (64×36, per 4×4 cell) for one-frame flashes and for
+  jumps away from cuts, entrances, captions and footage; calibrated on 34 project renders with no false
+  alarms. It catches pops, not every awkward move. Text is judged at 28 px per 1080 on the frame's short
+  side (readable on a phone), product screens by the share of the frame width they fill, and videos
+  marked "made to loop" by whether the last frame matches the first.
+- Sound effects come only from the owner's sound kit (real recordings they upload; nothing is
+  synthesised). Each sound's hit is measured on upload and effects are placed so the hit lands on its
+  moment (measured in a rendered mix: within 0–8 ms). How the mix sounds is not judged; listen to it.
+- Screen demos film the owner's screenshot only (nothing is redrawn): a cursor and a camera that zooms in
+  log space, with steps clicked on the screenshot or picked by Claude (Scene tab). Claude's step picking
+  is tested against the test double only; check its targets on your own screens.
 - Redraw export is slow on software WebGPU; production should use GPU workers (routing supports it).

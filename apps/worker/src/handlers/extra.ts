@@ -10,6 +10,7 @@ import { ingestCollectionItem } from "./collection";
 import { buildSizzle } from "./sizzle";
 import { analyzeReference } from "./reference";
 import { placeSoundEffects } from "./sfx";
+import { planDemo } from "./demoPlan";
 import { qualityReview } from "./quality";
 import { captureScreenshot } from "./screenshot";
 import { composeBrief } from "./compose";
@@ -42,6 +43,7 @@ export const extraHandlers: Record<string, Handler> = {
   check_fidelity: checkFidelity,
   send_lanternist: sendLanternist,
   place_sfx: placeSoundEffects,
+  plan_demo: planDemo,
   export_otio: exportOtio,
   generate_music: generateMusic,
 };

@@ -7,6 +7,7 @@ export * from "./claude/composer";
 export * from "./claude/scriptwriter";
 export * from "./claude/critic";
 export * from "./claude/fidelity";
+export * from "./claude/demoPlan";
 export * from "./tts/types";
 export * from "./tts/local";
 export * from "./tts/elevenlabs";

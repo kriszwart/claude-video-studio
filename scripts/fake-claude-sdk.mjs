@@ -215,6 +215,9 @@ export function query({ prompt, options = {} }) {
       out = composeAnswer(text, props);
     } else if ("verdict" in props && "checks" in props) {
       out = fidelityAnswer(text, images);
+    } else if ("steps" in props && "summary" in props) {
+      // Screen demo plan: fixed, recognisable targets (a click, then pointing at a result).
+      out = { summary: `TEST DOUBLE: a two-step demo over ${images} image(s).`, steps: [{ x: 0.25, y: 0.3, zoom: 2, action: "click", label: "TEST DOUBLE button", why: "starts the task" }, { x: 0.7, y: 0.6, zoom: 2.5, action: "move", label: "TEST DOUBLE result", why: "shows the result" }] };
     } else if ("findings" in props && "scores" in props) {
       out = criticAnswer(text, images);
     } else if ("beats" in props && "notes" in props) {
