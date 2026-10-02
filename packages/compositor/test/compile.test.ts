@@ -279,3 +279,43 @@ describe("non-breaking spaces", () => {
     expect(words).toEqual(["Call", "01472 250390", "today"]);
   });
 });
+
+describe("scrim shape", () => {
+  it("draws one smooth gradient from clear at the top to the colour's own strength at the bottom", () => {
+    const { doc } = build("16:9");
+    const scene = doc.scenes[0]!;
+    scene.layers.push({ id: "sc", slot: "decor", hidden: false, kind: "shape", shape: "scrim", color: "#000000c0", box: { x: 0, y: 0.4, w: 1, h: 0.6 }, animation: { in: "fade", delayFrames: 0, loop: "none" } } as never);
+    const assets = new Map<string, StagedAsset>([
+      ["s1", { file: "assets/s1.png", kind: "image", width: 1440, height: 900 }],
+      ["s2", { file: "assets/s2.png", kind: "image", width: 1440, height: 900 }],
+      ["logo", { file: "assets/logo.png", kind: "image" }],
+    ]);
+    const out = compileComposition(doc, { scale: 1, assets, fonts: [{ family: "Space Grotesk", weight: 700, file: "fonts/sg.woff2" }], gsapFile: "vendor/gsap.min.js", audioMix: null } as never);
+    const { document } = parseHTML(out.html);
+    const style = document.querySelector(`#l-${scene.id}-sc`)?.getAttribute("style") ?? "";
+    expect(style).toContain("linear-gradient(180deg,rgba(0,0,0,0) 0%");
+    expect(style).toContain("rgba(0,0,0,0.753) 100%");
+    expect(style).not.toContain("border-radius");
+  });
+});
+
+describe("text before a crossfade", () => {
+  it("eases the outgoing scene's text out before the dissolve starts, so two headlines never overlap", () => {
+    const { doc } = build("16:9");
+    doc.scenes[1]!.transitionIn = { type: "fade", durationFrames: 15 };
+    const assets = new Map<string, StagedAsset>([
+      ["s1", { file: "assets/s1.png", kind: "image", width: 1440, height: 900 }],
+      ["s2", { file: "assets/s2.png", kind: "image", width: 1440, height: 900 }],
+      ["logo", { file: "assets/logo.png", kind: "image" }],
+    ]);
+    const out = compileComposition(doc, { scale: 1, assets, fonts: [{ family: "Space Grotesk", weight: 700, file: "fonts/sg.woff2" }], gsapFile: "vendor/gsap.min.js", audioMix: null } as never);
+    const first = doc.scenes[0]!;
+    const headline = first.layers.find((l) => l.kind === "text" && l.role !== "kicker")!;
+    const sceneEnd = first.durationFrames / 30, overlapStart = (first.durationFrames - 15) / 30;
+    const fades = [...out.html.matchAll(/tl\.fromTo\("([^"]+)",\{opacity:1\},\{opacity:0,duration:([\d.]+)[^}]*\},([\d.]+)\)/g)].filter((m) => m[1]!.includes(`#l-${first.id}-${headline.id}`));
+    expect(fades.length).toBeGreaterThan(0);
+    const [, , dur, at] = fades[0]!;
+    expect(Number(at) + Number(dur)).toBeLessThanOrEqual(overlapStart + 0.04);
+    expect(Number(at)).toBeLessThan(sceneEnd);
+  });
+});

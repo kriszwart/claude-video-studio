@@ -75,7 +75,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("shape"),
     slot: z.string(),
-    shape: z.enum(["rect", "circle", "ring", "line", "blob", "grid", "bars"]),
+    shape: z.enum(["rect", "circle", "ring", "line", "blob", "grid", "bars", "scrim"]),
     color: ColorRef.default("brand.accent"),
     animation: EntranceAnimation.default("pop"),
     loop: z.enum(["none", "pulse", "spin", "drift"]).default("none"),

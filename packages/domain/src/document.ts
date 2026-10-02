@@ -188,7 +188,7 @@ export type VideoLayer = z.infer<typeof VideoLayer>;
 
 export const ShapeLayer = LayerBase.extend({
   kind: z.literal("shape"),
-  shape: z.enum(["rect", "circle", "ring", "line", "blob", "grid", "bars"]),
+  shape: z.enum(["rect", "circle", "ring", "line", "blob", "grid", "bars", "scrim"]),
   color: ColorRef.default("brand.accent"),
   animation: z
     .object({ in: EntranceAnimation.default("pop"), delayFrames: Frames.default(0), loop: z.enum(["none", "pulse", "spin", "drift"]).default("none") })

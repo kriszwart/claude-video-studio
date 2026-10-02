@@ -218,6 +218,7 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
     const sid = `s-${scene.id}`;
     const parts: string[] = [];
     const exits: string[] = [];
+    const textExits: string[] = [];
     parts.push(backgroundHtml(scene.background, brand, ctx, sid, start, dur, warnings));
     if (scene.background.type !== "asset") {
       // A soft light in the brand colour drifting across flat backgrounds: depth without clutter.
@@ -316,6 +317,7 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           // Gentle drift while on screen, so held frames are never frozen.
           tweens.push(`tl.fromTo("#${lid} .fit",{y:0},{y:${f3(-(6 + 10 * m.k) * unit)},duration:${dur},ease:"none"},${start});`);
           exits.push(`#${lid}`);
+          textExits.push(`#${lid}`);
           break;
         }
         case "image":
@@ -413,6 +415,16 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       const d = Math.min(0.3, (t.duration / fps) * 0.08);
       const at = f3((t.start + t.duration) / fps - d - 1 / fps);
       tweens.push(`tl.fromTo(${scriptJson(exits.join(","))},{opacity:1},{opacity:0,duration:${f3(d)},ease:"power2.in",immediateRender:false},${at});`);
+    }
+
+    // A crossfade blends both scenes, so the outgoing text would sit over the next picture: ease
+    // it out just before the dissolve starts. Pictures still dissolve. (Slides, wipes and zooms
+    // move the whole scene, text included.)
+    const overlapOut = timeline.scenes[index + 1]?.overlapIn ?? 0;
+    if (next?.transitionIn.type === "fade" && overlapOut > 0 && textExits.length && !doc.markers.length && t.duration / fps >= 1.5) {
+      const d = Math.min(0.3, (t.duration / fps) * 0.08);
+      const at = f3((t.start + t.duration - overlapOut) / fps - d);
+      tweens.push(`tl.fromTo(${scriptJson(textExits.join(","))},{opacity:1},{opacity:0,duration:${f3(d)},ease:"power2.in",immediateRender:false},${at});`);
     }
 
     if (index > 0 && t.overlapIn > 0) {
@@ -849,6 +861,13 @@ function shapeHtml(layer: ShapeLayer, lid: string, box: Box, z: number, brand: B
   switch (layer.shape) {
     case "rect":
       return `<div class="layer" id="${lid}" style="${base}background:${c};border-radius:${f3(12 * unit)}px;"></div>`;
+    case "scrim": {
+      // A soft darkening behind text over photos: clear at the top of its box, the colour's own
+      // strength (its alpha, else 0.75) at the bottom, eased so no edge or banding shows.
+      const a = /^#[0-9a-f]{8}$/i.test(c) ? parseInt(c.slice(7, 9), 16) / 255 : 0.75;
+      const stop = (k: number, at: number) => `${hexWithAlpha(c, Math.round(a * k * 1000) / 1000)} ${at}%`;
+      return `<div class="layer" id="${lid}" style="${base}background:linear-gradient(180deg,${[stop(0, 0), stop(0.08, 25), stop(0.3, 50), stop(0.62, 75), stop(1, 100)].join(",")});"></div>`;
+    }
     case "circle": {
       const d = Math.min(box.width, box.height);
       return `<div class="layer" id="${lid}" style="${base}"><div class="shape-inner" style="position:absolute;left:50%;top:50%;width:${f3(d)}px;height:${f3(d)}px;margin:${f3(-d / 2)}px 0 0 ${f3(-d / 2)}px;border-radius:50%;background:${c};"></div></div>`;
