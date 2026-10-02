@@ -62,7 +62,7 @@ export function AssistantPanel({ projectId, doc, revisionId, selected, jobs, cla
           </button>
         </div>
         <label htmlFor="ask" className="sr-only">Ask the assistant</label>
-        <textarea id="ask" className="input min-h-20" placeholder="Describe a change… e.g. “Replace that screenshot and tighten the headline.”" value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim() && void send()} />
+        <textarea id="ask" className="input min-h-20" placeholder="Give notes like you would to an editor: what's wrong and what you want it to feel like. One per line, e.g. “The reminders card looks empty at 9.5 s: it should read as busy from its first frame.”" value={text} maxLength={2000} onChange={(e) => setText(e.target.value)} onKeyDown={(e) => e.key === "Enter" && (e.metaKey || e.ctrlKey) && text.trim() && void send()} />
         <div className="mt-2 flex flex-wrap items-center gap-2">
           <button className="btn btn-primary" disabled={!text.trim() || !!running} onClick={send}>
             {running ? "Working…" : "Apply change"}
@@ -144,6 +144,7 @@ function AssistantResult({ job }: { job: JobDTO }) {
       <div className="space-y-1">
         <p className={r.revisionId ? "" : "text-dim"}>{r.revisionId ? `Done so far: ${String(r.explanation ?? "")}` : String(r.explanation ?? "Nothing has been changed yet.")}</p>
         <p><span className="text-warn">Question:</span> {String(r.question)}</p>
+        <NotesRead r={r} />
       </div>
     );
   if (status === "rejected_stale" || status === "stale" || status === "refused") return <p className="text-warn">{String(r.message)}</p>;
@@ -158,11 +159,52 @@ function AssistantResult({ job }: { job: JobDTO }) {
     );
   }
   return (
-    <p>
-      {String(r.explanation ?? "")}
-      {r.rebased ? <span className="text-faint"> (rebased onto your newer edits)</span> : null}
-      {status === "applied" && <span className="text-ok"> Applied — undo is available.</span>}
-    </p>
+    <div className="space-y-1.5">
+      <p>
+        {String(r.explanation ?? "")}
+        {r.rebased ? <span className="text-faint"> (rebased onto your newer edits)</span> : null}
+        {status === "applied" && <span className="text-ok"> Applied — undo is available.</span>}
+      </p>
+      <NotesRead r={r} />
+    </div>
+  );
+}
+
+/** How the assistant read each note (problem → result), whether it got there, and what it would still change. */
+function NotesRead({ r }: { r: Record<string, unknown> }) {
+  const notes = (Array.isArray(r.notes) ? r.notes : []) as { note: string; problem: string; result: string; done: boolean; how: string }[];
+  const still = (Array.isArray(r.stillChange) ? r.stillChange : []) as string[];
+  if (!notes.length && !still.length) return null;
+  return (
+    <div className="space-y-1.5" data-testid="notes-read">
+      {notes.length > 0 && (
+        <ol className="space-y-1">
+          {notes.map((n, i) => (
+            <li key={i} className="rounded border border-line p-1.5" data-done={n.done}>
+              <div className="flex items-start gap-1.5">
+                <span className={n.done ? "text-ok" : "text-warn"} aria-label={n.done ? "Done" : "Not fully done"}>
+                  {n.done ? "✓" : "◐"}
+                </span>
+                <span>
+                  <span className="text-dim">{n.problem}</span> → <span className="font-medium">{n.result}</span>
+                </span>
+              </div>
+              <p className="pl-4 text-faint">{n.how}</p>
+            </li>
+          ))}
+        </ol>
+      )}
+      {still.length > 0 && (
+        <div data-testid="assistant-still-change">
+          <p className="text-dim">What I&apos;d still change:</p>
+          <ul className="list-disc pl-4">
+            {still.map((x, i) => (
+              <li key={i}>{x}</li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
   );
 }
 

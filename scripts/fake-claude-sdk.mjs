@@ -155,6 +155,7 @@ function criticAnswer(text, images) {
     summary: `TEST DOUBLE: canned review of ${images} frame(s).`,
     scores: { story: 3, visuals: 3, readability: 2, pacing: 4 },
     strengths: ["TEST DOUBLE: consistent colour across shots."],
+    stillChange: [{ scene: 1, text: "TEST DOUBLE: hold the opening line longer.", check: false }, { scene: 0, text: "TEST DOUBLE: listen for the music under the voice.", check: true }],
     findings: [
       { scene: 1, frame: f1?.image ?? 0, category: "readability", severity: "fix", observation: "TEST DOUBLE: the opening line is on screen too briefly.", suggestion: "Hold the opening shot longer.", request: locked ? "" : "Make this scene 7 seconds long." },
       { scene: 0, frame: 0, category: "story", severity: "nit", observation: "TEST DOUBLE: no product footage.", suggestion: "Add real product footage.", request: "" },
@@ -210,7 +211,10 @@ export function query({ prompt, options = {} }) {
     let out;
     if ("operations" in props) {
       const sceneId = /"(?:id|sceneId)"\s*:\s*"(scn_[A-Za-z0-9_-]+)"/.exec(text)?.[1] ?? /scn_[A-Za-z0-9_-]+/.exec(text)?.[0];
-      out = { explanation: "TEST DOUBLE: set the first scene to 7 seconds.", clarificationQuestion: null, operations: sceneId ? [{ op: "setSceneDuration", sceneId, durationSec: 7 }] : [] };
+      // One reading per line of the request: the problem, the result wanted, done (the duration edit) or not.
+      const req = (/<request>([\s\S]*?)<\/request>/.exec(text)?.[1] ?? "").split(/\n+/).map((l) => l.trim()).filter(Boolean);
+      const notes = req.map((l, i) => ({ note: l.slice(0, 60), problem: `TEST DOUBLE problem: ${l.slice(0, 40)}`, result: `TEST DOUBLE result for note ${i + 1}`, done: i === 0, how: i === 0 ? "TEST DOUBLE: set the first scene to 7 seconds." : "TEST DOUBLE: not attempted." }));
+      out = { explanation: "TEST DOUBLE: set the first scene to 7 seconds.", clarificationQuestion: null, notes, stillChange: req.length > 1 ? ["TEST DOUBLE: the other notes need you."] : [], operations: sceneId ? [{ op: "setSceneDuration", sceneId, durationSec: 7 }] : [] };
     } else if ("textInputs" in props && "templateId" in props) {
       out = composeAnswer(text, props);
     } else if ("verdict" in props && "checks" in props) {

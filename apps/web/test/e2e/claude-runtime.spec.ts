@@ -59,7 +59,8 @@ function listeners(port: number): string[] {
   }
   return [...new Set(out)];
 }
-const psql = (q: string) => execFileSync("psql", [DB, "-Atc", q]).toString().trim();
+// The whole database is scanned for secrets, so its dump can be large after many test runs.
+const psql = (q: string) => execFileSync("psql", [DB, "-Atc", q], { maxBuffer: 512 * 1024 * 1024 }).toString().trim();
 
 test.describe.serial("Claude subscription runtime (A31–A33, SDK test double)", () => {
   test.afterAll(async ({ request }) => {

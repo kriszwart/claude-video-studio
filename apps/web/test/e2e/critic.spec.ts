@@ -49,6 +49,13 @@ test.describe.serial("Visual critic", () => {
     await expect(findings.nth(0).getByRole("checkbox")).toBeChecked();
     await expect(findings.nth(1).getByText("Needs you")).toBeVisible();
     await expect(page.getByTestId("score-readability")).toContainText("2/5");
+    // The critic's own short list: changes first, then what only watching or listening can settle.
+    const still = page.getByTestId("still-change");
+    await expect(still).toContainText("What I'd still change");
+    await expect(still.locator("ol li")).toHaveText(["Scene 1: TEST DOUBLE: hold the opening line longer."]);
+    await expect(still).toContainText("Watch or listen for");
+    await expect(still).toContainText("TEST DOUBLE: listen for the music under the voice.");
+    expect(c1.report.stillChange).toEqual([expect.objectContaining({ scene: 1, check: false, sceneId: c1.report.findings[0].sceneId }), expect.objectContaining({ scene: 0, check: true, sceneId: null })]);
 
     await page.getByRole("button", { name: "Apply 1 selected with the assistant" }).click();
     await expect(page.getByText(/^Applied:/)).toBeVisible({ timeout: 60_000 });
@@ -79,4 +86,24 @@ test.describe.serial("Visual critic", () => {
     await scenario(request, "signed_out");
     expect((await request.post(`/api/projects/${id}/critique`, { data: {} })).status()).toBe(412);
   });
+
+  test("notes are read as problem and result; the assistant says which it achieved and what it would still change", async ({ page, request }) => {
+    test.setTimeout(180_000);
+    await scenario(request, "max");
+    const created = await (await request.post("/api/projects", { data: { templateId: "motion-reel", title: "Notes", inputs: { hook: "Focus wins", headline: "Plan less, ship more", brandName: "Tidewave" } } })).json();
+    await page.goto(`/projects/${created.project.id}`);
+    await page.getByRole("tab", { name: "assistant" }).click();
+    await page.getByRole("radio", { name: "Whole project" }).click();
+    await page.getByLabel("Ask the assistant").fill("The opening goes by too fast: it should be readable before it cuts.\nThe end card feels empty: it should feel finished.");
+    await page.getByRole("button", { name: "Apply change" }).click();
+    const read = page.getByTestId("notes-read");
+    await expect(read).toBeVisible({ timeout: 60_000 });
+    const notes = read.locator("li[data-done]");
+    await expect(notes).toHaveCount(2);
+    await expect(notes.nth(0)).toHaveAttribute("data-done", "true");
+    await expect(notes.nth(0)).toContainText("TEST DOUBLE result for note 1");
+    await expect(notes.nth(1)).toHaveAttribute("data-done", "false");
+    await expect(page.getByTestId("assistant-still-change")).toContainText("TEST DOUBLE: the other notes need you.");
+  });
 });
+

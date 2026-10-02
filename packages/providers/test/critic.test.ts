@@ -11,6 +11,7 @@ const good = (over: Partial<CriticOutput> = {}): CriticOutput => ({
   summary: "s",
   scores: { story: 3, visuals: 4, readability: 2, pacing: 3 },
   strengths: ["x"],
+  stillChange: [{ scene: 1, text: "Hold the hook a beat longer.", check: false }, { scene: 0, text: "Listen for the music under the voice.", check: true }],
   findings: [
     { scene: 1, frame: 1, category: "readability", severity: "nit", observation: "o", suggestion: "s", request: "" },
     { scene: 2, frame: 2, category: "pacing", severity: "fix", observation: "o", suggestion: "s", request: "Hold longer." },
@@ -60,4 +61,12 @@ describe("critic", () => {
     const fixed = good({ findings: [...good().findings, { scene: 2, frame: 2, category: "readability", severity: "fix", observation: "1.7:1", suggestion: "White text", request: "Change the text colour to #ffffff." }] });
     expect(validateCritique(fixed, withContrast)).toEqual([]);
   });
+
+  it("keeps 'what I'd still change' short: at most three changes and two things to check, changes first", () => {
+    expect(validateCritique(good(), ctx)).toEqual([]);
+    const many = good({ stillChange: [1, 2, 3, 4].map((k) => ({ scene: 1, text: `c${k}`, check: false })) });
+    expect(validateCritique(many, ctx)).toContain("stillChange: at most three changes.");
+    expect(validateCritique(good({ stillChange: [{ scene: 99, text: "x", check: false }] }), ctx)[0]).toMatch(/stillChange\[0\]\.scene/);
+  });
 });
+

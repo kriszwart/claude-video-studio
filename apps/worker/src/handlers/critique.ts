@@ -88,6 +88,7 @@ export const critique: Handler = async (ctx) => {
     scores: run.output.scores,
     strengths: run.output.strengths.slice(0, 3),
     findings,
+    stillChange: run.output.stillChange.map((x) => ({ ...x, sceneId: x.scene > 0 ? doc.scenes[x.scene - 1]?.id ?? null : null })),
     frames: stored,
     measured,
     contrast,

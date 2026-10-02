@@ -37,13 +37,33 @@ export const EDIT_OPS: Record<string, JsonSchema> = {
 export const EDITOR_SCHEMA = obj({
   explanation: str("One or two sentences telling the owner what you changed and why."),
   clarificationQuestion: nullable(str("Ask only when several materially different edits are plausible. Then return no operations.")),
+  notes: arr(
+    obj({
+      note: str("The owner's note, shortened to a few words."),
+      problem: str("What is wrong, as the owner sees it."),
+      result: str("The result the owner wants (how it should look, read or feel), which may go further than the fix they named."),
+      done: bool("True when your operations achieve that result; false when they only partly do, or can't."),
+      how: str("What you changed for it, or why you couldn't, in one short sentence."),
+    }),
+    "How you read each note in the request, one entry per distinct note, in order.",
+  ),
+  stillChange: arr(str(), "Up to three things you'd still change or the owner should check after these edits (e.g. something you couldn't do, or that needs watching). Empty if nothing."),
   operations: arr({ anyOf: Object.values(EDIT_OPS) }),
 });
 
 export type EditOp = { op: string } & Record<string, unknown>;
+export interface EditNote {
+  note: string;
+  problem: string;
+  result: string;
+  done: boolean;
+  how: string;
+}
 export interface EditOutput {
   explanation: string;
   clarificationQuestion: string | null;
+  notes?: EditNote[];
+  stillChange?: string[];
   operations: EditOp[];
 }
 
@@ -59,7 +79,10 @@ export interface EditContext {
 const SYSTEM = `You are the Creative Assistant inside a video editing studio. The owner asks for changes to an existing project; you respond with a short explanation and a list of typed edit operations that the studio validates and applies.
 
 Rules:
+- Read each note as a problem plus the result the owner wants. If a note names a fix, make it only if it achieves that result; if it wouldn't (e.g. "start the card with one step showing" when the card would still look empty), do what achieves the result within these rules and say so. Report how you read each note in "notes", and mark it done only when the result is achieved.
 - Change only what the request asks for. Leave every other scene exactly as it is.
+- Keep timing, sound and everything a note doesn't touch as it is.
+- Finish with "stillChange": the few things you'd still change or that the owner should check, honestly (empty if nothing).
 - When scenes are selected, confine edits to them unless the request clearly says otherwise.
 - Locked scenes cannot be modified; if the request needs one, say so in the explanation and ask the owner to unlock it.
 - Text bound to an approved fact (approvedFactId) must not be reworded. Never invent claims, figures or testimonials.

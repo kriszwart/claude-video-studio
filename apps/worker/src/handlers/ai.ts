@@ -229,8 +229,10 @@ export const assistantEdit: Handler = async (ctx) => {
   // A question with no edits changes nothing: don't pass on an explanation that reads as if it did.
   // A question with edits applies those edits, then asks (status "clarify" with the revision).
   const question = res.output.clarificationQuestion || null;
-  if (question && res.ops.length === 0) return { status: "clarify", question, explanation: "Nothing has been changed yet." };
-  if (res.ops.length === 0) return { status: "no_change", explanation: res.output.explanation };
+  // How each note was read, and what's still open, travel with every outcome.
+  const reading = { notes: (res.output.notes ?? []).slice(0, 12), stillChange: (res.output.stillChange ?? []).filter((x) => x.trim()).slice(0, 3) };
+  if (question && res.ops.length === 0) return { status: "clarify", question, explanation: "Nothing has been changed yet.", ...reading, notes: reading.notes.map((n) => ({ ...n, done: false })) };
+  if (res.ops.length === 0) return { status: "no_change", explanation: res.output.explanation, ...reading, notes: reading.notes.map((n) => ({ ...n, done: false })) };
   const done = question ? "clarify" : "applied";
 
   await ctx.stage("applying edits");
@@ -238,7 +240,7 @@ export const assistantEdit: Handler = async (ctx) => {
     db.transaction((tx) => applyProjectOperations(tx, { projectId: ctx.job.projectId!, workspaceId: ctx.job.workspaceId, baseRevisionId: baseId, ops: res.ops, actor: "assistant", action: `assistant: ${String(ctx.job.input.request).slice(0, 60)}` }));
   try {
     const r = await attempt(baseRevisionId);
-    return { status: done, ...(question ? { question } : {}), revisionId: r.revision.id, changedSceneIds: r.changedSceneIds, explanation: res.output.explanation, operations: res.ops };
+    return { status: done, ...(question ? { question } : {}), revisionId: r.revision.id, changedSceneIds: r.changedSceneIds, explanation: res.output.explanation, ...reading, operations: res.ops };
   } catch (e) {
     if (e instanceof AppError && e.status === 409 && e.code === "stale_revision") {
       const { revision, doc: current } = await getProject(db, ctx.job.projectId!, ctx.job.workspaceId);
@@ -248,7 +250,7 @@ export const assistantEdit: Handler = async (ctx) => {
       }
       try {
         const r = await attempt(revision.id);
-        return { status: done, ...(question ? { question } : {}), rebased: true, revisionId: r.revision.id, changedSceneIds: r.changedSceneIds, explanation: res.output.explanation, operations: res.ops };
+        return { status: done, ...(question ? { question } : {}), rebased: true, revisionId: r.revision.id, changedSceneIds: r.changedSceneIds, explanation: res.output.explanation, ...reading, operations: res.ops };
       } catch (e2) {
         throw toJobError(e2);
       }

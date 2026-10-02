@@ -25,6 +25,8 @@ interface Critique {
     scores: { story: number; visuals: number; readability: number; pacing: number };
     strengths: string[];
     findings: Finding[];
+    /** Older reviews don't have it. */
+    stillChange?: { scene: number; text: string; check: boolean }[];
     frames: { n: number; sceneId: string; sceneIndex: number; timeSec: number; kind: string; url: string }[];
     measured: { code: string; message: string }[];
     focus: string | null;
@@ -147,6 +149,26 @@ export function CriticPanel({ projectId, doc, revisionId, jobs, revRef, claudeRe
             <ul className="space-y-0.5 text-xs text-dim">
               {latest.report.strengths.map((s, i) => <li key={i}><span className="text-ok">✓</span> {s}</li>)}
             </ul>
+          )}
+          {(latest.report.stillChange?.length ?? 0) > 0 && (
+            <section className="rounded-md border border-line bg-bg p-2 text-xs" aria-label="What I'd still change" data-testid="still-change">
+              <h4 className="mb-1 font-semibold">What I&apos;d still change</h4>
+              <ol className="list-decimal space-y-0.5 pl-4">
+                {latest.report.stillChange!.filter((x) => !x.check).map((x, i) => (
+                  <li key={i}>{x.scene > 0 && <span className="text-faint">Scene {x.scene}: </span>}{x.text}</li>
+                ))}
+              </ol>
+              {latest.report.stillChange!.some((x) => x.check) && (
+                <>
+                  <h5 className="mt-1.5 text-dim">Watch or listen for (stills can&apos;t show this)</h5>
+                  <ul className="space-y-0.5 pl-1">
+                    {latest.report.stillChange!.filter((x) => x.check).map((x, i) => (
+                      <li key={i}>▸ {x.scene > 0 && <span className="text-faint">Scene {x.scene}: </span>}{x.text}</li>
+                    ))}
+                  </ul>
+                </>
+              )}
+            </section>
           )}
 
           <ol className="space-y-2">
