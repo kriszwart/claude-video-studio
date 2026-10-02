@@ -3,7 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { AppError, applyProjectOperations, getDb, getRevision, JobError, newId, schema } from "@vs/db";
 import { LAYOUTS } from "@vs/compositor";
-import { computeTimeline, cueIssues, expectedChanges, ProjectDocument, repairCues, validateTimeline, type Operation, type QualityIssue } from "@vs/domain";
+import { computeTimeline, countIssues, cueIssues, expectedChanges, ProjectDocument, repairCues, validateTimeline, type Operation, type QualityIssue } from "@vs/domain";
 import { captureStills, extractFrame, findGlitches, greyFrames, LOOP_SEAM_MAX, loopSeam, lowContrast, MIN_CONTRAST, prepareBundle, renderProject, type PageReport } from "@vs/rendering";
 import { referencedAssetIds, registerFile, resolveAssets, type Handler, type JobContext } from "../context";
 import { graphicsCompilerFor, needsWebGpu } from "../graphics";
@@ -105,6 +105,8 @@ export function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight
     else out.push({ code: "text_small_on_phone", severity: "creative", message: `Text “${f.layer.text.slice(0, 40)}” in “${f.scene.purpose}” is ${Math.round(px1080)} px at 1080p; on a phone, ${MIN_PHONE_PX_1080} px is the smallest that reads. Make it bigger.`, sceneId: f.scene.id, layerId: f.layer.id, atSec: at(f.scene.id), repairable: false });
   }
   out.push(...smallScreens(doc));
+  // Counting numbers only show real values: approved numbers, or changes by approved amounts.
+  for (const sc of doc.scenes) for (const l of sc.layers) if (l.kind === "text" && l.count && !l.hidden) for (const m of countIssues(doc, sc.id, l)) out.push({ code: "count_not_approved", severity: "creative", message: `Counting number in “${sc.purpose}”: ${m}`, sceneId: sc.id, layerId: l.id, atSec: at(sc.id), repairable: false });
   // Contrast: the worst measured frame per text layer (and one issue for burned-in captions).
   const worst = new Map<string, NonNullable<PageReport["contrast"]>[number]>();
   for (const m of report.contrast ?? []) {

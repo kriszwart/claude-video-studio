@@ -18,6 +18,7 @@ export const JOB_TYPES = [
   "send_lanternist",
   "place_sfx",
   "plan_demo",
+  "lock_music",
   "export_otio",
   "generate_music",
   "assistant",

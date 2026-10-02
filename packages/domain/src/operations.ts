@@ -2,6 +2,7 @@ import { z } from "zod";
 import {
   AudioTrack,
   ColorRef,
+  CountSpec,
   Background,
   BrandSnapshot,
   CaptionCue,
@@ -49,6 +50,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setTitle"), title: z.string().min(1).max(160) }),
   z.object({ op: z.literal("updateLayerText"), sceneId: Id, layerId: Id, text: z.string().max(600) }),
   z.object({ op: z.literal("setLayerStyle"), sceneId: Id, layerId: Id, style: TextLayer.shape.style.unwrap().partial() }),
+  z.object({ op: z.literal("setLayerCount"), sceneId: Id, layerId: Id, count: CountSpec.nullable() }),
   z.object({
     op: z.literal("setLayerAnimation"),
     sceneId: Id,
@@ -163,6 +165,7 @@ export interface ApplyResult {
 
 const SCENE_CONTENT_OPS = new Set<Operation["op"]>([
   "setSceneDemo",
+  "setLayerCount",
   "updateLayerText",
   "setLayerStyle",
   "setLayerAnimation",
@@ -259,6 +262,18 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
       const layer = findLayer(sceneOp!, op.layerId);
       if (layer.kind !== "text") throw new OperationError("invalid", "Style applies to text layers.");
       layer.style = { ...layer.style, ...stripUndefined(op.style) };
+      changed.add(sceneOp!.id);
+      return doc;
+    }
+    case "setLayerCount": {
+      const layer = findLayer(sceneOp!, op.layerId);
+      if (layer.kind !== "text") throw new OperationError("invalid", "Only text can count.");
+      if (layer.approvedFactId && actor !== "user") throw new OperationError("approved_claim", "Only the owner turns an approved claim into a counting number.");
+      if (op.count) {
+        const stops = [...op.count.stops].sort((a, b) => a.atFrames - b.atFrames);
+        if (stops.some((st) => st.atFrames >= sceneOp!.durationFrames)) throw new OperationError("invalid", "Every stop must be reached within the scene.");
+        layer.count = { ...op.count, stops };
+      } else delete layer.count;
       changed.add(sceneOp!.id);
       return doc;
     }

@@ -1,7 +1,9 @@
 import { characterSvg, characterTweens } from "./character";
 import {
   computeTimeline,
+  countFrames,
   demoTail,
+  formatCount,
   programSegments,
   sourceToOutput,
   dimensionsFor,
@@ -292,7 +294,15 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
         case "text": {
           // Display text rises word by word from behind a mask (the "kinetic" reveal); other
           // roles keep their block entrance. Words stay in place for fitting and captions.
-          const masked = layer.animation.in === "rise" && !layer.animation.stagger && MASKED_ROLES.has(layer.role) && layer.text.split(/\s+/).length <= 18;
+          const masked = !layer.count && layer.animation.in === "rise" && !layer.animation.stagger && MASKED_ROLES.has(layer.role) && layer.text.split(/\s+/).length <= 18;
+          if (layer.count) {
+            // Every frame shows its exact value (no tweening between frames, so nothing in between is ever drawn).
+            let last = "";
+            countFrames(layer.count, scene.durationFrames, fps).forEach((t, f) => {
+              if (t !== last) tweens.push(`tl.set("#${lid}-num",{textContent:${JSON.stringify(t)}},${f3(start + f / fps)});`);
+              last = t;
+            });
+          }
           parts.push(textHtml(layer, lid, box, z, slot, brand, profile.typeScale * unit, masked));
           if (masked) {
             const n = Math.max(1, layer.text.split(/\s+/).filter(Boolean).length);
@@ -683,6 +693,11 @@ function entrance(sel: string, kind: string, at: number, m: { dist: number; dur:
 /** Roles whose words rise from behind a mask when entering with "rise". */
 const MASKED_ROLES = new Set<TextLayer["role"]>(["headline", "stat", "quote"]);
 
+/** The longest text a counter shows, so its box is sized once for all its values. */
+function widestCount(spec: NonNullable<TextLayer["count"]>): string {
+  return spec.stops.map((st) => formatCount(st.value, spec)).reduce((a, b) => (b.length > a.length ? b : a));
+}
+
 function textHtml(layer: TextLayer, lid: string, box: Box, z: number, slot: SlotBox | undefined, brand: BrandSnapshot, sizeUnit: number, masked = false): string {
   const role = layer.role;
   const size = ROLE_SIZE[role] * layer.style.scale * sizeUnit;
@@ -707,10 +722,13 @@ function textHtml(layer: TextLayer, lid: string, box: Box, z: number, slot: Slot
       : backing === "translucent"
         ? `background:${hexWithAlpha(resolveColor(brand, "brand.surface", "#111111"), 0.82)};`
         : "";
-  const words = escapeHtml(layer.text)
-    .split(/(\s+)/)
-    .map((w) => (w.trim() ? (masked ? `<span class="wm"><span class="w">${w}</span></span>` : `<span class="w">${w}</span>`) : w))
-    .join("");
+  // A counting number is one span whose text is set every frame; sized for its widest value.
+  const words = layer.count
+    ? `<span class="w num" id="${lid}-num" style="font-variant-numeric:tabular-nums;white-space:nowrap">${escapeHtml(widestCount(layer.count))}</span>`
+    : escapeHtml(layer.text)
+        .split(/(\s+)/)
+        .map((w) => (w.trim() ? (masked ? `<span class="wm"><span class="w">${w}</span></span>` : `<span class="w">${w}</span>`) : w))
+        .join("");
   const inner =
     role === "cta"
       ? `<span class="cta-pill" style="background:${resolveColor(brand, "brand.primary", "#3355ff")};">${words}</span>`

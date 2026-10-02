@@ -8,6 +8,7 @@ import { NumberField } from "./fields";
 import { newClientId } from "./ids";
 import { MarkersPanel } from "./MarkersPanel";
 import { SoundEffectsPanel } from "./SoundEffectsPanel";
+import { BeatLockPanel } from "./BeatLockPanel";
 import type { JobDTO } from "./types";
 
 export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string; doc: ProjectDocument; apply: (ops: Operation[]) => Promise<boolean>; jobs: { type: string; status: string; stage: string; progress: number | null; result: Record<string, unknown> | null; error: { message: string; recovery?: string } | null }[] }) {
@@ -39,6 +40,7 @@ export function AudioPanel({ projectId, doc, apply, jobs }: { projectId: string;
         />
       </div>
       <MusicGenerator projectId={projectId} doc={doc} jobs={jobs} hasMusic={music.length > 0} />
+      <BeatLockPanel projectId={projectId} doc={doc} jobs={jobs as JobDTO[]} />
       <SoundEffectsPanel projectId={projectId} doc={doc} apply={apply} jobs={jobs as JobDTO[]} />
     </div>
   );

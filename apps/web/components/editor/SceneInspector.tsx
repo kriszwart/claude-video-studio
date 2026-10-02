@@ -9,6 +9,7 @@ import { MatchFootage } from "./MatchFootage";
 import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
 import { projectVoiceId, VoiceDirectionControls } from "./VoiceDirectionControls";
+import { CountEditor } from "./CountEditor";
 import { DemoEditor } from "./DemoEditor";
 import type { JobDTO } from "./types";
 
@@ -306,6 +307,7 @@ function LayerEditor({ layer, scene, doc, apply, colors }: { layer: Layer; scene
           {header}
           {fact && <p className="text-[11px] text-ok">Approved claim — the assistant cannot reword it.</p>}
           <DebouncedText ariaLabel={`${layer.role} text`} multiline={layer.text.length > 40} value={layer.text} maxLength={600} onCommit={(v) => apply([{ op: "updateLayerText", ...base, text: v }])} />
+          <CountEditor doc={doc} scene={scene} layer={layer} apply={apply} />
           <div className="grid grid-cols-2 gap-2">
             <div>
               <label className="label">Size ×{layer.style.scale.toFixed(2)}</label>

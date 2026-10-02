@@ -63,8 +63,15 @@ export function soundEvents(doc: ProjectDocument, density: "minimal" | "moderate
     if (i > 0 && !noWhoosh && WHOOSH_TRANSITIONS.has(scene.transitionIn.type) && st.overlapIn > 0) out.push({ frame: st.start + Math.round(st.overlapIn * 0.6), role: "whoosh", label: `${n}: ${scene.transitionIn.type} transition`, priority: 1 });
     // Screen demo: a click on every press (one frame after the cursor arrives).
     for (const step of scene.demo?.steps ?? []) if (step.action === "click" && step.atFrames < st.duration) out.push({ frame: st.start + step.atFrames + 1, role: "click", label: `${n}: click${step.label ? ` “${step.label}”` : ""}`, priority: 2 });
+    // Counting numbers: a coin on each stop it reaches, a soft impact on the last.
     for (const l of scene.layers) {
-      if (l.hidden || l.kind !== "text" || !l.text.trim()) continue;
+      if (l.hidden || l.kind !== "text" || !l.count) continue;
+      l.count.stops.slice(1).forEach((s, k, rest) => {
+        if (s.atFrames < st.duration) out.push({ frame: st.start + s.atFrames, role: k === rest.length - 1 ? "impact" : "cash", label: `${n}: number reaches ${s.value}`, priority: k === rest.length - 1 ? 1 : 3 });
+      });
+    }
+    for (const l of scene.layers) {
+      if (l.hidden || l.kind !== "text" || !l.text.trim() || l.count) continue;
       const at = st.start + l.animation.delayFrames;
       // Fast-in eases land almost at once; a pop overshoots at about a third of its move.
       const land = at + (l.animation.in === "pop" ? Math.round(fps * 0.15) : 2);

@@ -202,4 +202,11 @@ and e2e tests use the SDK test double.
 - Screen demos film the owner's screenshot only (nothing is redrawn): a cursor and a camera that zooms in
   log space, with steps clicked on the screenshot or picked by Claude (Scene tab). Claude's step picking
   is tested against the test double only; check its targets on your own screens.
+- Counting numbers show a real value on every frame (formatted like the product, never past a stop,
+  never "-0") and are checked against the approved facts: each value, or its change from the stop
+  before, must appear there. Lock to the beat (Audio tab) finds the song's drops from its measured
+  section energy (each arrival at its peak), uses the first one late enough for the music to start
+  with the video, lands it on the payoff (a counter's last value, else the proof, a number or the
+  call to action) to the frame, and moves cuts onto beats. The analysis measures the music; it can't
+  hear it, so play it back and check the drop feels right.
 - Redraw export is slow on software WebGPU; production should use GPU workers (routing supports it).

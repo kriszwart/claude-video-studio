@@ -119,6 +119,15 @@ const LayerBase = z.object({
   hidden: z.boolean().default(false),
 });
 
+export const CountSpec = z.object({
+  stops: z.array(z.object({ value: z.number().finite().min(-1e12).max(1e12), atFrames: Frames })).min(2).max(12),
+  prefix: z.string().max(8).default(""),
+  suffix: z.string().max(12).default(""),
+  decimals: z.number().int().min(0).max(2).default(0),
+  thousands: z.boolean().default(true),
+});
+export type CountSpec = z.infer<typeof CountSpec>;
+
 export const TextLayer = LayerBase.extend({
   kind: z.literal("text"),
   role: z.enum(["kicker", "headline", "subhead", "body", "label", "cta", "stat", "caption", "quote"]),
@@ -136,6 +145,11 @@ export const TextLayer = LayerBase.extend({
   animation: z
     .object({ in: EntranceAnimation.default("rise"), delayFrames: Frames.default(0), stagger: z.boolean().default(false) })
     .default({ in: "rise", delayFrames: 0, stagger: false }),
+  /**
+   * A counting number: the text counts from stop to stop, each value reached at its scene-local
+   * frame. Every frame shows a real value on the way (formatted, never past a stop, never "-0").
+   */
+  count: CountSpec.optional(),
 });
 export type TextLayer = z.infer<typeof TextLayer>;
 
