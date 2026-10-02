@@ -178,7 +178,7 @@ export function Editor({ projectId }: { projectId: string }) {
             {tab === "audio" && <AudioPanel projectId={projectId} doc={doc} apply={p.apply} jobs={view.jobs} />}
             {tab === "export" && (
               <div className="space-y-6">
-                <QualityPanel projectId={projectId} revisionId={p.revisionId} jobs={view.jobs} blocking={blocking.length > 0} />
+                <QualityPanel projectId={projectId} revisionId={p.revisionId} jobs={view.jobs} blocking={blocking.length > 0} loop={doc.loop} onLoop={(loop) => p.apply([{ op: "setLoop", loop }])} />
                 <ExportPanel projectId={projectId} doc={doc} revisionId={p.revisionId} exports={view.exports} jobs={view.jobs} blocking={blocking.length > 0} />
                 <LanternistPanel projectId={projectId} jobs={view.jobs} />
               </div>

@@ -138,6 +138,7 @@ export const Operation = z.discriminatedUnion("op", [
   z.object({ op: z.literal("setSeed"), seed: z.number().int() }),
   z.object({ op: z.literal("setAcquisitionPolicy"), policy: z.enum(["existing-only", "existing-plus-public", "generated-allowed"]) }),
   z.object({ op: z.literal("setAutoProductCheck"), enabled: z.boolean() }),
+  z.object({ op: z.literal("setLoop"), loop: z.boolean() }),
 ]);
 export type Operation = z.infer<typeof Operation>;
 
@@ -513,6 +514,9 @@ function applyOne(doc: ProjectDocument, op: Operation, actor: Actor, changed: Se
     case "setAutoProductCheck":
       if (actor !== "user") throw new OperationError("invalid", "Only the owner decides whether Claude checks takes automatically.");
       doc.autoProductCheck = op.enabled;
+      return doc;
+    case "setLoop":
+      doc.loop = op.loop;
       return doc;
     case "setAcquisitionPolicy":
       if (actor !== "user") throw new OperationError("invalid", "Only the owner changes what may be sourced or generated.");

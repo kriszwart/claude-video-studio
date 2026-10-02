@@ -31,7 +31,7 @@ interface Report {
 const VERDICT = { ready: ["Ready", "text-emerald-400"], needs_review: ["Needs review", "text-amber-400"], failed: ["Failed", "text-red-400"] } as const;
 
 /** Bounded render–review–repair (FR-18): run it, then read exactly what was checked and changed. */
-export function QualityPanel({ projectId, revisionId, jobs, blocking }: { projectId: string; revisionId: string; jobs: JobDTO[]; blocking: boolean }) {
+export function QualityPanel({ projectId, revisionId, jobs, blocking, loop, onLoop }: { projectId: string; revisionId: string; jobs: JobDTO[]; blocking: boolean; loop?: boolean; onLoop?: (loop: boolean) => void }) {
   const [reports, setReports] = useState<Report[]>([]);
   const [err, setErr] = useState<string | null>(null);
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -57,7 +57,12 @@ export function QualityPanel({ projectId, revisionId, jobs, blocking }: { projec
       <button className="btn" disabled={!!running || blocking} onClick={async () => { setErr(null); try { await api(`/api/projects/${projectId}/quality`, { method: "POST", idempotent: true, json: { revisionId, maxRepairPasses: 2 } }); } catch (x) { setErr(x instanceof ApiError ? x.message : String(x)); } }}>
         {running ? `Reviewing… ${running.stage}` : "Review & repair draft"}
       </button>
-      <p className="text-[11px] text-faint">Checks sample frames (hero, transitions, captions), fonts, text fit, captions and the rendered file. Up to two automatic layout/timing repairs; text, claims and locked scenes are never changed.</p>
+      <p className="text-[11px] text-faint">Checks sample frames (hero, transitions, captions), fonts, text fit and size on a phone, captions, and the rendered file frame by frame for one-frame glitches. Up to two automatic layout/timing repairs; text, claims and locked scenes are never changed.</p>
+      {onLoop && (
+        <label className="flex items-center gap-2 text-xs">
+          <input type="checkbox" checked={!!loop} onChange={(e) => onLoop(e.target.checked)} /> Made to loop: check that the last frame matches the first (feeds replay videos)
+        </label>
+      )}
       {err && <p role="alert" className="text-xs text-bad">{err}</p>}
       {latest && (
         <div className="card space-y-2 p-2.5 text-xs" data-testid="quality-report">

@@ -159,11 +159,13 @@ export async function runCritic(backend: ClaudeBackend, ctx: CriticContext, opts
   const messages: ChatTurn[] = [{ role: "user", content: buildCriticPrompt(ctx) }];
   const usage: StructuredResult["usage"][] = [];
   const maxRepairs = opts.maxRepairs ?? 1;
+  let problems: string[] = [];
   for (let attempt = 0; attempt <= maxRepairs; attempt++) {
     const res = await backend.structured({ system: SYSTEM, messages, images, schema, signal: opts.signal, effort: opts.effort ?? "high", maxTokens: 12000 });
     usage.push(res.usage);
     const out = res.json as CriticOutput;
     const issues = out && Array.isArray(out.findings) && out.scores ? validateCritique(out, ctx) : ["Response did not match the schema."];
+    problems = issues;
     if (!issues.length) {
       const order = { fix: 0, improve: 1, nit: 2 } as const;
       return { output: { ...out, findings: [...out.findings].sort((a, b) => order[a.severity] - order[b.severity]).map((f) => ({ ...f, request: f.request.trim() })) }, attempts: attempt + 1, usage };
@@ -171,5 +173,5 @@ export async function runCritic(backend: ClaudeBackend, ctx: CriticContext, opts
     messages.push({ role: "assistant", content: res.text });
     messages.push({ role: "user", content: `Fix exactly these problems and return the complete review:\n${issues.map((m) => `- ${m}`).join("\n")}` });
   }
-  throw new ProviderError("invalid_output", "Claude's review did not match the required structure.", true, "Run the critic again.");
+  throw new ProviderError("invalid_output", "Claude's review did not match the required structure.", true, "Run the critic again.", { problems: problems.slice(0, 10) });
 }

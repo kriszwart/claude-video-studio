@@ -76,3 +76,38 @@ export function repairCues(doc: ProjectDocument, issues: QualityIssue[]): { cues
   }
   return { cues, fixed };
 }
+
+/**
+ * Where a rendered video is expected to change abruptly (for the glitch scan): scene starts and
+ * transitions, layer entrances, caption changes and section flashes, as output frames. Scenes
+ * with camera footage, presenters or characters move a lot by nature: `motionFrames` covers them,
+ * and only one-frame flashes are judged there.
+ */
+export function expectedChanges(doc: ProjectDocument): { cuts: number[]; motionFrames: [number, number][] } {
+  const tl = computeTimeline(doc);
+  const cuts: number[] = [];
+  const motionFrames: [number, number][] = [];
+  const span = (a: number, b: number) => {
+    for (let f = a; f <= b; f++) cuts.push(f);
+  };
+  doc.scenes.forEach((s, i) => {
+    const st = tl.scenes[i]!;
+    span(st.start - 1, st.start + Math.max(1, st.overlapIn) + 1);
+    if (s.shot || s.sourceRange || doc.program || s.layers.some((l) => !l.hidden && (l.kind === "video" || l.kind === "character" || l.kind === "graphics"))) motionFrames.push([st.start, st.end]);
+    for (const l of s.layers) {
+      if (l.hidden) continue;
+      // Entrances settle within ~1 s; staggered/typed text keeps arriving word by word.
+      const a = ("animation" in l ? l.animation : {}) as { in?: string; delayFrames?: number; stagger?: boolean };
+      const at = st.start + (a.delayFrames ?? 0);
+      const long = a.stagger || a.in === "type" ? Math.round(st.duration * 0.7) : Math.round(doc.format.fps);
+      span(at - 1, at + long);
+    }
+  });
+  for (const c of resolveCaptions(doc, tl)) {
+    span(c.start - 1, c.start + 2);
+    span(c.end - 1, c.end + 2);
+  }
+  if (doc.musicAccents?.enabled) for (const m of doc.markers) span(m.frame - 1, m.frame + 3);
+  for (const b of doc.beats ?? []) if (b.cue.sourceStartSec !== undefined) motionFrames.push([0, tl.totalFrames]);
+  return { cuts: [...new Set(cuts)].sort((x, y) => x - y), motionFrames };
+}

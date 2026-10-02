@@ -43,12 +43,14 @@ export const critique: Handler = async (ctx) => {
   const pass = await visualPass(ctx, doc, join(ctx.workDir, "critic"), [], plan.map((f) => f.timeSec));
   const frames = await Promise.all(plan.map(async (f, i) => ({ ...f, n: i + 1, file: pass.files[i]!, data: (await readFile(pass.files[i]!)).toString("base64"), mediaType: "image/jpeg" as const })));
   const voice = await measureVoice(ctx, doc);
-  const allMeasured = [...issuesFrom(doc, pass.report, pass.height), ...pacingIssues(doc, voice)];
+  const allMeasured = [...issuesFrom(doc, pass.report, pass.height, pass.width), ...pacingIssues(doc, voice)];
   // Low contrast goes to Claude to turn into concrete fixes; everything else is Quality review's.
   const measured = allMeasured.filter((i) => !(i.code === "low_contrast" && i.layerId));
   const contrast = allMeasured.flatMap((i) => {
     if (i.code !== "low_contrast" || !i.sceneId || !i.layerId) return [];
-    const m = (pass.report.contrast ?? []).filter((c) => c.id === `l-${i.sceneId}-${i.layerId}`).sort((a, b) => a.ratio - b.ratio)[0];
+    // Judge it on its own scene's frames (during a transition the text can still show in the next scene's frame).
+    const own = doc.scenes.findIndex((s) => s.id === i.sceneId);
+    const m = (pass.report.contrast ?? []).filter((c) => c.id === `l-${i.sceneId}-${i.layerId}` && plan[c.frame]?.sceneIndex === own).sort((a, b) => a.ratio - b.ratio)[0];
     const layer = doc.scenes.find((s) => s.id === i.sceneId)?.layers.find((l) => l.id === i.layerId);
     if (!m || layer?.kind !== "text") return [];
     return [{ scene: doc.scenes.findIndex((s) => s.id === i.sceneId) + 1, frame: m.frame + 1, layerId: i.layerId, text: layer.text.slice(0, 120), ratio: m.ratio, textColor: m.text, background: m.background, halo: m.halo }];

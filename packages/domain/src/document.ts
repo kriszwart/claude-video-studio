@@ -521,6 +521,8 @@ export const ProjectDocument = z.object({
   acquisitionPolicy: z.enum(["existing-only", "existing-plus-public", "generated-allowed"]).default("existing-plus-public"),
   /** Owner opt-in: run Claude's product check on every new generated take that has a reference photo. */
   autoProductCheck: z.boolean().default(false),
+  /** Made to loop (social feeds replay it): the last frame should match the first. */
+  loop: z.boolean().default(false),
   /** Seed for any procedural variation; part of the render bundle hash. */
   seed: z.number().int().default(1),
 });

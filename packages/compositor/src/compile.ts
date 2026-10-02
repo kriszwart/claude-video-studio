@@ -573,7 +573,7 @@ html,body{margin:0;padding:0;background:#000;}
   const fitScript = `
 (function(){
   window.__hf = window.__hf || {}; window.__hf.buildReady = window.__hf.buildReady || {};
-  window.__vsReport = { overflow: [], missingFonts: [], shrunk: [] };
+  window.__vsReport = { overflow: [], missingFonts: [], shrunk: [], sizes: [] };
   function fitAll(){
     var els = document.querySelectorAll('.fit');
     for (var i=0;i<els.length;i++){
@@ -585,6 +585,7 @@ html,body{margin:0;padding:0;background:#000;}
       while (over() && s > base*0.4 && guard < 60){ s = s*0.95; el.style.fontSize = s+'px'; guard++; }
       if (over()){ el.setAttribute('data-overflow','true'); window.__vsReport.overflow.push(el.parentElement.id); }
       el.setAttribute('data-fitted', (s/base).toFixed(3));
+      window.__vsReport.sizes.push({ id: el.parentElement.id, px: Math.round(s*10)/10, ratio: Math.round(s/base*1000)/1000 });
       if (s/base < 0.75) window.__vsReport.shrunk.push({ id: el.parentElement.id, ratio: Math.round(s/base*1000)/1000, px: Math.round(s*10)/10 });
     }
   }

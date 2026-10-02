@@ -3,8 +3,8 @@ import { mkdir } from "node:fs/promises";
 import { join } from "node:path";
 import { AppError, applyProjectOperations, getDb, getRevision, JobError, newId, schema } from "@vs/db";
 import { LAYOUTS } from "@vs/compositor";
-import { computeTimeline, cueIssues, ProjectDocument, repairCues, validateTimeline, type Operation, type QualityIssue } from "@vs/domain";
-import { captureStills, extractFrame, lowContrast, MIN_CONTRAST, prepareBundle, renderProject, type PageReport } from "@vs/rendering";
+import { computeTimeline, cueIssues, expectedChanges, ProjectDocument, repairCues, validateTimeline, type Operation, type QualityIssue } from "@vs/domain";
+import { captureStills, extractFrame, findGlitches, greyFrames, LOOP_SEAM_MAX, loopSeam, lowContrast, MIN_CONTRAST, prepareBundle, renderProject, type PageReport } from "@vs/rendering";
 import { referencedAssetIds, registerFile, resolveAssets, type Handler, type JobContext } from "../context";
 import { graphicsCompilerFor, needsWebGpu } from "../graphics";
 import { measureVoice, pacingIssues } from "./pacing";
@@ -46,13 +46,39 @@ export async function visualPass(ctx: JobContext, doc: ProjectDocument, dir: str
   const b = await prepareBundle({ doc, assets, workDir: dir, output: join(dir, "unused.mp4"), scale: 0.5, quality: "draft", signal: ctx.signal, graphics: await graphicsCompilerFor(doc, ctx), webgpu: needsWebGpu(doc), extraMix: programMixInputs(doc, assets) }, { withAudio: false });
   const times = exactTimes ?? sampleTimes(doc, extraTimes);
   const stills = await captureStills({ bundleDir: b.bundleDir, width: b.width, height: b.height, times, outPath: (i) => join(dir, `s${String(i).padStart(2, "0")}.jpg`), signal: ctx.signal, webgpu: needsWebGpu(doc), probeText: true });
-  return { times, files: stills.files, report: stills.report, height: b.height };
+  return { times, files: stills.files, report: stills.report, height: b.height, width: b.width };
 }
 
-/** Smallest readable text: 26 px on a 1080-line frame (≈2.4% of frame height). */
-const MIN_READABLE_PX_1080 = 26;
+/**
+ * Smallest text that reads on a phone: 28 px on the short side of a 1080-pixel frame (a 1080p
+ * landscape video shown full width on a phone puts that at about 9 px of screen).
+ */
+export const MIN_PHONE_PX_1080 = 28;
+/** A product screen in focus should fill at least this share of the frame width to read on a phone. */
+export const MIN_UI_WIDTH: Record<string, number> = { "16:9": 0.4, "1:1": 0.45, "9:16": 0.7 };
 
-export function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight: number): QualityIssue[] {
+/** Image/video layers that show a product screen (device or card frames) and how wide they appear (pure). */
+export function smallScreens(doc: ProjectDocument): QualityIssue[] {
+  const tl = computeTimeline(doc);
+  const fps = doc.format.fps;
+  const min = MIN_UI_WIDTH[doc.format.aspect] ?? 0.5;
+  const out: QualityIssue[] = [];
+  doc.scenes.forEach((scene, i) => {
+    for (const l of scene.layers) {
+      if (l.hidden || (l.kind !== "image" && l.kind !== "video") || !l.assetId) continue;
+      const frame = (l as { frame?: string }).frame ?? "none";
+      const ui = frame === "laptop" || frame === "card" || (frame === "phone" && doc.format.aspect === "9:16");
+      if (!ui) continue;
+      const slot = LAYOUTS[scene.layout]?.[doc.format.aspect]?.[l.slot];
+      const w = (l.box?.w ?? slot?.w ?? 1) * (frame === "laptop" ? 0.84 : 1);
+      if (w >= min) continue;
+      out.push({ code: "ui_too_small", severity: "creative", message: `The product screen in “${scene.purpose}” fills ${Math.round(w * 100)}% of the frame width; on a phone it won't read. Aim for ${Math.round(min * 100)}% or more (a bigger layout, or a full-width card).`, sceneId: scene.id, layerId: l.id, atSec: (tl.scenes[i]!.start + Math.min(Math.round(tl.scenes[i]!.duration * 0.55), 2 * fps)) / fps, repairable: false });
+    }
+  });
+  return out;
+}
+
+export function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight: number, frameWidth = frameHeight): QualityIssue[] {
   const tl = computeTimeline(doc);
   const fps = doc.format.fps;
   const at = (sceneId: string) => {
@@ -67,13 +93,18 @@ export function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight
     seen.add(f.layer.id);
     out.push({ code: "text_overflow", severity: "creative", message: `Text in “${f.scene.purpose}” doesn't fit its box even at the smallest allowed size.`, sceneId: f.scene.id, layerId: f.layer.id, atSec: at(f.scene.id), repairable: !f.scene.locked });
   }
-  for (const s of report.shrunk ?? []) {
+  // Text size on a phone: judged on the frame's short side, so vertical and square videos count too.
+  const short = Math.min(frameHeight, frameWidth);
+  const sizes = report.sizes ?? (report.shrunk ?? []).flatMap((s) => (s.px !== undefined ? [{ id: s.id, px: s.px, ratio: s.ratio }] : []));
+  for (const s of sizes) {
     const f = layerFor(doc, s.id);
-    const px1080 = s.px !== undefined ? (s.px / frameHeight) * 1080 : null;
-    if (!f || seen.has(f.layer.id) || px1080 === null || px1080 >= MIN_READABLE_PX_1080) continue;
+    const px1080 = (s.px / short) * 1080;
+    if (!f || f.layer.hidden || !("text" in f.layer) || !f.layer.text.trim() || seen.has(f.layer.id) || px1080 >= MIN_PHONE_PX_1080) continue;
     seen.add(f.layer.id);
-    out.push({ code: "text_too_small", severity: "creative", message: `Text in “${f.scene.purpose}” had to shrink to ${Math.round(px1080)} px (at 1080p; minimum ${MIN_READABLE_PX_1080}) to fit and may be hard to read.`, sceneId: f.scene.id, layerId: f.layer.id, atSec: at(f.scene.id), repairable: !f.scene.locked });
+    if (s.ratio < 0.98) out.push({ code: "text_too_small", severity: "creative", message: `Text in “${f.scene.purpose}” had to shrink to ${Math.round(px1080)} px (at 1080p; ${MIN_PHONE_PX_1080} reads on a phone) to fit and may be hard to read.`, sceneId: f.scene.id, layerId: f.layer.id, atSec: at(f.scene.id), repairable: !f.scene.locked });
+    else out.push({ code: "text_small_on_phone", severity: "creative", message: `Text “${f.layer.text.slice(0, 40)}” in “${f.scene.purpose}” is ${Math.round(px1080)} px at 1080p; on a phone, ${MIN_PHONE_PX_1080} px is the smallest that reads. Make it bigger.`, sceneId: f.scene.id, layerId: f.layer.id, atSec: at(f.scene.id), repairable: false });
   }
+  out.push(...smallScreens(doc));
   // Contrast: the worst measured frame per text layer (and one issue for burned-in captions).
   const worst = new Map<string, NonNullable<PageReport["contrast"]>[number]>();
   for (const m of report.contrast ?? []) {
@@ -98,6 +129,28 @@ export function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight
     else if (v.code === "missing_asset") out.push({ code: v.code, severity: "creative", message: v.message, sceneId: v.sceneId, layerId: v.layerId, repairable: false });
   }
   for (const i of out) if (i.sceneId && doc.scenes.find((s) => s.id === i.sceneId)?.locked && i.repairable) i.repairable = false;
+  return out;
+}
+
+/** Glitch scan and loop seam on a rendered file (judged at 64×36, so a draft is enough). */
+export async function frameIssues(doc: ProjectDocument, file: string, signal?: AbortSignal): Promise<QualityIssue[]> {
+  const g = await greyFrames(file, doc.format.fps, signal);
+  const ex = expectedChanges(doc);
+  const tl = computeTimeline(doc);
+  const sceneAt = (frame: number) => doc.scenes[Math.max(0, tl.scenes.findIndex((s) => frame >= s.start && frame < s.end))]!;
+  const out: QualityIssue[] = [];
+  for (const gl of findGlitches(g, ex.cuts, (f) => ex.motionFrames.some(([a, b]) => f >= a && f < b)).slice(0, 8)) {
+    const scene = sceneAt(gl.frame);
+    out.push(
+      gl.kind === "flash"
+        ? { code: "frame_flash", severity: "creative", message: `A single frame at ${gl.timeSec.toFixed(2)} s in “${scene.purpose}” differs from the frames on both sides of it (a one-frame flash). Look for something drawn for just one frame there.`, sceneId: scene.id, atSec: gl.timeSec, repairable: false }
+        : { code: "frame_jump", severity: "creative", message: `At ${gl.timeSec.toFixed(2)} s in “${scene.purpose}” the picture jumps in one frame (${Math.round(gl.diff)} vs about ${Math.max(1, Math.round(gl.around))} for the motion around it), away from any cut or entrance. Something moves or re-centres without easing.`, sceneId: scene.id, atSec: gl.timeSec, repairable: false },
+    );
+  }
+  if (doc.loop) {
+    const seam = loopSeam(g);
+    if (seam > LOOP_SEAM_MAX) out.push({ code: "loop_seam", severity: "creative", message: `This video is set to loop, but its last frame doesn't match its first (difference ${seam.toFixed(1)}; under ${LOOP_SEAM_MAX} is seamless), so viewers will see a jump when it replays. End on the same picture it opens with.`, atSec: Math.max(0, g.frames.length / g.fps - 0.05), repairable: false });
+  }
   return out;
 }
 
@@ -155,7 +208,7 @@ export const qualityReview: Handler = async (ctx) => {
     await ctx.stage(`review pass ${pass + 1}`);
     const cueTimes = cueIssues(doc).map((i) => i.atSec).filter((x): x is number => x !== undefined);
     const v = await visualPass(ctx, doc, join(ctx.workDir, `pass${pass}`), cueTimes);
-    const issues = [...issuesFrom(doc, v.report, v.height), ...pacingIssues(doc, await measureVoice(ctx, doc))];
+    const issues = [...issuesFrom(doc, v.report, v.height, v.width), ...pacingIssues(doc, await measureVoice(ctx, doc))];
     // Evidence: frames at issue times (or the first hero frames when clean), stored as assets.
     const evidence: PassRecord["evidence"] = [];
     const want = issues.length ? issues.filter((i) => i.atSec !== undefined).map((i) => ({ t: i.atSec!, why: i.code })) : v.times.slice(0, 3).map((t) => ({ t, why: "hero frame" }));
@@ -204,6 +257,9 @@ export const qualityReview: Handler = async (ctx) => {
   const out = join(ctx.workDir, "draft.mp4");
   const render = await renderProject({ doc: bestDoc, assets, workDir: join(ctx.workDir, "render"), output: out, scale: Number(process.env.PREVIEW_SCALE ?? 0.5), quality: "draft", signal: ctx.signal, graphics: await graphicsCompilerFor(bestDoc, ctx), webgpu: needsWebGpu(bestDoc), extraMix: programMixInputs(bestDoc, assets) });
   const technical = render.verification.checks;
+  // Motion checks on the rendered file itself: one-frame glitches, and the seam of a looping video.
+  await ctx.stage("scanning frames");
+  const motionIssues = await frameIssues(bestDoc, out, ctx.signal);
   const hardFail = technical.some((c) => c.severity === "hard" && !c.ok);
   // Temporal evidence: short frame strips around transitions (stills alone can't prove smooth motion).
   const tl = computeTimeline(bestDoc);
@@ -230,13 +286,13 @@ export const qualityReview: Handler = async (ctx) => {
     .values({ id: newId("exp"), workspaceId: ctx.job.workspaceId, projectId, revisionId: best.revisionId, jobId: ctx.job.id, kind: "preview", videoAssetId: video.id, thumbnailAssetId: thumb, width: render.width, height: render.height, durationSec: render.totalFrames / render.fps, bundleHash: render.bundleHash, verification: { ...render.verification, mix: render.mix, warnings: render.warnings } })
     .onConflictDoNothing({ target: schema.exportsTable.jobId });
 
-  const remaining = best.issues;
+  const remaining = [...best.issues, ...motionIssues];
   const audio = { loudness: render.verification.loudness, speechIntervals: render.mix.speechIntervals, truePeakOk: (render.verification.loudness?.truePeakDb ?? -99) <= -1 };
   const limitations = [
     "No model-based visual review in this pass; all checks are measured. For Claude's visual review, use the Critic tab.",
     "Voiceover pacing (rate, pauses, late starts, running past a cut) is measured from the recordings; how natural the voice sounds is not. Text contrast is measured on the sampled frames (DOM text only; text drawn inside graphics layers is not). Presenter framing is judged by the Claude critic, and product fidelity by the product check; review the evidence frames.",
     "Audio: decode, duration, loudness, peaks and ducking are measured; the naturalness of speech edits is not.",
-    "Smooth motion is not proven by stills; transition strips are provided for review.",
+    "Smooth motion is not proven by stills; transition strips are provided for review. The draft is scanned frame by frame for one-frame glitches and sudden jumps (outside cuts, entrances and footage), which catches pops but not every awkward move.",
   ];
   const verdict = hardFail || remaining.some((i) => i.severity === "hard") ? "failed" : remaining.length ? "needs_review" : "ready";
   const report = {

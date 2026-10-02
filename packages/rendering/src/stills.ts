@@ -26,6 +26,8 @@ export interface PageReport {
   missingFonts: string[];
   /** Text that had to shrink below 75% of its designed size to fit (layer DOM ids). */
   shrunk?: { id: string; ratio: number; px?: number }[];
+  /** Final font size of every fitted text box (layer DOM ids), in frame pixels. */
+  sizes?: { id: string; px: number; ratio: number }[];
   /** Measured text contrast per frame (when requested). */
   contrast?: ContrastMeasure[];
   skia?: unknown;
