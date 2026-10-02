@@ -3,6 +3,7 @@ import { LAYOUTS } from "@vs/compositor";
 import { secondsToFrames, TRANSITION_TYPES, type Background, type Layer, type Operation, type ProjectDocument, type Scene } from "@vs/domain";
 import { useEffect, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
+import { FootageSearch } from "@/components/FootageSearch";
 import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
 import { projectVoiceId, VoiceDirectionControls } from "./VoiceDirectionControls";
@@ -82,7 +83,7 @@ export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; sc
           </div>
         </div>
         {missingSlots.length > 0 && <p className="text-xs text-warn">Layout “{scene.layout}” has no position for: {missingSlots.join(", ")}. Those layers use a default box.</p>}
-        <BackgroundEditor bg={scene.background} colors={colors} onChange={(background) => op({ op: "setSceneBackground", sceneId: scene.id, background })} />
+        <BackgroundEditor key={scene.id} bg={scene.background} colors={colors} query={footageQuery(scene)} onChange={(background) => op({ op: "setSceneBackground", sceneId: scene.id, background })} />
         <div>
           <label className="label" htmlFor="narr">Narration script (optional)</label>
           <DebouncedText id="narr" multiline value={scene.script.narration} maxLength={1200} onCommit={(v) => op({ op: "setSceneScript", sceneId: scene.id, narration: v })} placeholder="Voiceover for this scene" />
@@ -94,6 +95,10 @@ export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; sc
             </div>
           )}
         </div>
+      </fieldset>
+
+      <fieldset disabled={locked} className="disabled:opacity-60">
+        <AddToScene key={scene.id} scene={scene} query={footageQuery(scene)} apply={apply} />
       </fieldset>
 
       <div>
@@ -112,7 +117,18 @@ export function SceneInspector({ doc, scene, apply }: { doc: ProjectDocument; sc
   );
 }
 
-function BackgroundEditor({ bg, colors, onChange }: { bg: Background; colors: Record<string, string>; onChange: (b: Background) => void }) {
+/** A short search phrase for this scene: its headline, else the start of its narration. */
+function footageQuery(scene: Scene): string {
+  const headline = scene.layers.find((l) => l.kind === "text" && (l.role === "headline" || l.role === "kicker") && l.text.trim());
+  const text = headline && headline.kind === "text" ? headline.text : scene.script.narration || scene.purpose;
+  return text.replace(/[^\p{L}\p{N}\s'-]/gu, " ").split(/\s+/).filter(Boolean).slice(0, 6).join(" ");
+}
+
+function BackgroundEditor({ bg, colors, query, onChange }: { bg: Background; colors: Record<string, string>; query: string; onChange: (b: Background) => void }) {
+  // "asset" can be chosen before an image or clip is picked; the scene changes once one is.
+  const [mode, setMode] = useState<Background["type"]>(bg.type);
+  const [finding, setFinding] = useState(false);
+  const setAsset = (assetId: string | undefined) => assetId && onChange({ type: "asset", assetId, dim: bg.type === "asset" ? bg.dim : 0.35, blur: bg.type === "asset" ? bg.blur : 0 });
   return (
     <div>
       <label className="label" htmlFor="bgtype">Background</label>
@@ -120,25 +136,136 @@ function BackgroundEditor({ bg, colors, onChange }: { bg: Background; colors: Re
         <select
           id="bgtype"
           className="input"
-          value={bg.type}
+          value={mode}
           onChange={(e) => {
-            const t = e.target.value;
+            const t = e.target.value as Background["type"];
+            setMode(t);
             if (t === "color") onChange({ type: "color", color: bg.type === "gradient" ? bg.from : "brand.background" });
             if (t === "gradient") onChange({ type: "gradient", from: bg.type === "color" ? bg.color : "brand.background", to: "brand.secondary", angle: 135 });
           }}
         >
           <option value="color">Solid colour</option>
           <option value="gradient">Gradient</option>
-          {bg.type === "asset" && <option value="asset">Image</option>}
+          <option value="asset">Image or video</option>
         </select>
-        {bg.type === "color" && <ColorField value={bg.color} brandColors={colors} onChange={(c) => onChange({ type: "color", color: c ?? "brand.background" })} />}
-        {bg.type === "gradient" && (
+        {mode === "color" && bg.type === "color" && <ColorField value={bg.color} brandColors={colors} onChange={(c) => onChange({ type: "color", color: c ?? "brand.background" })} />}
+        {mode === "gradient" && bg.type === "gradient" && (
           <>
             <ColorField value={bg.from} brandColors={colors} onChange={(c) => onChange({ ...bg, from: c ?? "brand.background" })} />
             <ColorField value={bg.to} brandColors={colors} onChange={(c) => onChange({ ...bg, to: c ?? "brand.secondary" })} />
           </>
         )}
+        {mode === "asset" && (
+          <div className="space-y-2">
+            {bg.type !== "asset" && <p className="text-xs text-faint">Pick an image or a video clip from your library, or find matching footage below.</p>}
+            <div className="grid grid-cols-2 gap-2 text-xs">
+              <div>
+                <div className="mb-1 text-dim">Image</div>
+                <AssetPicker kind="image" value={bg.type === "asset" ? [bg.assetId] : []} onChange={(ids) => setAsset(ids[0])} />
+              </div>
+              <div>
+                <div className="mb-1 text-dim">Video clip</div>
+                <AssetPicker kind="video" value={bg.type === "asset" ? [bg.assetId] : []} onChange={(ids) => setAsset(ids[0])} />
+              </div>
+            </div>
+            {bg.type === "asset" && (
+              <label className="block text-xs text-dim">
+                Darken for readable text: {Math.round(bg.dim * 100)}%
+                <input type="range" min={0} max={0.85} step={0.05} className="w-full" defaultValue={bg.dim} key={bg.assetId} onMouseUp={(e) => onChange({ ...bg, dim: Number((e.target as HTMLInputElement).value) })} onKeyUp={(e) => onChange({ ...bg, dim: Number((e.target as HTMLInputElement).value) })} />
+              </label>
+            )}
+            <button type="button" className="btn text-xs" onClick={() => setFinding((f) => !f)}>{finding ? "Hide footage search" : "Find matching footage"}</button>
+            {finding && (
+              <div className="card p-2">
+                <p className="mb-2 text-[11px] text-faint">Free footage and images from the sources in Settings (Internet Archive, Wikimedia Commons, Pexels, Pixabay), searched with this scene&apos;s words. What you import becomes the background and is kept in your library with its licence.</p>
+                <FootageSearch initialQuery={query} onImported={(id) => { setAsset(id); setFinding(false); }} />
+              </div>
+            )}
+          </div>
+        )}
       </div>
+    </div>
+  );
+}
+
+type GraphicsComponent = { id: string; version: number; backend: "skia" | "redraw"; name: string; description: string; params: { name: string; kind: string; default: string | number | boolean }[] };
+
+/** Add an image, a video clip or a graphics effect (Skia; Redraw when installed) to this scene. */
+function AddToScene({ scene, query, apply }: { scene: Scene; query: string; apply: (ops: Operation[]) => Promise<boolean> }) {
+  const [catalog, setCatalog] = useState<{ available: { skia: boolean; redraw: boolean }; redrawReason: string | null; components: GraphicsComponent[] } | null>(null);
+  const [adding, setAdding] = useState<"" | "image" | "video" | `fx:${string}`>("");
+  const [finding, setFinding] = useState(false);
+  useEffect(() => {
+    api<NonNullable<typeof catalog>>("/api/graphics/components").then(setCatalog).catch(() => setCatalog(null));
+  }, []);
+  const id = () => `${scene.id}-a${Date.now().toString(36)}`;
+  const media = (kind: "image" | "video", assetId: string) =>
+    apply([
+      {
+        op: "addLayer",
+        sceneId: scene.id,
+        layer:
+          kind === "image"
+            ? { id: id(), slot: "media", hidden: false, kind: "image", assetId, fit: "contain", focal: { x: 0.5, y: 0.5 }, frame: "rounded", alt: "", animation: { in: "pop", delayFrames: 6, kenBurns: false } }
+            : { id: id(), slot: "media", hidden: false, kind: "video", assetId, sourceInSec: 0, sourceOutSec: null, muted: true, fit: "cover", focal: { x: 0.5, y: 0.5 }, frame: "rounded", animation: { in: "fade", delayFrames: 0, punchIn: 1 } },
+      } as Operation,
+    ]).then(() => setAdding(""));
+  const effect = (c: GraphicsComponent) =>
+    apply([
+      {
+        op: "addLayer",
+        sceneId: scene.id,
+        layer: {
+          id: id(),
+          slot: "decor",
+          hidden: false,
+          kind: "graphics",
+          backend: c.backend,
+          component: c.id,
+          componentVersion: c.version,
+          // Text effects start from this scene's headline; everything else from the component's defaults.
+          params: Object.fromEntries(c.params.map((p) => [p.name, p.name === "text" && query ? query : p.default])),
+          seed: 1,
+          box: c.id === "type-overlay" ? { x: 0.08, y: 0.08, w: 0.84, h: 0.16 } : { x: 0.1, y: 0.2, w: 0.8, h: 0.6 },
+        },
+      } as Operation,
+    ]).then(() => setAdding(""));
+  const pick = adding.startsWith("fx:") ? catalog?.components.find((c) => `fx:${c.id}` === adding) : undefined;
+  return (
+    <div>
+      <h4 className="mb-2 text-xs font-semibold uppercase tracking-wide text-dim">Add to scene</h4>
+      <div className="flex flex-wrap gap-2 text-xs">
+        <button type="button" className={`btn text-xs ${adding === "image" ? "border-accent" : ""}`} onClick={() => setAdding(adding === "image" ? "" : "image")}>+ Image</button>
+        <button type="button" className={`btn text-xs ${adding === "video" ? "border-accent" : ""}`} onClick={() => setAdding(adding === "video" ? "" : "video")}>+ Video clip</button>
+        <select className="input w-auto text-xs" aria-label="Add a graphics effect" value={pick ? adding : ""} onChange={(e) => setAdding(e.target.value as typeof adding)}>
+          <option value="">+ Graphics effect…</option>
+          {catalog?.components.map((c) => (
+            <option key={c.id} value={`fx:${c.id}`} disabled={!catalog.available[c.backend]}>
+              {c.name} ({c.backend === "skia" ? "Skia" : "Redraw"}){catalog.available[c.backend] ? "" : " — not installed"}
+            </option>
+          ))}
+        </select>
+      </div>
+      {catalog && !catalog.available.redraw && <p className="mt-1 text-[11px] text-faint">Redraw effects (WebGPU, built on TypeGPU) need its licensed release on the worker: {catalog.redrawReason}</p>}
+      {(adding === "image" || adding === "video") && (
+        <div className="mt-2 space-y-2">
+          <AssetPicker kind={adding} value={[]} onChange={(ids) => ids[0] && void media(adding, ids[0])} />
+          <button type="button" className="btn text-xs" onClick={() => setFinding((f) => !f)}>{finding ? "Hide footage search" : `Find a matching ${adding === "image" ? "image" : "clip"}`}</button>
+          {finding && (
+            <div className="card p-2">
+              <FootageSearch kind={adding} initialQuery={query} onImported={(assetId) => { setFinding(false); void media(adding, assetId); }} />
+            </div>
+          )}
+        </div>
+      )}
+      {pick && (
+        <div className="card mt-2 space-y-1 p-2 text-xs">
+          <div className="font-medium">{pick.name}</div>
+          <p className="text-faint">{pick.description}</p>
+          <button type="button" className="btn btn-primary text-xs" onClick={() => void effect(pick)}>Add to this scene</button>
+          <p className="text-[11px] text-faint">Adjust its words, colours and timing under Layers once it&apos;s added.</p>
+        </div>
+      )}
     </div>
   );
 }

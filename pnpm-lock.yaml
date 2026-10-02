@@ -56,6 +56,9 @@ importers:
       '@vs/domain':
         specifier: workspace:*
         version: link:../../packages/domain
+      '@vs/graphics':
+        specifier: workspace:*
+        version: link:../../packages/graphics
       '@vs/providers':
         specifier: workspace:*
         version: link:../../packages/providers
@@ -257,7 +260,7 @@ importers:
         version: 5.3.0
       '@hyperframes/engine':
         specifier: 0.8.90
-        version: 0.8.90(@types/node@22.20.4)
+        version: 0.8.90
       '@hyperframes/producer':
         specifier: 0.8.90
         version: 0.8.90(@types/node@22.20.4)
@@ -3391,7 +3394,7 @@ snapshots:
       - '@types/node'
       - canvas
 
-  '@hyperframes/engine@0.8.90(@types/node@22.20.4)':
+  '@hyperframes/engine@0.8.90':
     dependencies:
       '@hono/node-server': 2.1.2(hono@4.13.10)
       '@hyperframes/core': 0.8.90(@types/node@22.20.4)
@@ -3401,7 +3404,6 @@ snapshots:
       puppeteer: 25.12.0
       puppeteer-core: 25.12.0
     transitivePeerDependencies:
-      - '@types/node'
       - bufferutil
       - canvas
       - proxy-agent
@@ -3446,7 +3448,7 @@ snapshots:
       '@fontsource/space-mono': 5.3.0
       '@hono/node-server': 2.1.2(hono@4.13.10)
       '@hyperframes/core': 0.8.90(@types/node@22.20.4)
-      '@hyperframes/engine': 0.8.90(@types/node@22.20.4)
+      '@hyperframes/engine': 0.8.90
       '@hyperframes/lint': 0.8.90
       '@hyperframes/parsers': 0.8.90
       '@hyperframes/studio-server': 0.8.90(@types/node@22.20.4)

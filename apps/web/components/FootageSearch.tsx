@@ -24,11 +24,11 @@ const fmt = (s?: number) => (s ? `${Math.floor(s / 60)}:${String(Math.round(s % 
  * Search free footage/images (Internet Archive, Wikimedia Commons, Pexels, Pixabay) and import
  * items as assets with their licence recorded. Not a <form>: it is used inside other forms.
  */
-export function FootageSearch({ kind: fixedKind, onImported }: { kind?: Kind; onImported?: (assetId: string) => void }) {
+export function FootageSearch({ kind: fixedKind, onImported, initialQuery = "" }: { kind?: Kind; onImported?: (assetId: string) => void; initialQuery?: string }) {
   const [sources, setSources] = useState<SourceInfo[]>([]);
   const [source, setSource] = useState<Source>("internet_archive");
   const [kind, setKind] = useState<Kind>(fixedKind ?? "video");
-  const [q, setQ] = useState("");
+  const [q, setQ] = useState(initialQuery);
   const [openOnly, setOpenOnly] = useState(true);
   const [rights, setRights] = useState(false);
   const [result, setResult] = useState<Result | null>(null);
