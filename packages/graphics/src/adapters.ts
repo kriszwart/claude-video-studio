@@ -41,6 +41,14 @@ function pickFont(fonts: StagedFont[], family: string, weight = 700): string | u
   return pool.sort((a, b) => Math.abs(a.weight - weight) - Math.abs(b.weight - weight))[0]?.file;
 }
 
+const BRAND_COLOR = /\bbrand\.(primary|secondary|accent|background|surface|text|muted)\b/g;
+export function brandColors(v: string, colors: Partial<Record<string, string>>): string {
+  return v.replace(BRAND_COLOR, (m, key: string) => {
+    const hex = colors[key];
+    return hex && /^#[0-9a-fA-F]{6}$/.test(hex) ? hex : m;
+  });
+}
+
 function specScript(spec: Record<string, unknown>): string {
   // JSON inside a <script>: escape "<" so text params can never close the tag.
   return `window.__vsGraphics=(window.__vsGraphics||[]);window.__vsGraphics.push(${JSON.stringify(spec).replace(/</g, "\\u003c")});`;
@@ -93,6 +101,9 @@ export async function createGraphicsCompiler(backends: Set<"skia" | "redraw" | "
       if (!fontUrl) throw new GraphicsUnavailableError("No font is staged for graphics text.");
       const unit = Math.min(info.width, info.height) / 1080;
       const params = { ...Object.fromEntries(def.params.map((p) => [p.name, p.default])), ...layer.params };
+      // Colour params may name brand colours ("brand.primary,brand.accent"): templates use them so
+      // a brand kit change carries through to the effect.
+      for (const [k, v] of Object.entries(params)) if (typeof v === "string") params[k] = brandColors(v, info.brand.colors);
       if (typeof params.size === "number") params.size = params.size * unit;
       const spec = { id: layer.id, backend: layer.backend, component: def.id, version: def.version, params, unit, startSec: info.sceneStartSec, durationSec: info.sceneDurationSec, width: w, height: h, seed: layer.seed, assetUrls, fontUrl };
       return {

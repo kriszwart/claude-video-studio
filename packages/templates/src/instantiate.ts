@@ -62,6 +62,9 @@ export function characterFromInputs(def: TemplateDefinition, inputs: InputValues
   });
 }
 
+/** Motion settings below this are calm: scenes use their calm transition. */
+export const CALM_MOTION = 0.5;
+
 const BINDING = /\{\{\s*([a-zA-Z_][a-zA-Z0-9_]*)(?:\.([a-zA-Z_]+))?(?:\[(\d+|i)\])?\s*\}\}/g;
 
 /** Resolve "{{x}}" bindings. Pure string substitution — nothing is evaluated. */
@@ -120,13 +123,15 @@ export function instantiateTemplate(def: TemplateDefinition, opts: InstantiateOp
       });
   }
 
+  // How lively the project is: gates shader effects and picks calm transitions.
+  const motionLevel = CreativeProfileSnapshot.parse({ ...def.profile, ...opts.profile }).motionIntensity;
   const scenes: Scene[] = [];
   for (const recipe of def.scenes) {
     if (recipe.when && !whenHolds(recipe.when, inputs)) continue;
     const items = recipe.repeatFor ? listOf(inputs[recipe.repeatFor]) : [undefined];
     items.forEach((item, idx) => {
       const extra: Record<string, string> = item !== undefined ? { item, index: String(idx + 1), index0: String(idx), count: String(items.length) } : {};
-      const scene = buildScene(recipe, inputs, brand, extra, factIdFor, opts.newId, fps, recipe.repeatFor ? idx : undefined);
+      const scene = buildScene(recipe, inputs, brand, extra, factIdFor, opts.newId, fps, recipe.repeatFor ? idx : undefined, motionLevel);
       const screen = recipe.demo ? scene.layers.find((l) => l.slot === recipe.demo!.layer && (l.kind === "image" || l.kind === "video") && l.assetId) : undefined;
       if (screen) scene.demo = { layerId: screen.id, steps: [], zoomOut: true };
       scenes.push(scene);
@@ -295,10 +300,12 @@ function buildScene(
   newId: (p: string) => string,
   fps: number,
   repeatIndex: number | undefined,
+  motionLevel = 0.6,
 ): Scene {
   const sceneId = newId("scn");
   const layers: Layer[] = [];
   recipe.layers.forEach((lr, i) => {
+    if ((lr.minMotion !== undefined && motionLevel < lr.minMotion) || (lr.maxMotion !== undefined && motionLevel > lr.maxMotion)) return;
     const layer = buildLayer(lr, `${sceneId}-l${i}`, inputs, brand, extra, factIdFor, fps, repeatIndex);
     if (layer) layers.push(layer);
   });
@@ -311,7 +318,7 @@ function buildScene(
     locked: false,
     layout: recipe.layout,
     background: recipe.background,
-    transitionIn: recipe.transition,
+    transitionIn: recipe.calmTransition && motionLevel < CALM_MOTION ? recipe.calmTransition : recipe.transition,
     motionIntensity: recipe.motion,
     layers,
     script: { narration: bind(recipe.narration, inputs, brand, extra) },
@@ -414,8 +421,21 @@ function buildLayer(
       };
     case "character":
       return { id, kind: "character", slot: lr.slot, characterId: MAIN_CHARACTER_ID, pose: lr.pose, accessory: lr.accessory, facing: lr.facing, scale: lr.scale, hidden: false, animation: { in: lr.animation, delayFrames: secondsToFrames(lr.delaySec, fps) } };
-    case "graphics":
-      return { id, kind: "graphics", slot: lr.slot, backend: lr.backend, component: lr.component, componentVersion: lr.componentVersion, params: lr.params, seed: lr.seed, hidden: false, ...(lr.box ? { box: lr.box } : {}) };
+    case "graphics": {
+      // Text params may bind inputs (an image: "{{screenshots[1]}}"); an optional layer whose
+      // binding is empty is left out. "brand.primary"-style colours resolve when it renders.
+      const params: typeof lr.params = {};
+      for (const [k, v] of Object.entries(lr.params)) {
+        if (typeof v !== "string" || !v.includes("{{")) {
+          params[k] = v;
+          continue;
+        }
+        const bound = bind(v, inputs, brand, extra);
+        if (!bound && lr.optional) return null;
+        params[k] = bound;
+      }
+      return { id, kind: "graphics", slot: lr.slot, backend: lr.backend, component: lr.component, componentVersion: lr.componentVersion, params, seed: lr.seed, hidden: false, ...(lr.box ? { box: lr.box } : {}) };
+    }
   }
 }
 

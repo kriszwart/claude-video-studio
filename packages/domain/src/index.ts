@@ -18,3 +18,4 @@ export * from "./sfx";
 export * from "./demo";
 export * from "./count";
 export * from "./beatlock";
+export * from "./transitionMotion";

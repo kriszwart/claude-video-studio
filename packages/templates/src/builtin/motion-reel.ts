@@ -6,7 +6,7 @@ export const motionReel: TemplateDefinitionInput = {
   family: "motion-reel",
   name: "Motion Graphics Reel",
   description: "Hook → kinetic typography → graphic progression → focal reveal → end card. Five distinct visual beats built from real type and shape animation, with your logo and music.",
-  version: 3,
+  version: 4,
   tags: { purpose: ["brand", "social", "announcement"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -32,7 +32,9 @@ export const motionReel: TemplateDefinitionInput = {
       background: { type: "color", color: "brand.background" },
       motion: 0.9,
       layers: [
-        { kind: "shape", slot: "decor", shape: "circle", color: "brand.primary", animation: "pop", loop: "pulse", box: { x: 0.35, y: 0.2, w: 0.3, h: 0.6 } },
+        // A liquid shape melting from form to form behind the hook (Skia shader); calm: a pulsing circle.
+        { kind: "graphics", slot: "decor", backend: "skia", component: "liquid-morph", componentVersion: 1, minMotion: 0.5, params: { sequence: "circle,squircle,star,blob", holdSec: 0.5, morphSec: 0.6, colors: "brand.primary", fill: 0.7, wobble: 1, gloss: 0.9, glow: true }, box: { x: 0.3, y: 0.1, w: 0.4, h: 0.8 } },
+        { kind: "shape", slot: "decor", shape: "circle", color: "brand.primary", animation: "pop", loop: "pulse", maxMotion: 0.49, box: { x: 0.35, y: 0.2, w: 0.3, h: 0.6 } },
         { kind: "text", slot: "headline", role: "headline", text: "{{hook}}", scale: 1.35, animation: "pop", uppercase: true },
       ],
     },
@@ -46,6 +48,7 @@ export const motionReel: TemplateDefinitionInput = {
       background: { type: "gradient", from: "brand.primary", to: "brand.secondary", angle: 120 },
       motion: 0.95,
       layers: [
+        { kind: "graphics", slot: "decor", backend: "skia", component: "aurora", componentVersion: 1, minMotion: 0.5, params: { colors: "brand.primary,brand.primary,brand.background", base: "brand.background", speed: 1, scale: 1.6, intensity: 0.5 }, box: { x: 0, y: 0, w: 1, h: 1 } },
         { kind: "text", slot: "kicker", role: "kicker", text: "{{brandName}}", animation: "fade" },
         { kind: "text", slot: "headline", role: "headline", text: "{{headline}}", animation: "type", stagger: true, scale: 1.15 },
       ],
@@ -55,7 +58,8 @@ export const motionReel: TemplateDefinitionInput = {
       purpose: "Graphic progression",
       durationSec: 5,
       layout: "benefit-list",
-      transition: { type: "wipe", durationFrames: 10 },
+      transition: { type: "liquid", durationFrames: 16 },
+      calmTransition: { type: "wipe", durationFrames: 10 },
       background: { type: "color", color: "brand.background" },
       motion: 0.85,
       layers: [
@@ -72,7 +76,8 @@ export const motionReel: TemplateDefinitionInput = {
       durationSec: 4,
       layout: "fullbleed-media",
       when: "heroImage",
-      transition: { type: "zoom", durationFrames: 12 },
+      transition: { type: "lens", durationFrames: 18 },
+      calmTransition: { type: "zoom", durationFrames: 12 },
       background: { type: "color", color: "brand.surface" },
       motion: 0.7,
       layers: [
@@ -86,7 +91,8 @@ export const motionReel: TemplateDefinitionInput = {
       durationSec: 3,
       layout: "stat-focus",
       when: "focal",
-      transition: { type: "fade", durationFrames: 10 },
+      transition: { type: "grain", durationFrames: 14 },
+      calmTransition: { type: "fade", durationFrames: 10 },
       background: { type: "gradient", from: "brand.secondary", to: "brand.background", angle: 200 },
       motion: 0.7,
       layers: [
@@ -99,10 +105,12 @@ export const motionReel: TemplateDefinitionInput = {
       purpose: "End card",
       durationSec: 3,
       layout: "end-card",
-      transition: { type: "zoom", durationFrames: 10 },
+      transition: { type: "morph", durationFrames: 20 },
+      calmTransition: { type: "zoom", durationFrames: 10 },
       background: { type: "gradient", from: "brand.primary", to: "brand.background", angle: 160 },
       motion: 0.6,
       layers: [
+        { kind: "graphics", slot: "decor", backend: "skia", component: "mesh-gradient", componentVersion: 1, minMotion: 0.5, seed: 2, params: { colors: "brand.primary,brand.background,brand.background,brand.primary", speed: 0.25, softness: 1.8, warp: 0.45 }, box: { x: 0, y: 0, w: 1, h: 1 } },
         { kind: "image", slot: "media", asset: "{{logo}}", optional: true, fit: "contain", animation: "pop" },
         { kind: "text", slot: "headline", role: "headline", text: "{{brandName}}", animation: "rise", delaySec: 0.2 },
         { kind: "text", slot: "cta", role: "cta", text: "{{cta}}", optional: true, animation: "pop", delaySec: 0.5 },
@@ -111,7 +119,7 @@ export const motionReel: TemplateDefinitionInput = {
   ],
   profile: { pacing: "fast", transition: "slide", motionIntensity: 0.8 },
   audio: { musicInput: "music", musicGainDb: -4, duckDb: -10, narration: "none", captions: false, musicLocked: false },
-  providers: { required: [], optional: ["planner"] },
+  providers: { required: [], optional: ["planner", "graphics-skia"] },
   plannerGuidance: "Five beats: hook (≤3 words), kinetic headline, three-point graphic progression, focal reveal, end card. Words are the visuals: short, punchy, no invented claims.",
   checklist: ["Five visually distinct beats", "No unintended blank frames", "Brand name and logo substituted", "Readable copy at every aspect"],
 };

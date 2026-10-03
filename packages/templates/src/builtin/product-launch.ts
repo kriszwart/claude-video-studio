@@ -7,7 +7,7 @@ export const productLaunch: TemplateDefinitionInput = {
   name: "Product Launch",
   description:
     "Problem → product reveal → approved benefits → a screen demo of your product → proof (only if you supply it) → call to action. Uses your screenshots, logo, brand kit and music.",
-  version: 3,
+  version: 4,
   tags: { purpose: ["launch", "marketing"], generatedMedia: "none" },
   defaultAspect: "16:9",
   supportedAspects: ["16:9", "9:16", "1:1"],
@@ -37,7 +37,9 @@ export const productLaunch: TemplateDefinitionInput = {
       motion: 0.7,
       narration: "{{problem}}",
       layers: [
-        { kind: "shape", slot: "decor", shape: "blob", color: "brand.primary", animation: "fade", loop: "drift", box: { x: 0.55, y: -0.1, w: 0.6, h: 0.9 } },
+        // Lively projects open on a living brand-colour gradient (Skia shader); calm ones on the drifting blob.
+        { kind: "graphics", slot: "decor", backend: "skia", component: "mesh-gradient", componentVersion: 1, minMotion: 0.5, params: { colors: "brand.background,brand.primary,brand.background,brand.background", speed: 0.22, softness: 1.8, warp: 0.5 }, box: { x: 0, y: 0, w: 1, h: 1 } },
+        { kind: "shape", slot: "decor", shape: "blob", color: "brand.primary", animation: "fade", loop: "drift", maxMotion: 0.49, box: { x: 0.55, y: -0.1, w: 0.6, h: 0.9 } },
         { kind: "text", slot: "kicker", role: "kicker", text: "{{audience}}", optional: true, animation: "fade" },
         { kind: "text", slot: "headline", role: "headline", text: "{{problem}}", animation: "type", stagger: true, scale: 1.1 },
       ],
@@ -47,7 +49,9 @@ export const productLaunch: TemplateDefinitionInput = {
       purpose: "Product reveal",
       durationSec: 6,
       layout: "hero-split",
-      transition: { type: "wipe", durationFrames: 12 },
+      // The product floods in behind a liquid front (shader transition).
+      transition: { type: "liquid", durationFrames: 18 },
+      calmTransition: { type: "wipe", durationFrames: 12 },
       background: { type: "color", color: "brand.background" },
       motion: 0.6,
       narration: "Meet {{productName}}. {{promise}}",
@@ -73,7 +77,9 @@ export const productLaunch: TemplateDefinitionInput = {
         { kind: "text", slot: "item1", role: "body", text: "{{benefits[0]}}", factFrom: "benefits[0]", optional: true, backing: "solid", animation: "slide", delaySec: 0.4 },
         { kind: "text", slot: "item2", role: "body", text: "{{benefits[1]}}", factFrom: "benefits[1]", optional: true, backing: "solid", animation: "slide", delaySec: 1.6 },
         { kind: "text", slot: "item3", role: "body", text: "{{benefits[2]}}", factFrom: "benefits[2]", optional: true, backing: "solid", animation: "slide", delaySec: 2.8 },
-        { kind: "image", slot: "media", asset: "{{screenshots[1]}}", optional: true, frame: "card", fit: "contain", animation: "pop", delaySec: 0.2, kenBurns: true, alt: "Product detail" },
+        // A glass lens drifts over the product detail (Skia shader); calm projects show the still card.
+        { kind: "graphics", slot: "media", backend: "skia", component: "glass-lens", componentVersion: 1, minMotion: 0.5, params: { image: "{{screenshots[1]}}", path: "drift", lensSize: 0.3, magnify: 1.5, chroma: 0.35 } },
+        { kind: "image", slot: "media", asset: "{{screenshots[1]}}", optional: true, maxMotion: 0.49, frame: "card", fit: "contain", animation: "pop", delaySec: 0.2, kenBurns: true, alt: "Product detail" },
       ],
     },
     {
@@ -84,7 +90,9 @@ export const productLaunch: TemplateDefinitionInput = {
       durationSec: 7,
       layout: "screen-demo",
       when: "screenshots",
-      transition: { type: "zoom", durationFrames: 14 },
+      // A glass lens drifts in and opens onto the demo (shader transition).
+      transition: { type: "lens", durationFrames: 20 },
+      calmTransition: { type: "zoom", durationFrames: 14 },
       background: { type: "color", color: "brand.background" },
       motion: 0.5,
       narration: "",
@@ -100,7 +108,8 @@ export const productLaunch: TemplateDefinitionInput = {
       durationSec: 5,
       layout: "quote",
       when: "proof",
-      transition: { type: "fade", durationFrames: 12 },
+      transition: { type: "grain", durationFrames: 16 },
+      calmTransition: { type: "fade", durationFrames: 12 },
       background: { type: "color", color: "brand.surface" },
       motion: 0.4,
       narration: "",
@@ -114,11 +123,14 @@ export const productLaunch: TemplateDefinitionInput = {
       purpose: "Call to action",
       durationSec: 5,
       layout: "end-card",
-      transition: { type: "portal", durationFrames: 14 },
+      // The demo shrinks into a shape that opens onto the end card (shader transition).
+      transition: { type: "morph", durationFrames: 22 },
+      calmTransition: { type: "portal", durationFrames: 14 },
       background: { type: "gradient", from: "brand.primary", to: "brand.background", angle: 160 },
       motion: 0.5,
       narration: "{{cta}}",
       layers: [
+        { kind: "graphics", slot: "decor", backend: "skia", component: "mesh-gradient", componentVersion: 1, minMotion: 0.5, seed: 2, params: { colors: "brand.primary,brand.background,brand.background,brand.primary", speed: 0.2, softness: 1.8, warp: 0.45 }, box: { x: 0, y: 0, w: 1, h: 1 } },
         { kind: "image", slot: "media", asset: "{{logo}}", optional: true, fit: "contain", animation: "pop", alt: "Logo" },
         { kind: "text", slot: "headline", role: "headline", text: "{{productName}}", scale: 0.9, animation: "rise", delaySec: 0.2 },
         { kind: "text", slot: "cta", role: "cta", text: "{{cta}}", animation: "pop", delaySec: 0.6 },
@@ -128,7 +140,7 @@ export const productLaunch: TemplateDefinitionInput = {
   ],
   profile: { pacing: "balanced", transition: "fade" },
   audio: { musicInput: "music", musicGainDb: -6, duckDb: -12, narration: "optional", captions: false, musicLocked: false },
-  providers: { required: [], optional: ["planner", "tts"] },
+  providers: { required: [], optional: ["planner", "tts", "graphics-skia"] },
   plannerGuidance:
     "Structure: problem/hook → product reveal → benefits → screen demo (when screenshots are supplied) → proof (only when supplied) → CTA. Use approved benefits verbatim; never invent metrics, testimonials or customer names. Keep headlines under 8 words. Screenshots go in media slots; do not describe features the brief does not state.",
   checklist: [

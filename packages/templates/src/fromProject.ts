@@ -107,9 +107,13 @@ export function templateFromProject(doc: ProjectDocument, opts: SaveTemplateOpti
         case "shape":
           layers.push({ kind: "shape", slot: l.slot, shape: l.shape, color: l.color, animation: l.animation.in, loop: l.animation.loop, delaySec, box: l.box });
           break;
-        case "graphics":
-          layers.push({ kind: "graphics", slot: l.slot, backend: l.backend, component: l.component, componentVersion: l.componentVersion, params: l.params, optional: true, seed: l.seed, ...(l.box ? { box: l.box } : {}) });
+        case "graphics": {
+          // An image a graphics effect uses (the glass lens's picture) is private media like any
+          // other: it becomes a replaceable slot, never the original asset.
+          const params = Object.fromEntries(Object.entries(l.params).map(([k, v]) => [k, typeof v === "string" && /^ast_[A-Za-z0-9_]+$/.test(v) ? assetBinding(v, `${scene.purpose} effect image`, "image") : v]));
+          layers.push({ kind: "graphics", slot: l.slot, backend: l.backend, component: l.component, componentVersion: l.componentVersion, params, optional: true, seed: l.seed, ...(l.box ? { box: l.box } : {}) });
           break;
+        }
       }
     }
     let background = scene.background;

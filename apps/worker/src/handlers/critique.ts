@@ -7,7 +7,7 @@ import { runCritic, type ClaudeEffort, type CriticFrame } from "@vs/providers";
 import { TemplateDefinition } from "@vs/templates";
 import { registerFile, type Handler } from "../context";
 import { claudeFor, noteLimit, recordUsage, toJobError } from "./ai";
-import { issuesFrom, visualPass } from "./quality";
+import { inTransition, issuesFrom, visualPass } from "./quality";
 import { measureVoice, pacingIssues } from "./pacing";
 
 const MAX_FRAMES = 16;
@@ -50,7 +50,7 @@ export const critique: Handler = async (ctx) => {
     if (i.code !== "low_contrast" || !i.sceneId || !i.layerId) return [];
     // Judge it on its own scene's frames (during a transition the text can still show in the next scene's frame).
     const own = doc.scenes.findIndex((s) => s.id === i.sceneId);
-    const m = (pass.report.contrast ?? []).filter((c) => c.id === `l-${i.sceneId}-${i.layerId}` && plan[c.frame]?.sceneIndex === own).sort((a, b) => a.ratio - b.ratio)[0];
+    const m = (pass.report.contrast ?? []).filter((c) => c.id === `l-${i.sceneId}-${i.layerId}` && plan[c.frame]?.sceneIndex === own && !inTransition(doc, c.timeSec)).sort((a, b) => a.ratio - b.ratio)[0];
     const layer = doc.scenes.find((s) => s.id === i.sceneId)?.layers.find((l) => l.id === i.layerId);
     if (!m || layer?.kind !== "text") return [];
     return [{ scene: doc.scenes.findIndex((s) => s.id === i.sceneId) + 1, frame: m.frame + 1, layerId: i.layerId, text: layer.text.slice(0, 120), ratio: m.ratio, textColor: m.text, background: m.background, halo: m.halo }];

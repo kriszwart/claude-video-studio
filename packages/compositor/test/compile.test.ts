@@ -15,11 +15,13 @@ const ctxFor = (_doc: unknown) => ({
   audioMix: { file: "audio/mix.wav" },
 });
 
-function build(aspect: "16:9" | "9:16" | "1:1", overrides: Record<string, unknown> = {}) {
+/** Product launch in a calm style (no shader effects, so no graphics backend is needed). */
+function build(aspect: "16:9" | "9:16" | "1:1", overrides: Record<string, unknown> = {}, motionIntensity = 0.3) {
   let n = 0;
   const doc = instantiateTemplate(BUILTIN_TEMPLATES.find((t) => t.id === "product-launch")!, {
     title: "T",
     aspect,
+    profile: { motionIntensity },
     brand: { ...DEFAULT_BRAND, name: "Acme", logoAssetId: "logo" },
     inputs: {
       productName: "Acme <b>Pro</b>",
@@ -317,5 +319,66 @@ describe("text before a crossfade", () => {
     const [, , dur, at] = fades[0]!;
     expect(Number(at) + Number(dur)).toBeLessThanOrEqual(overlapStart + 0.04);
     expect(Number(at)).toBeLessThan(sceneEnd);
+  });
+});
+
+describe("shader transitions", () => {
+  // A stand-in Skia backend: records what the compiler asks it to draw.
+  const asked: { component: string; params: Record<string, unknown>; start: number; dur: number }[] = [];
+  const graphics = (layer: { component: string; params: Record<string, unknown>; id: string }, info: { sceneStartSec: number; sceneDurationSec: number }) => {
+    asked.push({ component: layer.component, params: layer.params, start: info.sceneStartSec, dur: info.sceneDurationSec });
+    return { html: `<canvas id="gfx-${layer.id}"></canvas>`, script: "", scriptSrcs: ["vendor/vs-skia.js"] };
+  };
+  const lively = () => {
+    let n = 0;
+    return instantiateTemplate(BUILTIN_TEMPLATES.find((t) => t.id === "product-launch")!, {
+      title: "T",
+      brand: { ...DEFAULT_BRAND, name: "Acme", logoAssetId: "logo" },
+      profile: { motionIntensity: 0.8 },
+      inputs: { productName: "Acme", promise: "P", problem: "H", benefits: ["One"], proof: ["Q"], screenshots: ["s1", "s2"], logo: "logo", cta: "Buy", music: "m" },
+      newId: (p) => `${p}${++n}`,
+    });
+  };
+
+  it("masks the real scenes frame by frame and asks Skia for the light, over exactly the overlap", () => {
+    asked.length = 0;
+    const doc = lively();
+    expect(doc.scenes.map((s) => s.transitionIn.type)).toEqual(["cut", "liquid", "fade", "lens", "grain", "morph"]);
+    const out = compileComposition(doc, { ...ctxFor(doc), graphics } as never);
+    expect(out.warnings.filter((w) => /shader light/.test(w))).toEqual([]);
+    const tr = asked.filter((a) => a.component.startsWith("tr-"));
+    expect(tr.map((a) => a.component)).toEqual(["tr-liquid", "tr-lens", "tr-grain", "tr-morph"]);
+    for (const [k, type] of ["liquid", "lens", "grain", "morph"].entries()) {
+      const i = doc.scenes.findIndex((s) => s.transitionIn.type === type);
+      const st = out.timeline.scenes[i]!;
+      expect(tr[k]!.start).toBeCloseTo(st.start / 30, 2);
+      expect(tr[k]!.dur).toBeCloseTo(st.overlapIn / 30, 2);
+      expect(tr[k]!.params.frames).toBe(st.overlapIn);
+      expect(String(tr[k]!.params.colors).split(",")).toHaveLength(3);
+      expect(out.html).toContain(`id="trx-${doc.scenes[i]!.id}"`);
+    }
+    const liquid = doc.scenes[1]!;
+    // One clip polygon per transition frame, then the clip is cleared.
+    const sets = out.html.match(new RegExp(`tl\\.set\\("#s-${liquid.id}",\\{clipPath:"polygon`, "g")) ?? [];
+    expect(sets).toHaveLength(liquid.transitionIn.durationFrames);
+    expect(out.html).toContain(`tl.set("#s-${liquid.id}",{clipPath:"none",filter:"none",scale:1}`);
+    // Pixel work through SVG filters: liquid displacement, grain dissolve and colour fringes.
+    expect(out.html).toMatch(/<feDisplacementMap id="fx-[^"]+-d"/);
+    expect(out.html).toMatch(/<filter id="fx-[^"]+-in"[^>]*>.*<feTurbulence.*<feComposite in="sp" in2="m" operator="in"\/>/s);
+    // Lens: a growing circle; morph: the scenes swap under full cover.
+    expect(out.html).toMatch(/clipPath:"circle\(/);
+    const morph = doc.scenes[5]!;
+    expect(out.html).toMatch(new RegExp(`tl\\.set\\("#s-${morph.id}",\\{opacity:0\\}`));
+    // Every set is a quarter frame early, so no frame ever shows the previous value.
+    const times = [...out.html.matchAll(/tl\.set\("#s-[^"]+",\{clipPath:"polygon[^}]*\},([\d.]+)\);/g)].map((m) => Number(m[1]));
+    for (const t of times) expect(Math.abs(((t * 30) % 1) - 0.75)).toBeLessThan(0.01);
+  });
+
+  it("without a Skia backend the scenes still transition, with a warning that the light is missing", () => {
+    const { doc } = build("16:9");
+    doc.scenes[1]!.transitionIn = { type: "lens", durationFrames: 16 };
+    const out = compileComposition(doc, ctxFor(doc) as never);
+    expect(out.html).toMatch(/clipPath:"circle\(/);
+    expect(out.warnings.some((w) => /lens transition .* without its shader light/.test(w))).toBe(true);
   });
 });

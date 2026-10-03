@@ -150,7 +150,9 @@ test.describe.serial("M7: Redraw + Skia in the shared pipeline", () => {
     try {
       await new Promise((r) => setTimeout(r, 12_000));
       const r = await (await request.post(`/api/projects/${p.project.id}/preview`, { data: {} })).json();
-      expect(r.routing).toMatchObject({ requires: ["redraw"], blocked: true });
+      // Redraw is what blocks it (the lively motion reel's own Skia shapes don't).
+      expect(r.routing).toMatchObject({ blocked: true });
+      expect(r.routing.requires).toContain("redraw");
       expect(r.routing.reason).toMatch(/No online worker can render Redraw/);
       const s = await (await request.post(`/api/projects/${skiaOnly.project.id}/preview`, { data: {} })).json();
       expect(s.routing).toMatchObject({ requires: ["skia"], blocked: false });
@@ -171,7 +173,7 @@ test.describe.serial("M7: Redraw + Skia in the shared pipeline", () => {
       writeFileSync(join(ART, "m7-routing.json"), JSON.stringify({ redrawJob: { routing: r.routing, stageWhileWaiting: waiting.stage, final: done.status }, skiaJob: { routing: s.routing, final: sj.status } }, null, 2));
     } finally {
       limited?.kill("SIGTERM");
-      execFileSync("sh", ["-c", `pgrep -f "apps/worker/src/index.ts" >/dev/null || ${join(ROOT, "scripts", "dev-worker.sh")} start`], { cwd: ROOT });
+      execFileSync("sh", ["-c", `pgrep -f "apps/worker/src/[i]ndex.ts" >/dev/null || ${join(ROOT, "scripts", "dev-worker.sh")} start`], { cwd: ROOT });
     }
   });
 });

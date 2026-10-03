@@ -27,6 +27,16 @@ function layerFor(doc: ProjectDocument, domId: string) {
   return null;
 }
 
+/**
+ * Whether a time is inside a transition. Text is judged once it's settled on screen: mid-transition
+ * two scenes overlap and shader light (a liquid front, a morph fill) passes over it, which is the
+ * move, not the text's background.
+ */
+export function inTransition(doc: ProjectDocument, timeSec: number): boolean {
+  const fps = doc.format.fps;
+  return computeTimeline(doc).scenes.some((st, i) => i > 0 && st.overlapIn > 0 && timeSec >= st.start / fps - 1e-6 && timeSec < (st.start + st.overlapIn) / fps);
+}
+
 function sampleTimes(doc: ProjectDocument, extra: number[]): number[] {
   const tl = computeTimeline(doc);
   const fps = doc.format.fps;
@@ -110,7 +120,7 @@ export function issuesFrom(doc: ProjectDocument, report: PageReport, frameHeight
   // Contrast: the worst measured frame per text layer (and one issue for burned-in captions).
   const worst = new Map<string, NonNullable<PageReport["contrast"]>[number]>();
   for (const m of report.contrast ?? []) {
-    if (!lowContrast(m)) continue;
+    if (!lowContrast(m) || inTransition(doc, m.timeSec)) continue;
     const k = m.id.startsWith("cap-") ? "captions" : m.id;
     if (!worst.has(k) || worst.get(k)!.ratio > m.ratio) worst.set(k, m);
   }

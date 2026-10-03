@@ -33,9 +33,17 @@ export type InputField = z.infer<typeof InputField>;
  * Bindings use a tiny, non-executable substitution language:
  * "{{inputId}}", "{{inputId[0]}}", "{{brand.name}}". Unknown bindings resolve to "".
  */
+/**
+ * Motion gate: a layer can appear only when the project's motion setting (its creative profile's
+ * motion intensity, 0–1) is at least `minMotion` and at most `maxMotion`. Calm projects keep the
+ * quiet version of a scene; lively ones get the shader effects.
+ */
+const MotionGate = { minMotion: z.number().min(0).max(1).optional(), maxMotion: z.number().min(0).max(1).optional() };
+
 export const LayerRecipe = z.discriminatedUnion("kind", [
   z.object({
     kind: z.literal("text"),
+    ...MotionGate,
     slot: z.string(),
     role: z.enum(["kicker", "headline", "subhead", "body", "label", "cta", "stat", "caption", "quote"]),
     text: z.string().max(600),
@@ -52,6 +60,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("image"),
+    ...MotionGate,
     slot: z.string(),
     asset: z.string().max(200),
     optional: z.boolean().default(false),
@@ -64,6 +73,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("video"),
+    ...MotionGate,
     slot: z.string(),
     asset: z.string().max(200),
     optional: z.boolean().default(false),
@@ -74,6 +84,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("shape"),
+    ...MotionGate,
     slot: z.string(),
     shape: z.enum(["rect", "circle", "ring", "line", "blob", "grid", "bars", "scrim"]),
     color: ColorRef.default("brand.accent"),
@@ -84,6 +95,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("character"),
+    ...MotionGate,
     slot: z.string(),
     pose: z.enum(["idle", "wave", "jump", "think", "celebrate", "point", "walk"]).default("idle"),
     accessory: z.enum(["none", "hat", "cape", "glasses", "crown", "helmet"]).default("none"),
@@ -94,6 +106,7 @@ export const LayerRecipe = z.discriminatedUnion("kind", [
   }),
   z.object({
     kind: z.literal("graphics"),
+    ...MotionGate,
     slot: z.string(),
     backend: z.enum(["redraw", "skia", "three"]),
     component: z.string(),
@@ -112,6 +125,8 @@ export const SceneRecipe = z.object({
   durationSec: z.number().positive().max(120),
   layout: z.string(),
   transition: Transition.default({ type: "cut", durationFrames: 0 }),
+  /** Used instead of `transition` when the project's motion setting is calm (below 0.5). */
+  calmTransition: Transition.optional(),
   background: Background,
   motion: z.number().min(0).max(1).default(0.6),
   /** Include the scene only when this input has a value (e.g. omit "proof" without proof). */

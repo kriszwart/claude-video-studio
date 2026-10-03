@@ -59,3 +59,14 @@ describe("sound effects", () => {
     for (let i = 1; i < times.length; i++) expect(times[i]! - times[i - 1]!).toBeGreaterThanOrEqual(0.3 - 0.002);
   });
 });
+
+describe("call to action chime", () => {
+  it("keeps the chime when a long transition's whoosh lands next to it", () => {
+    let n = 0;
+    const doc = instantiateTemplate(BUILTIN_TEMPLATES.find((t) => t.id === "motion-reel")!, { title: "T", brand: DEFAULT_BRAND, inputs: { hook: "H", headline: "Plan", brandName: "B", cta: "Go" }, newId: (p) => `${p}${++n}` });
+    expect(doc.scenes.at(-1)!.transitionIn.type).toBe("morph");
+    const { tracks, skipped } = planSoundEffects(doc, { whoosh: { assetId: "a_wh", hitSec: 0.7, durationSec: 1.2 }, chime: { assetId: "a_ch", hitSec: 0.03, durationSec: 2 } }, { density: "minimal", newId: () => `t${++n}` });
+    expect(tracks.some((t) => t.assetId === "a_ch")).toBe(true);
+    expect(skipped.filter((s) => s.role === "chime")).toEqual([]);
+  });
+});

@@ -127,6 +127,34 @@ spectrum and level measurements (this environment has no speakers — "listened"
 Suites not re-run for §28 (no code path they cover changed beyond the job-state enum and API
 origin check): `m2`–`m7`, `generation`, `a16-templates`; their results above stand.
 
+## Full regression run (2026-10-03, shader effects + transitions)
+
+Every unit suite and every end-to-end spec except `security` (no auth or route change), after the
+Skia shader effects, the shader transitions (liquid, lens, grain, morph) and product launch v4 /
+motion reel v4 using them by default. Same local stand-ins as below.
+
+| Suite | Result |
+| --- | --- |
+| Unit/integration (`pnpm test`, vitest, 49 files) | 264 passed, 1 skipped (macOS-only) |
+| Typecheck (all packages + web + worker) | clean |
+| End-to-end, first pass (41 specs) | stopped at 76 of 90: 4 real failures, then a cascade (below) |
+| End-to-end, second pass (failed + not yet run, 35 tests) | 29 passed, 4 failed, 2 not run |
+| Re-runs after the fixes (`contrast`, `critic`, `sound-effects`, `shader-transitions`, `m6-quality`, `checks`) | all passed |
+
+What the runs found, and what changed:
+- Lively templates put bright brand colours (orange in the default kit) behind text: gradients behind
+  text now use only the primary and background colours, the aurora is dimmer and the hook's liquid
+  shape is in the primary colour.
+- Contrast was judged on mid-transition frames, where a liquid front or a morph fill passes over the
+  text. Text is now judged only once its scene has settled (quality review and the critic).
+- A long transition's whoosh pushed out the call to action's chime; the chime now wins (the payoff).
+- "Save as template" copied the glass lens's private image id into the template; graphics images
+  now become replaceable slots like any other media.
+- Test fixes, no app change: Lanternist shot times are sent in tenths of a second (the test now
+  sums the same); the live-preview real-time check measures the time between Play and Pause; the
+  A29 routing test accepts a Skia requirement next to Redraw, and its cleanup's `pgrep -f` matched
+  its own command line, so it never restarted the worker: that caused the first pass's cascade.
+
 ## Full regression run (2026-10-02, all suites)
 
 Every unit and end-to-end suite against the committed code after Send to Lanternist and picture
@@ -233,4 +261,16 @@ and e2e tests use the SDK test double.
   drawn on a WebGL surface (~0.1 s per 1080p frame on software WebGL). The same revision re-renders
   identically on the same machine; across GPUs the pixels may differ very slightly. The glass lens
   refracts only the image chosen for it, not the layers beneath it.
+- Shader transitions (liquid, lens, grain, morph) move the real scenes and draw light over them; they
+  don't resample scene pixels on the GPU (the browser can't hand a scene's pixels to a shader without
+  an unreleased Chrome feature). The pixel work is done with a per-frame vector mask (the liquid front,
+  the lens circle), SVG filters (liquid displacement, a fractal-noise dissolve, an RGB colour split) and
+  transforms (lens magnification, the morph's shrink and grow); the lens rim, meniscus, grain, light
+  leak and morph fill are Skia shaders drawn from the same motion functions. So the lens magnifies the
+  next scene but doesn't bend it at the rim; the rim's fringes are drawn light. Every frame is set
+  exactly (no tweening between frames) and repeats on the same machine. Without a Skia worker the
+  scenes still transition, without the light, and the render says so.
+- Product launch (v4) and motion reel (v4) use the shader effects and transitions when the project's
+  motion setting is 0.5 or more (the default 0.6 included); calmer styles keep the earlier quiet
+  version of each scene and its transitions.
 - Redraw export is slow on software WebGPU; production should use GPU workers (routing supports it).

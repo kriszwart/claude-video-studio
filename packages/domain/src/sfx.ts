@@ -48,7 +48,7 @@ export const MIN_GAP_SEC = 0.3;
 /** Longest tail kept from a one-shot sound. */
 const MAX_TAIL_SEC = 2.5;
 
-const WHOOSH_TRANSITIONS = new Set(["slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield"]);
+const WHOOSH_TRANSITIONS = new Set(["slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield", "liquid", "lens", "morph"]);
 
 /** Moments in the video that can carry a sound, by density. */
 export function soundEvents(doc: ProjectDocument, density: "minimal" | "moderate" | "rich" = doc.profile.soundDensity): SoundEvent[] {
@@ -76,7 +76,8 @@ export function soundEvents(doc: ProjectDocument, density: "minimal" | "moderate
       // Fast-in eases land almost at once; a pop overshoots at about a third of its move.
       const land = at + (l.animation.in === "pop" ? Math.round(fps * 0.15) : 2);
       if (l.animation.in === "none") continue;
-      if (l.role === "cta") out.push({ frame: land, role: "chime", label: `${n}: call to action`, priority: 2 });
+      // The call to action is the payoff: its chime outranks the whoosh of a transition into it.
+      if (l.role === "cta") out.push({ frame: land, role: "chime", label: `${n}: call to action`, priority: 0 });
       else if (l.role === "stat" && density !== "minimal") out.push({ frame: land, role: "impact", label: `${n}: number`, priority: 3 });
       else if (l.animation.in === "type" && density !== "minimal") out.push({ frame: at, role: "typing", label: `${n}: typed text`, priority: 5, holdFrames: Math.min(st.duration - l.animation.delayFrames, Math.round(l.text.length * 0.045 * fps) + 6) });
       else if ((l.role === "headline" || l.role === "quote") && density !== "minimal") out.push({ frame: land, role: "pop", label: `${n}: ${l.role} lands`, priority: 4 });

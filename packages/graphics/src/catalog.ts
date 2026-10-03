@@ -342,8 +342,44 @@ export const COMPONENTS: ComponentDef[] = [
   },
 ];
 
+/**
+ * Light for the shader transitions (domain transitionMotion.ts). The compositor adds these itself
+ * over a transition; they are not offered as scene effects. Parameters are set by the compositor.
+ */
+const TR_NOTES = ["Skia shader (SkSL) over a shader transition, drawn from the same motion as the scene mask."];
+const trParams = (extra: ComponentParam[] = []): ComponentParam[] => [
+  { name: "frames", kind: "number", default: 12, min: 1, max: 600, label: "Transition frames" },
+  { name: "fps", kind: "number", default: 30, min: 1, max: 240, label: "Frames per second" },
+  { name: "colors", kind: "text", default: "#8b5cf6,#ec4899,#fb7a5a,#38bdf8", label: "Colours" },
+  ...extra,
+];
+export const TRANSITION_COMPONENTS: ComponentDef[] = [
+  {
+    id: "tr-liquid",
+    version: 1,
+    backend: "skia",
+    name: "Liquid transition light",
+    description: "Glossy meniscus along the liquid front.",
+    params: trParams(["amp", "tilt", "k1", "k2", "k3", "ph1", "ph2", "ph3", "margin"].map((name) => ({ name, kind: "number" as const, default: 0, label: name }))),
+    notes: TR_NOTES,
+    seekable: true,
+  },
+  {
+    id: "tr-lens",
+    version: 1,
+    backend: "skia",
+    name: "Lens transition light",
+    description: "The lens rim: shadow, colour fringes and highlight.",
+    params: trParams(["fromX", "fromY", "rMax"].map((name) => ({ name, kind: "number" as const, default: 0, label: name }))),
+    notes: TR_NOTES,
+    seekable: true,
+  },
+  { id: "tr-grain", version: 1, backend: "skia", name: "Grain transition light", description: "Film grain and a light leak.", params: trParams(), notes: TR_NOTES, seekable: true },
+  { id: "tr-morph", version: 1, backend: "skia", name: "Morph transition fill", description: "Brand colour outside the morphing shape, with a lit rim.", params: trParams(), notes: TR_NOTES, seekable: true },
+];
+
 export function findComponent(id: string, version: number) {
-  return COMPONENTS.find((c) => c.id === id && c.version === version);
+  return COMPONENTS.find((c) => c.id === id && c.version === version) ?? TRANSITION_COMPONENTS.find((c) => c.id === id && c.version === version);
 }
 
 export function defaultParams(def: ComponentDef): Record<string, number | string | boolean> {

@@ -1,6 +1,6 @@
 import { createRequire } from "node:module";
 import { describe, expect, it } from "vitest";
-import { COMPONENTS } from "../src/catalog";
+import { findComponent } from "../src/catalog";
 import { palette, SHADER_EFFECTS, shapeAt } from "../src/runtime/sksl";
 
 const require = createRequire(import.meta.url);
@@ -28,7 +28,7 @@ describe("Skia shader effects", () => {
   it("every effect is listed in the catalog as a Skia component, and the catalog's defaults are accepted", () => {
     for (const key of Object.keys(SHADER_EFFECTS)) {
       const [id, v] = key.split("@");
-      const def = COMPONENTS.find((c) => c.id === id && c.version === Number(v));
+      const def = findComponent(id!, Number(v));
       expect(def?.backend, key).toBe("skia");
       const params = Object.fromEntries(def!.params.map((p) => [p.name, p.default]));
       const u = SHADER_EFFECTS[key]!.uniforms({ params, seed: 1, t: 0.5, dur: 3, w: 640, h: 360, unit: 0.33 });
@@ -40,7 +40,8 @@ describe("Skia shader effects", () => {
     for (const fx of Object.values(SHADER_EFFECTS)) {
       const at = (t: number, seed = 5) => JSON.stringify(fx.uniforms({ params: {}, seed, t, dur: 6, w: 400, h: 300, unit: 0.4 }));
       expect(at(1.5)).toBe(at(1.5));
-      expect(at(1.5)).not.toBe(at(2.5));
+      // Inside a default transition's 12 frames (0.4 s) too.
+      expect(at(0.1)).not.toBe(at(0.3));
     }
     // A different seed moves the seeded parts (orbits, offsets, blobs).
     const mesh = SHADER_EFFECTS["mesh-gradient@1"]!;

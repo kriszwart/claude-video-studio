@@ -62,7 +62,8 @@ test.describe.serial("Send to Lanternist", () => {
     let t = 0;
     for (const [i, s] of film.shots.entries()) {
       expect(s.start_time).toBeCloseTo(t, 1);
-      t += doc.scenes[i]!.durationFrames / fps;
+      // Lanternist takes shot lengths in tenths of a second.
+      t += Math.round((doc.scenes[i]!.durationFrames / fps) * 10) / 10;
       expect(s.description).toContain(doc.scenes[i]!.purpose);
       expect(s.generated_image).toBeTruthy();
     }

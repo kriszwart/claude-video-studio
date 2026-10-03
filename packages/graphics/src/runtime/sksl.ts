@@ -7,6 +7,8 @@
  * Shader output is premultiplied: transparent effects return half4(rgb * a, a).
  */
 
+import { grainAt, lensAt, liquidX, morphAt, type LensGeometry, type LiquidGeometry } from "@vs/domain/transitionMotion";
+
 export interface ShaderInput {
   params: Record<string, number | string | boolean>;
   seed: number;
@@ -332,10 +334,165 @@ half4 main(float2 p){
   },
 };
 
+
+// ---------------------------------------------------------------------------
+// Transition overlays. The compositor masks and moves the real scenes; these draw the light on
+// top of them, from the same motion functions (domain transitionMotion.ts) so both line up.
+// Progress is snapped to the transition's own frames, so mask and light agree on every frame.
+
+const trProgress = (params: ShaderInput["params"], t: number) => {
+  const frames = num(params.frames, 12, 1, 600);
+  return Math.min(1, Math.max(0, Math.round(t * num(params.fps, 30, 1, 240)) / frames));
+};
+
+/** tr-liquid v1: a glossy meniscus along the liquid front, with a soft shadow ahead of it. */
+const trLiquid: ShaderEffect = {
+  opaque: false,
+  sksl: `
+uniform float2 res; uniform float X; uniform float amp; uniform float tilt; uniform float3 k; uniform float3 ph;
+uniform float p; uniform float unit; uniform float3 c0; uniform float3 c1; uniform float3 c2; uniform float3 c3;
+${RAMP}
+float front(float y){ float v = y / res.y * 6.283185;
+  return X + amp * (0.55*sin(k.x*v + ph.x + 4.0*p) + 0.3*sin(k.y*v + ph.y - 6.0*p) + 0.15*sin(k.z*v + ph.z + 9.0*p)) + tilt * (y / res.y - 0.5); }
+half4 main(float2 q){
+  float d = q.x - front(q.y);
+  float b = 34.0 * unit;
+  float s = d / b;
+  // Slope of the front here: the highlight catches where the surface turns toward the light.
+  float slope = (front(q.y + 2.0) - front(q.y - 2.0)) / 4.0;
+  float band = smoothstep(-0.45, -0.2, s) * (1.0 - smoothstep(0.65, 1.0, s));
+  float3 col = float3(ramp(q.y / res.y * 0.6 + p * 0.5)) * (0.72 + 0.28 * (1.0 - clamp(s, 0.0, 1.0)));
+  float spec = exp(-pow((s - 0.12) / 0.09, 2.0)) * (0.55 + 0.45 * clamp(0.5 - slope, 0.0, 1.0));
+  col = mix(col, float3(1.0), clamp(spec * 0.85, 0.0, 1.0));
+  float shadow = d > 0.0 ? 0.3 * (1.0 - smoothstep(b * 0.6, b + 70.0 * unit, d)) : 0.0;
+  float a = band + shadow * (1.0 - band);
+  return half4(half3(col * band), half(a));
+}`,
+  uniforms: ({ params, t, w, h, unit }) => {
+    const g: LiquidGeometry = { W: w, H: h, amp: num(params.amp, 0), tilt: num(params.tilt, 0), k: [num(params.k1, 1), num(params.k2, 2), num(params.k3, 4)], ph: [num(params.ph1, 0), num(params.ph2, 0), num(params.ph3, 0)], margin: num(params.margin, 0), wobble: 0 };
+    const p = trProgress(params, t);
+    const cols = palette(params.colors);
+    return { res: [w, h], X: liquidX(g, p), amp: g.amp, tilt: g.tilt, k: g.k, ph: g.ph, p, unit, c0: cols.slice(0, 3), c1: cols.slice(3, 6), c2: cols.slice(6, 9), c3: cols.slice(9, 12) };
+  },
+};
+
+/** tr-lens v1: the lens's rim: a shadow outside, Fresnel darkening, colour fringes and a highlight. */
+const trLens: ShaderEffect = {
+  opaque: false,
+  sksl: `
+uniform float2 res; uniform float2 c; uniform float r; uniform float rim; uniform float unit; uniform float fade;
+half4 main(float2 q){
+  float2 v = q - c; float d = length(v); float2 n = d > 0.0 ? v / d : float2(0.0, -1.0);
+  float shadow = d > r ? 0.32 * (1.0 - smoothstep(r, r + 56.0 * unit, d)) : 0.0;
+  float x = (r - d) / rim;
+  float inside = step(0.0, x);
+  float dark = inside * 0.38 * (1.0 - smoothstep(0.0, 1.0, x));
+  float3 fringe = inside * float3(exp(-pow((x - 0.1) / 0.08, 2.0)), 0.6 * exp(-pow((x - 0.28) / 0.1, 2.0)), exp(-pow((x - 0.5) / 0.13, 2.0))) * 0.55;
+  float spec = inside * pow(max(0.0, dot(n, normalize(float2(-0.6, -0.8)))), 6.0) * exp(-pow((x - 0.22) / 0.16, 2.0));
+  float3 light = fringe + float3(spec * 0.95);
+  float a = clamp(max(dark, shadow) + max(light.r, max(light.g, light.b)) * 0.9, 0.0, 1.0);
+  return half4(half3(min(light, float3(a))) * half(fade), half(a * fade));
+}`,
+  uniforms: ({ params, t, w, h, unit }) => {
+    const g: LensGeometry = { W: w, H: h, from: [num(params.fromX, w / 2), num(params.fromY, h / 2)], to: [w / 2, h / 2], rMax: num(params.rMax, Math.hypot(w, h) / 2), unit };
+    const p = trProgress(params, t);
+    const l = lensAt(g, p);
+    return { res: [w, h], c: [l.cx, l.cy], r: l.r, rim: Math.max(10 * unit, l.r * 0.09), unit, fade: 1 - smoothstep01((p - 0.7) / 0.25) };
+  },
+};
+
+/** tr-grain v1: moving film grain and a brand-coloured light leak at the dissolve's peak. */
+const trGrain: ShaderEffect = {
+  opaque: false,
+  sksl: `
+uniform float2 res; uniform float frame; uniform float unit; uniform float leak; uniform float grain;
+uniform float2 l0; uniform float2 l1; uniform float3 c0; uniform float3 c1;
+float hash(float2 p){ return fract(sin(dot(p, float2(127.1, 311.7))) * 43758.5453); }
+half4 main(float2 q){
+  float n = hash(floor(q / (1.6 * unit)) + float2(frame * 17.0, frame * 31.0)) - 0.5;
+  float ga = abs(n) * 2.0 * grain;
+  float3 gc = n > 0.0 ? float3(1.0) : float3(0.0);
+  float s = 0.5 * min(res.x, res.y);
+  // Light leaks are long, soft streaks of light: stretched along x.
+  float2 d0 = (q - l0) * float2(0.45, 1.0); float2 d1 = (q - l1) * float2(0.5, 1.0);
+  float g0 = exp(-dot(d0, d0) / (s * s)); float g1 = exp(-dot(d1, d1) / (s * s * 1.4));
+  float la = clamp((g0 + g1) * leak * 0.42, 0.0, 0.6);
+  float3 lc = (c0 * g0 + c1 * g1) / max(g0 + g1, 1e-4);
+  // Leak over grain (premultiplied).
+  float a = la + ga * (1.0 - la);
+  float3 col = lc * la + gc * ga * (1.0 - la);
+  return half4(half3(col), half(a));
+}`,
+  uniforms: ({ params, seed, t, w, h, unit }) => {
+    const p = trProgress(params, t);
+    const g = grainAt(p, unit);
+    const r = rng(seed * 31 + 5);
+    const a0 = r() * 6.283;
+    const cols = palette(params.colors);
+    const e = p;
+    return {
+      res: [w, h],
+      frame: Math.round(t * num(params.fps, 30, 1, 240)),
+      unit,
+      leak: g.leak,
+      grain: 0.07 + 0.15 * Math.sin(Math.PI * p),
+      l0: [w * (0.15 + 0.7 * e), h * (0.5 + 0.35 * Math.sin(a0))],
+      l1: [w * (0.85 - 0.6 * e), h * (0.5 + 0.35 * Math.cos(a0))],
+      c0: cols.slice(0, 3),
+      c1: cols.slice(3, 6),
+    };
+  },
+};
+
+/** tr-morph v1: brand colour flowing outside a morphing shape, with a lit rim around it. */
+const trMorph: ShaderEffect = {
+  opaque: false,
+  sksl: `
+uniform float2 res; uniform float t; uniform float p; uniform float size; uniform float2 shape; uniform float k; uniform float rot; uniform float unit;
+uniform float3 c0; uniform float3 c1; uniform float3 c2; uniform float3 c3;
+${NOISE}
+${RAMP}
+float rad(float id, float a){
+  if (id < 0.5) return pow(pow(abs(cos(a)), 4.0) + pow(abs(sin(a)), 4.0), -0.25);
+  if (id < 1.5) return 0.78 + 0.22 * cos(5.0 * a);
+  return 1.0;
+}
+half4 main(float2 q){
+  float2 v = q - res * 0.5;
+  float a = atan(v.y, v.x) - rot;
+  float edge = size * mix(rad(shape.x, a), rad(shape.y, a), k);
+  float d = length(v) - edge;
+  float outside = smoothstep(-0.75, 0.75, d);
+  float2 uv = q / min(res.x, res.y);
+  // A slow, smooth flow of the brand colours (low frequency: colour fields, not noise).
+  float flow = fbm3(uv * 0.7 + float2(t * 0.35, -t * 0.25));
+  float3 fill = float3(ramp(flow * 0.8 + (uv.x + uv.y) * 0.18 + p * 0.3));
+  fill *= 0.9 + 0.2 * smoothstep(0.3, 0.8, fbm3(uv * 1.3 - float2(t * 0.2, 0.0)));
+  float lip = exp(-pow((d - 5.0 * unit) / (5.0 * unit), 2.0));
+  fill = mix(fill, float3(1.0), lip * 0.35);
+  float glow = exp(-pow((d + 7.0 * unit) / (6.0 * unit), 2.0)) * (1.0 - outside);
+  float alpha = outside + glow * 0.55;
+  float3 col = fill * outside + float3(1.0) * glow * 0.55;
+  return half4(half3(col), half(clamp(alpha, 0.0, 1.0)));
+}`,
+  uniforms: ({ params, t, w, h, unit }) => {
+    const p = trProgress(params, t);
+    const m = morphAt(w, h, unit, p);
+    const cols = palette(params.colors);
+    return { res: [w, h], t, p, size: m.size, shape: [m.a, m.b], k: m.k, rot: m.rot, unit, c0: cols.slice(0, 3), c1: cols.slice(3, 6), c2: cols.slice(6, 9), c3: cols.slice(9, 12) };
+  },
+};
+
+const smoothstep01 = (x: number) => smooth(Math.min(1, Math.max(0, x)));
+
 export const SHADER_EFFECTS: Record<string, ShaderEffect> = {
   "mesh-gradient@1": meshGradient,
   "aurora@1": aurora,
   "metaballs@1": metaballs,
   "liquid-morph@1": liquidMorph,
   "glass-lens@1": glassLens,
+  "tr-liquid@1": trLiquid,
+  "tr-lens@1": trLens,
+  "tr-grain@1": trGrain,
+  "tr-morph@1": trMorph,
 };

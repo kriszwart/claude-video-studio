@@ -4,6 +4,7 @@ import {
   countFrames,
   demoTail,
   formatCount,
+  isShaderTransition,
   programSegments,
   sourceToOutput,
   dimensionsFor,
@@ -23,6 +24,7 @@ import {
 } from "@vs/domain";
 import { resolveSlot, type SlotBox } from "./layouts";
 import { containRect, demoMotion } from "./demo";
+import { shaderTransition } from "./shaderTransition";
 
 export interface StagedAsset {
   /** Path relative to the bundle root, e.g. "assets/ast_x.png". */
@@ -210,6 +212,8 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
   const sceneHtml: string[] = [];
   /** Overlays that some transitions draw above both scenes (tiles, colour field). */
   const transitionHtml: string[] = [];
+  /** SVG filters the shader transitions apply to the real scenes. */
+  const filterDefs: string[] = [];
   doc.scenes.forEach((scene, index) => {
     const t = timeline.scenes[index]!;
     const start = sec(t.start);
@@ -431,7 +435,33 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
       tweens.push(`tl.fromTo(${scriptJson(textExits.join(","))},{opacity:1},{opacity:0,duration:${f3(d)},ease:"power2.in",immediateRender:false},${at});`);
     }
 
-    if (index > 0 && t.overlapIn > 0) {
+    if (index > 0 && t.overlapIn > 0 && isShaderTransition(scene.transitionIn.type)) {
+      const tr = shaderTransition({
+        type: scene.transitionIn.type,
+        sid,
+        prevSid: `s-${doc.scenes[index - 1]!.id}`,
+        sceneId: scene.id,
+        startFrame: t.start,
+        frames: t.overlapIn,
+        fps,
+        width,
+        height,
+        unit,
+        seed: (doc.seed + index * 7919) >>> 0,
+        colors: (["primary", "secondary", "accent"] as const).map((k) => resolveColor(brand, `brand.${k}`, "#8b5cf6")),
+      });
+      tweens.push(...tr.tweens);
+      if (tr.defs) filterDefs.push(tr.defs);
+      if (ctx.graphics) {
+        const frag = ctx.graphics(tr.overlay, { sceneStartSec: start, sceneDurationSec: sec(t.overlapIn), width, height, box: { left: 0, top: 0, width, height }, brand, fonts: ctx.fonts, assetFile: (id) => ctx.assets.get(id)?.file });
+        transitionHtml.push(`<div id="trx-${scene.id}" class="clip" data-start="${start}" data-duration="${sec(t.overlapIn)}" style="z-index:850;pointer-events:none;">${frag.html}</div>`);
+        if (frag.script) scripts.push(frag.script);
+        for (const src of frag.scriptSrcs ?? []) scriptSrcs.add(src);
+        for (const f of frag.files ?? []) if (!extraFiles.some((e) => e.path === f.path)) extraFiles.push(f);
+      } else {
+        warnings.push(`The ${scene.transitionIn.type} transition into "${scene.purpose}" is shown without its shader light: no Skia backend is configured for this render.`);
+      }
+    } else if (index > 0 && t.overlapIn > 0) {
       const o = sec(t.overlapIn);
       switch (scene.transitionIn.type) {
         case "fade":
@@ -680,6 +710,7 @@ html,body{margin:0;padding:0;background:#000;}
 <div id="root" data-composition-id="main" data-start="0" data-width="${width}" data-height="${height}" data-duration="${f3(durationSec)}">
 ${sceneHtml.join("\n")}
 ${transitionHtml.join("\n")}
+${filterDefs.length ? `<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>${filterDefs.join("")}</defs></svg>` : ""}
 <div id="finish"><div class="vig"></div><div class="grain" id="grain" style="background-image:url(&quot;${GRAIN_SVG}&quot;);"></div></div>
 ${beatHtml.join("\n")}
 ${captionHtml.join("\n")}

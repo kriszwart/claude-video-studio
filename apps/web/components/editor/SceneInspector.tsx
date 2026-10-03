@@ -14,7 +14,7 @@ import { DemoEditor } from "./DemoEditor";
 import type { JobDTO } from "./types";
 
 const TRANSITIONS = TRANSITION_TYPES;
-const TRANSITION_LABEL: Record<(typeof TRANSITION_TYPES)[number], string> = { cut: "Cut", fade: "Fade", slide: "Slide", wipe: "Wipe", zoom: "Zoom", flythrough: "Fly-through", portal: "Portal", fold: "Fold", tiles: "Tile wipe", colorfield: "Colour field" };
+const TRANSITION_LABEL: Record<(typeof TRANSITION_TYPES)[number], string> = { cut: "Cut", fade: "Fade", slide: "Slide", wipe: "Wipe", zoom: "Zoom", flythrough: "Fly-through", portal: "Portal", fold: "Fold", tiles: "Tile wipe", colorfield: "Colour field", glitch: "Glitch", liquid: "Liquid (shader)", lens: "Glass lens (shader)", grain: "Grain dissolve (shader)", morph: "Shape morph (shader)" };
 const FRAMES = ["none", "card", "laptop", "phone", "circle", "rounded"] as const;
 const ENTRANCES = ["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw", "scramble", "glitch", "blur"] as const;
 

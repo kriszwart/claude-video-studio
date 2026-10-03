@@ -15,13 +15,16 @@ test.describe.serial("live preview", () => {
     await expect(play).toBeEnabled({ timeout: 60_000 });
     const scrub = page.getByRole("slider", { name: "Scrub" });
 
-    // Plays in real time.
+    // Plays in real time: the clock matches the wall time between Play and Pause (measured, since
+    // clicking Pause can take a moment while the page draws shader effects).
+    const t0 = Date.now();
     await play.click();
     await page.waitForTimeout(2000);
     await page.getByRole("button", { name: "Pause" }).click();
+    const elapsed = (Date.now() - t0) / 1000;
     const t1 = Number(await scrub.inputValue());
-    expect(t1).toBeGreaterThan(1.2);
-    expect(t1).toBeLessThan(3.5);
+    expect(t1).toBeGreaterThan(Math.max(1.2, elapsed - 1));
+    expect(t1).toBeLessThan(elapsed + 0.5);
 
     // Scrub to scene 3 and read the frame from inside the player.
     await scrub.fill("12");

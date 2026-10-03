@@ -1,4 +1,5 @@
 import { and, asc, eq, gt, inArray, isNull, lt, lte, or, sql } from "drizzle-orm";
+import { isShaderTransition } from "@vs/domain";
 import type { DbOrTx } from "../client";
 import { getDb } from "../client";
 import { newId } from "../ids";
@@ -81,9 +82,13 @@ const GRAPHICS_JOBS = new Set<string>(["preview", "export", "keyframes", "live_p
 /** Graphics backends a revision needs (FR-21 capability routing). */
 export async function graphicsRequirements(db: DbOrTx, revisionId: string): Promise<string[]> {
   const rev = await db.query.projectRevisions.findFirst({ where: eq(projectRevisions.id, revisionId), columns: { document: true } });
-  const doc = rev?.document as { scenes?: { layers?: { kind: string; backend?: string; hidden?: boolean }[] }[] } | undefined;
+  const doc = rev?.document as { scenes?: { layers?: { kind: string; backend?: string; hidden?: boolean }[]; transitionIn?: { type: string; durationFrames: number } }[] } | undefined;
   const set = new Set<string>();
   for (const s of doc?.scenes ?? []) for (const l of s.layers ?? []) if (l.kind === "graphics" && !l.hidden && l.backend) set.add(l.backend);
+  // Shader transitions draw their light with Skia.
+  (doc?.scenes ?? []).forEach((s, i) => {
+    if (i > 0 && s.transitionIn && isShaderTransition(s.transitionIn.type) && s.transitionIn.durationFrames > 0) set.add("skia");
+  });
   return [...set].sort();
 }
 

@@ -59,7 +59,7 @@ export const CreativeProfileSnapshot = z.object({
   name: z.string().max(80).default("Default"),
   pacing: z.enum(["calm", "balanced", "fast"]).default("balanced"),
   typeScale: z.number().min(0.7).max(1.6).default(1),
-  transition: z.enum(["cut", "fade", "slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield", "glitch"]).default("fade"),
+  transition: z.enum(["cut", "fade", "slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield", "glitch", "liquid", "lens", "grain", "morph"]).default("fade"),
   motionIntensity: Unit.default(0.6),
   soundDensity: z.enum(["minimal", "moderate", "rich"]).default("moderate"),
   textDensity: z.enum(["sparse", "balanced", "dense"]).default("balanced"),
@@ -237,8 +237,9 @@ export type Background = z.infer<typeof Background>;
  * flythrough (the outgoing scene flies past the camera onto the next, already in place), portal
  * (the next scene opens out of a growing circle), fold (the outgoing panel folds away as the next
  * rises), tiles (a tiled chapter break) and colorfield (a brand-colour cloud hands over).
+ * Four more are shader transitions (see transitionMotion.ts): liquid, lens, grain and morph.
  */
-export const TRANSITION_TYPES = ["cut", "fade", "slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield", "glitch"] as const;
+export const TRANSITION_TYPES = ["cut", "fade", "slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield", "glitch", "liquid", "lens", "grain", "morph"] as const;
 export type TransitionType = (typeof TRANSITION_TYPES)[number];
 export const Transition = z.object({
   type: z.enum(TRANSITION_TYPES),

@@ -1,5 +1,5 @@
 import { GraphicsUnavailableError } from "@vs/compositor";
-import type { ProjectDocument } from "@vs/domain";
+import { isShaderTransition, type ProjectDocument } from "@vs/domain";
 import type { GraphicsCompiler } from "@vs/rendering";
 import type { JobContext } from "./context";
 
@@ -14,9 +14,11 @@ export function needsWebGpu(doc: ProjectDocument): boolean {
 
 export async function graphicsCompilerFor(doc: ProjectDocument, _ctx: JobContext): Promise<GraphicsCompiler | undefined> {
   const layers = doc.scenes.flatMap((s) => s.layers.filter((l) => l.kind === "graphics" && !l.hidden));
-  if (layers.length === 0) return undefined;
+  // Shader transitions draw their light with Skia.
+  const shaderTransitions = doc.scenes.some((s, i) => i > 0 && isShaderTransition(s.transitionIn.type) && s.transitionIn.durationFrames > 0);
+  if (layers.length === 0 && !shaderTransitions) return undefined;
   const { loadGraphicsCompiler } = await import("./graphics-adapters");
-  const backends = layers.map((l) => (l.kind === "graphics" ? l.backend : "skia"));
+  const backends = [...layers.map((l) => (l.kind === "graphics" ? l.backend : "skia")), ...(shaderTransitions ? ["skia"] : [])];
   const compiler = await loadGraphicsCompiler(backends);
   if (!compiler) {
     const { graphicsCapabilities } = await import("@vs/graphics");
