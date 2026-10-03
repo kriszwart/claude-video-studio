@@ -126,6 +126,7 @@ const BUNDLED: Record<string, string> = {
   "DM Serif Display": "@fontsource/dm-serif-display",
   Caveat: "@fontsource/caveat",
   "Bebas Neue": "@fontsource/bebas-neue",
+  "EB Garamond": "@fontsource/eb-garamond",
 };
 
 async function stageBundledFonts(families: string[], fontsDir: string): Promise<StagedFont[]> {

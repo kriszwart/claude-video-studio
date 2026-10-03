@@ -741,6 +741,7 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
 const SIGNAL_FRAG = /* glsl */ `
 uniform float uTime; uniform float uHit; uniform float uBurst; uniform float uStrobe; uniform float uGrain; uniform float uScan; uniform float uRoll; uniform vec3 uColor;
 uniform float uLeaks; uniform vec3 uLeakA; uniform vec3 uLeakB;
+uniform float uEmbers; uniform vec3 uEmberC; uniform float uAspect;
 varying vec2 vUv;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main(){
@@ -766,6 +767,23 @@ void main(){
     float lb = exp(-dot(vUv - b2, vUv - b2) * 5.0) * (0.55 + 0.45 * sin(uTime * 0.53 + 1.3));
     o.rgb += (uLeakA * la + uLeakB * lb) * uLeaks * (0.6 + 0.6 * uHit);
   }
+  // Rising embers: soft sparks drifting up and swaying, each flickering (pure added light).
+  if (uEmbers > 0.0) {
+    vec2 p = vec2(vUv.x * uAspect, vUv.y);
+    float e = 0.0;
+    for (int i = 0; i < 60; i++) {
+      float fi = float(i);
+      float h1 = hash(vec2(fi, 1.7)), h2 = hash(vec2(fi, 9.1)), h3 = hash(vec2(fi, 4.3));
+      float speed = 0.04 + 0.08 * h2;
+      float y = fract(h1 + uTime * speed);
+      float x = (h3 + 0.05 * sin(uTime * (0.6 + h1) + fi)) * uAspect;
+      float r = (0.0025 + 0.004 * h2);
+      float d = length(p - vec2(x, y));
+      float flick = 0.55 + 0.45 * sin(uTime * (3.0 + 4.0 * h3) + fi * 2.1);
+      e += exp(-d * d / (r * r)) * flick * smoothstep(0.0, 0.25, y) * (1.0 - smoothstep(0.7, 1.0, y));
+    }
+    o.rgb += uEmberC * min(e, 1.5) * uEmbers;
+  }
   gl_FragColor = o;
 }`;
 
@@ -781,6 +799,7 @@ function signalOverlay(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: num
     uColor: { value: new THREE.Color(String(p.strobeColor ?? "#ffffff")) },
     uLeaks: { value: Math.max(0, Math.min(1, Number(p.leaks ?? 0))) },
     uLeakA: { value: new THREE.Color(String(p.leakColor ?? "#ff7a2f")) }, uLeakB: { value: new THREE.Color(String(p.leakColor2 ?? "#ff2e88")) },
+    uEmbers: { value: Math.max(0, Math.min(1, Number(p.embers ?? 0))) }, uEmberC: { value: new THREE.Color(String(p.emberColor ?? "#ffb04a")) }, uAspect: { value: spec.width / spec.height },
   };
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);

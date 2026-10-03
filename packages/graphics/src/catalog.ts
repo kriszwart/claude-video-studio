@@ -292,6 +292,8 @@ export const COMPONENTS: ComponentDef[] = [
       { name: "leaks", kind: "number", default: 0, min: 0, max: 1, label: "Light leaks" },
       { name: "leakColor", kind: "color", default: "#ff7a2f", label: "Leak colour" },
       { name: "leakColor2", kind: "color", default: "#ff2e88", label: "Second leak colour" },
+      { name: "embers", kind: "number", default: 0, min: 0, max: 1, label: "Rising embers" },
+      { name: "emberColor", kind: "color", default: "#ffb04a", label: "Ember colour" },
       { name: "bpm", kind: "number", default: 0, min: 0, max: 240, label: "Tempo (BPM)" },
       { name: "beatOffsetSec", kind: "number", default: 0, min: 0, max: 600, label: "First beat (s)" },
       { name: "clockOffsetSec", kind: "number", default: 0, min: -600, max: 600, label: "Clock offset (s)" },
