@@ -16,7 +16,7 @@ import type { JobDTO } from "./types";
 const TRANSITIONS = TRANSITION_TYPES;
 const TRANSITION_LABEL: Record<(typeof TRANSITION_TYPES)[number], string> = { cut: "Cut", fade: "Fade", slide: "Slide", wipe: "Wipe", zoom: "Zoom", flythrough: "Fly-through", portal: "Portal", fold: "Fold", tiles: "Tile wipe", colorfield: "Colour field" };
 const FRAMES = ["none", "card", "laptop", "phone", "circle", "rounded"] as const;
-const ENTRANCES = ["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw"] as const;
+const ENTRANCES = ["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw", "scramble", "glitch", "blur"] as const;
 
 export function SceneInspector({ projectId, doc, scene, apply, jobs }: { projectId: string; doc: ProjectDocument; scene: Scene; apply: (ops: Operation[]) => Promise<boolean>; jobs?: JobDTO[] }) {
   const fps = doc.format.fps;

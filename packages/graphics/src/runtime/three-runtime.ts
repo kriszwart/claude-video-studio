@@ -25,8 +25,17 @@ export interface ThreeLayerSpec {
 
 interface Layer {
   spec: ThreeLayerSpec;
-  draw: (t: number) => void;
+  make: (canvas: HTMLCanvasElement, spec: ThreeLayerSpec) => (t: number) => void;
+  /** Set while the layer's scene is on screen; WebGL contexts are scarce (browsers keep ~16). */
+  live: { draw: (t: number) => void; renderers: THREE.WebGLRenderer[] } | null;
   lastT: number | null;
+}
+
+/** Renderers created by the component being built, so its context can be released later. */
+let building: THREE.WebGLRenderer[] = [];
+function track(r: THREE.WebGLRenderer): THREE.WebGLRenderer {
+  building.push(r);
+  return r;
 }
 
 type W = typeof window & {
@@ -35,6 +44,12 @@ type W = typeof window & {
   __vsThreeReport?: { layers: number; frames: number; errors: string[] };
 };
 const w = window as W;
+
+/** Deterministic hash of a number to 0..1. */
+const hash1 = (x: number) => {
+  const s = Math.sin(x * 127.1 + 311.7) * 43758.5453;
+  return s - Math.floor(s);
+};
 
 function rng(seed: number) {
   let a = seed >>> 0 || 1;
@@ -98,7 +113,7 @@ float snoise(vec3 v){
 // the deformed surface itself (finite differences), so shading stays continuous while it melts.
 const DEFORM = /* glsl */ `
 uniform float uInflate; uniform float uMutate; uniform float uTime;
-uniform vec3 uFaceN[20]; uniform int uFaceCount; uniform float uRin;
+uniform vec3 uFaceN[20]; uniform int uFaceCount; uniform float uRin; uniform float uSpike;
 attribute vec3 aSphere;
 float polyR(vec3 s){
   float m = 1e-4;
@@ -113,6 +128,9 @@ vec3 surf(vec3 s){
   float a = uMutate * 0.8 * q.y;
   float c = cos(a), sn = sin(a);
   q.xz = mat2(c, -sn, sn, c) * q.xz;
+  // Spikes: sharp crystal thorns out of the noise peaks (driven by the beat).
+  float sp = pow(max(0.0, snoise(s * 3.6 + vec3(7.0, uTime * 0.2, 1.0))), 3.0);
+  q *= 1.0 + uSpike * sp * 1.6;
   return q;
 }
 vec3 surfNormal(vec3 s, vec3 q){
@@ -127,9 +145,12 @@ const SOLID_VERT = /* glsl */ `
 ${NOISE}
 ${DEFORM}
 attribute vec3 aFlat; attribute float aFace;
+uniform float uSnap;
 varying vec3 vN; varying vec3 vV; varying float vFace; varying vec3 vS;
 void main(){
   vec3 q = surf(aSphere);
+  // Vertex snap: low-resolution, wobbling geometry in glitch bursts.
+  if (uSnap > 0.0) q = floor(q * uSnap + 0.5) / uSnap;
   // Held solids keep exact flat faces; once it starts to melt, the surface normal takes over.
   vec3 n = normalize(mix(aFlat, surfNormal(aSphere, q), smoothstep(0.0, 0.12, uInflate + uMutate)));
   vec4 mv = modelViewMatrix * vec4(q, 1.0);
@@ -138,7 +159,7 @@ void main(){
 }`;
 
 const SOLID_FRAG = /* glsl */ `
-uniform vec3 uPal[6]; uniform int uPalN; uniform float uProgress; uniform float uTime; uniform float uIrid;
+uniform vec3 uPal[6]; uniform int uPalN; uniform float uProgress; uniform float uTime; uniform float uIrid; uniform int uMaterial;
 varying vec3 vN; varying vec3 vV; varying float vFace; varying vec3 vS;
 vec3 palette(float x){
   float n = float(uPalN);
@@ -159,6 +180,21 @@ void main(){
   // Thin-film iridescence: hue shifts with viewing angle, like a soap bubble.
   vec3 irid = 0.5 + 0.5 * cos(6.2831 * (vec3(0.0, 0.33, 0.67) + fres * 1.6 + dot(vS, vec3(0.4, 0.3, 0.2)) + uTime * 0.05));
   vec3 col = base * (0.28 + 0.86 * diff) + irid * fres * uIrid + vec3(1.0) * spec * 0.85 + base * fres * 0.5;
+  if (uMaterial == 1) {
+    // Chrome: a procedural studio environment reflected in the surface (bright horizon, ring
+    // lights, a palette-tinted floor), so it reads as liquid metal without any texture.
+    vec3 R = reflect(-V, N);
+    float y = R.y;
+    vec3 sky = mix(vec3(0.02), vec3(0.85, 0.88, 0.95), smoothstep(-0.05, 0.5, y));
+    float horizon = exp(-pow(y * 9.0, 2.0)) * 1.6;
+    float rings = smoothstep(0.92, 1.0, sin(y * 26.0 + R.x * 3.0 + uTime * 0.6)) * 0.9;
+    vec3 floorC = base * 0.35 * smoothstep(0.0, -0.6, y);
+    vec3 env = sky * 0.55 + vec3(horizon) + vec3(rings) + floorC;
+    col = env * mix(vec3(1.0), base, 0.35) + irid * fres * 0.6 * uIrid + vec3(1.0) * pow(max(dot(N, H), 0.0), 160.0) * 1.5;
+  } else if (uMaterial == 2) {
+    // X-ray: dark body, glowing rim and iridescent edges only.
+    col = base * pow(fres, 1.3) * 2.2 + irid * fres * uIrid * 0.8 + vec3(0.02);
+  }
   gl_FragColor = vec4(col, 1.0);
 }`;
 
@@ -256,7 +292,7 @@ function edgeGeometry(solid: Solid) {
  */
 function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number) => void {
   const p = spec.params;
-  const renderer = new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true });
+  const renderer = track(new THREE.WebGLRenderer({ canvas, alpha: true, antialias: true, preserveDrawingBuffer: true }));
   renderer.setPixelRatio(1);
   renderer.setSize(spec.width, spec.height, false);
   renderer.setClearColor(0x000000, 0);
@@ -280,6 +316,7 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
     uInflate: { value: 0 }, uMutate: { value: 0 }, uTime: { value: 0 }, uProgress: { value: 0 },
     uPal: { value: palArr }, uPalN: { value: pal.length }, uIrid: { value: Math.max(0, Math.min(2, Number(p.iridescence ?? 1))) },
     uFaceN: { value: Array.from({ length: 20 }, () => new THREE.Vector3()) }, uFaceCount: { value: 0 }, uRin: { value: 1 },
+    uSpike: { value: 0 }, uSnap: { value: 0 }, uMaterial: { value: ({ iridescent: 0, chrome: 1, xray: 2 } as Record<string, number>)[String(p.material ?? "iridescent")] ?? 0 },
   };
   // Face normals and inradius of each solid, swapped into the shared uniforms for the one drawn.
   const shapes = seq.map((name) => {
@@ -361,6 +398,8 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
   const beatOffset = Number(p.beatOffsetSec ?? 0);
   const pulse = Math.max(0, Math.min(1, Number(p.pulse ?? 0.5)));
   const minInflate = Math.max(0, Math.min(1, Number(p.minInflate ?? 0)));
+  const spikes = Math.max(0, Math.min(1, Number(p.spikes ?? 0)));
+  const glitch = Math.max(0, Math.min(1, Number(p.glitch ?? 0)));
   return (t: number) => {
     const st = morphAt(t + morphOffset, seq.length, hold, morph);
     const c = t + clockOffset;
@@ -385,6 +424,12 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
     const gi = (((progress * 1.5 * pal.length) % pal.length) + pal.length) % pal.length;
     glow.copy(pal[Math.floor(gi)]!).lerp(pal[(Math.floor(gi) + 1) % pal.length]!, gi - Math.floor(gi));
     shellUniforms.uStrength.value = 0.9 + 1.1 * hit;
+    uniforms.uSpike.value = spikes * hit;
+    // Glitch bursts on some beats (seeded): the mesh snaps to a coarse grid and jumps sideways.
+    const beatN = bpm > 0 ? Math.floor(((c - beatOffset) * bpm) / 60) : 0;
+    const burst = glitch > 0 && bpm > 0 && hash1(beatN * 7.13 + (spec.seed || 1)) < glitch * 0.5 ? Math.exp(-5 * Math.max(0, beatPhase)) : 0;
+    uniforms.uSnap.value = burst > 0.15 ? 6 + 10 * (1 - burst) : 0;
+    group.position.x = burst > 0.15 ? (hash1(beatN * 3.7 + Math.floor(c * 30)) - 0.5) * 0.25 * burst : 0;
     edgeUniforms.uAlpha.value = showEdges ? Math.min(1, (0.95 + 0.6 * hit) * (1 - inflation)) : 0;
     group.rotation.set(0.42 + 0.2 * Math.sin(c * 0.37), c * spin * 0.6 * Math.PI, 0.1 * Math.sin(c * 0.23));
     group.scale.setScalar(1 + 0.03 * Math.sin(c * 1.3) + 0.05 * inflation + 0.07 * hit);
@@ -393,8 +438,210 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
   };
 }
 
+// ---------------------------------------------------------------------------------------------
+// Footage FX: the scene's own video layer, re-drawn through a glitch shader. The renderer injects
+// each video frame as an <img class="__render_frame__"> right after the <video> and then calls
+// window.__hfReseekGpu(t); this layer reads that frame (or the live <video> in a preview) as a
+// texture, so the effect follows the footage frame by frame. Everything else is a function of t.
+// ---------------------------------------------------------------------------------------------
+const FX_FRAG = /* glsl */ `
+uniform sampler2D uTex; uniform float uHas; uniform float uTexAspect; uniform float uAspect;
+uniform float uTime; uniform float uHit; uniform float uBurst; uniform float uInvert; uniform float uSeed;
+uniform float uRgb; uniform float uWarp; uniform float uSort; uniform float uKaleido; uniform float uMirror;
+uniform int uGrade; uniform float uDim; uniform float uGrain; uniform float uScan; uniform float uZoom; uniform vec3 uTint;
+varying vec2 vUv;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7)) + uSeed) * 43758.5453); }
+float lum(vec3 c){ return dot(c, vec3(0.299, 0.587, 0.114)); }
+vec2 cover(vec2 uv){
+  vec2 s = uAspect > uTexAspect ? vec2(1.0, uTexAspect / uAspect) : vec2(uAspect / uTexAspect, 1.0);
+  return clamp((uv - 0.5) * s / uZoom + 0.5, 0.0, 1.0);
+}
+vec3 tex(vec2 uv){ return texture2D(uTex, cover(uv)).rgb; }
+vec3 hue(vec3 c, float a){
+  const vec3 k = vec3(0.57735);
+  float ca = cos(a);
+  return c * ca + cross(k, c) * sin(a) + k * dot(k, c) * (1.0 - ca);
+}
+void main(){
+  vec2 uv = vUv;
+  if (uMirror > 0.5) uv.x = 0.5 - abs(uv.x - 0.5) * (uMirror > 1.5 ? -1.0 : 1.0);
+  if (uKaleido > 1.5) {
+    vec2 p = uv - 0.5; p.x *= uAspect;
+    float r = length(p), a = atan(p.y, p.x) + uTime * 0.12;
+    float seg = 6.28318 / uKaleido;
+    a = mod(a, seg); a = abs(a - seg * 0.5);
+    p = vec2(cos(a), sin(a)) * r; p.x /= uAspect;
+    uv = p + 0.5;
+  }
+  // Liquid warp, stronger on the beat.
+  float w = uWarp * (0.6 + 0.8 * uHit);
+  uv += vec2(sin(uv.y * 9.0 + uTime * 1.7), cos(uv.x * 7.0 - uTime * 1.3)) * 0.012 * w;
+  // Line tearing and block displacement in glitch bursts.
+  float frameN = floor(uTime * 30.0);
+  float row = floor(uv.y * 48.0);
+  float tear = step(1.0 - uBurst * 0.55, hash(vec2(row, floor(frameN / 2.0))));
+  uv.x += tear * (hash(vec2(row * 1.7, frameN)) - 0.5) * 0.18 * uBurst;
+  vec2 blk = floor(uv * vec2(14.0, 8.0));
+  if (hash(blk + frameN * 0.37) < uBurst * 0.32) uv += (vec2(hash(blk + 1.3), hash(blk + 2.1)) - 0.5) * 0.2 * uBurst;
+  // Chromatic split.
+  float sp = uRgb * (0.003 + 0.012 * uHit) + 0.03 * uBurst;
+  vec3 col = vec3(tex(uv + vec2(sp, 0.0)).r, tex(uv).g, tex(uv - vec2(sp, sp * 0.4)).b);
+  // Pixel-sort smear: bright pixels streak downwards.
+  if (uSort > 0.0) {
+    for (int i = 1; i <= 10; i++) {
+      vec3 s = tex(uv + vec2(0.0, float(i) * 0.014 * uSort));
+      float k = smoothstep(0.55, 0.85, lum(s)) * (1.0 - float(i) / 11.0);
+      col = max(col, s * k);
+    }
+  }
+  // Grades: 1 thermal, 2 acid, 3 mono, 4 tint duotone.
+  float l = lum(col);
+  if (uGrade == 1) col = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.1, 0.2) + l * 0.9 + 0.55));
+  else if (uGrade == 2) col = hue(col * 1.25, uTime * 0.9 + l * 4.0);
+  else if (uGrade == 3) col = vec3(smoothstep(0.12, 0.8, l));
+  else if (uGrade == 4) col = mix(vec3(0.02, 0.01, 0.04), uTint, smoothstep(0.05, 0.9, l)) + pow(l, 4.0) * 0.6;
+  // Posterize in bursts (datamosh-ish banding).
+  if (uBurst > 0.3) col = floor(col * 5.0) / 5.0;
+  col = mix(col, 1.0 - col, uInvert);
+  col *= uDim;
+  // Scanlines, grain, vignette.
+  col *= 1.0 - uScan * 0.35 * step(0.5, fract(vUv.y * 270.0));
+  col += (hash(vUv * 913.0 + frameN) - 0.5) * uGrain * 0.22;
+  vec2 v = vUv - 0.5; col *= 1.0 - dot(v, v) * 1.1;
+  col = mix(vec3(0.0), col, uHas);
+  gl_FragColor = vec4(max(col, 0.0), 1.0);
+}`;
+
+const QUAD_VERT = /* glsl */ `varying vec2 vUv; void main(){ vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }`;
+
+function beatState(c: number, p: Record<string, number | string | boolean>, seed: number) {
+  const bpm = Math.max(0, Math.min(240, Number(p.bpm ?? 0)));
+  const beatOffset = Number(p.beatOffsetSec ?? 0);
+  if (!(bpm > 0) || c < beatOffset) return { hit: 0, burst: 0, beatN: -1, phase: 0 };
+  const u = ((c - beatOffset) * bpm) / 60;
+  const beatN = Math.floor(u);
+  const phase = u - beatN;
+  const hit = Math.exp(-7 * phase);
+  const rate = Math.max(0, Math.min(1, Number(p.glitch ?? 0.3)));
+  const burst = hash1(beatN * 7.13 + seed) < rate * 0.6 ? Math.exp(-4 * phase) * rate : 0;
+  return { hit, burst, beatN, phase };
+}
+
+function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number) => void {
+  const p = spec.params;
+  const renderer = track(new THREE.WebGLRenderer({ canvas, alpha: false, antialias: false, preserveDrawingBuffer: true }));
+  renderer.setPixelRatio(1);
+  renderer.setSize(spec.width, spec.height, false);
+  const texture = new THREE.Texture();
+  texture.colorSpace = THREE.SRGBColorSpace;
+  texture.minFilter = THREE.LinearFilter;
+  texture.generateMipmaps = false;
+  const grade = ({ none: 0, thermal: 1, acid: 2, mono: 3, duotone: 4 } as Record<string, number>)[String(p.grade ?? "none")] ?? 0;
+  const u = {
+    uTex: { value: texture }, uHas: { value: 0 }, uTexAspect: { value: 16 / 9 }, uAspect: { value: spec.width / spec.height },
+    uTime: { value: 0 }, uHit: { value: 0 }, uBurst: { value: 0 }, uInvert: { value: 0 }, uSeed: { value: (spec.seed % 97) * 0.731 },
+    uRgb: { value: Number(p.rgbSplit ?? 0.5) }, uWarp: { value: Number(p.warp ?? 0.3) }, uSort: { value: Number(p.sort ?? 0) },
+    uKaleido: { value: Math.round(Number(p.kaleido ?? 0)) }, uMirror: { value: ({ off: 0, left: 1, right: 2 } as Record<string, number>)[String(p.mirror ?? "off")] ?? 0 },
+    uGrade: { value: grade }, uDim: { value: Number(p.brightness ?? 1) }, uGrain: { value: Number(p.grain ?? 0.4) }, uScan: { value: Number(p.scanlines ?? 0.3) },
+    uZoom: { value: 1 }, uTint: { value: new THREE.Color(String(p.tint ?? "#ff4fd8")) },
+  };
+  const scene = new THREE.Scene();
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: u, vertexShader: QUAD_VERT, fragmentShader: FX_FRAG, depthTest: false })));
+  const layerId = String(p.video ?? "");
+  const clockOffset = Number(p.clockOffsetSec ?? 0);
+  const strobe = Math.max(0, Math.min(1, Number(p.strobe ?? 0)));
+  const punch = Math.max(0, Math.min(0.5, Number(p.beatZoom ?? 0.04)));
+  const drift = Number(p.zoomDrift ?? 0.06);
+  const glitchIn = Math.max(0, Math.min(1, Number(p.glitchIn ?? 0.6)));
+  const findVideo = () => {
+    const root = canvas.closest(".scene") ?? document;
+    return (layerId ? root.querySelector<HTMLVideoElement>(`video[id$="-${layerId}"]`) : null) ?? root.querySelector<HTMLVideoElement>("video");
+  };
+  return (t: number) => {
+    const c = t + clockOffset;
+    const v = findVideo();
+    const frame = v?.nextElementSibling as HTMLImageElement | null;
+    let src: HTMLImageElement | HTMLVideoElement | null = null;
+    if (frame && frame.classList.contains("__render_frame__") && frame.complete && frame.naturalWidth > 0) src = frame;
+    else if (v && v.readyState >= 2 && v.videoWidth > 0) src = v;
+    if (src) {
+      texture.image = src;
+      texture.needsUpdate = true;
+      const sw = src instanceof HTMLVideoElement ? src.videoWidth : src.naturalWidth;
+      const sh = src instanceof HTMLVideoElement ? src.videoHeight : src.naturalHeight;
+      u.uTexAspect.value = sw / sh;
+      u.uHas.value = 1;
+    }
+    const b = beatState(c, p, spec.seed || 1);
+    const intro = glitchIn * Math.max(0, 1 - t / 0.35);
+    u.uTime.value = c;
+    u.uHit.value = b.hit;
+    u.uBurst.value = Math.min(1, Math.max(b.burst, intro));
+    u.uInvert.value = strobe > 0 && b.beatN >= 0 && hash1(b.beatN * 3.31 + 5) < strobe * 0.5 && b.phase < 0.12 ? 1 : 0;
+    u.uZoom.value = 1 + drift * (t / Math.max(1, spec.durationSec)) + punch * b.hit;
+    renderer.render(scene, camera);
+  };
+}
+
+/**
+ * Signal overlay: a transparent full-frame layer of analogue/digital noise for over everything
+ * (text included): grain, scanlines, a rolling bar, beat strobes and noise bands in bursts.
+ */
+const SIGNAL_FRAG = /* glsl */ `
+uniform float uTime; uniform float uHit; uniform float uBurst; uniform float uStrobe; uniform float uGrain; uniform float uScan; uniform float uRoll; uniform vec3 uColor;
+varying vec2 vUv;
+float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
+void main(){
+  float f = floor(uTime * 30.0);
+  float g = hash(vUv * 731.0 + f) - 0.5;
+  float a = abs(g) * uGrain * 0.25;
+  vec3 col = vec3(step(0.0, g));
+  float scan = step(0.5, fract(vUv.y * 360.0)) * uScan * 0.18;
+  float roll = smoothstep(0.0, 0.06, fract(vUv.y - uTime * 0.11) ) * (1.0 - smoothstep(0.06, 0.12, fract(vUv.y - uTime * 0.11))) * uRoll * 0.12;
+  float band = step(1.0 - uBurst * 0.4, hash(vec2(floor(vUv.y * 22.0), f))) * uBurst;
+  vec3 bandC = vec3(hash(vec2(f, 1.0)), hash(vec2(f, 2.0)), hash(vec2(f, 3.0)));
+  // Premultiplied output: dark scanlines, light/dark grain, bright bands and strobes.
+  vec4 o = vec4(col * a, a);
+  o = o * (1.0 - scan) + vec4(0.0, 0.0, 0.0, scan);
+  o += vec4(vec3(roll), roll);
+  o = mix(o, vec4(bandC * 0.8, 0.8), band * 0.55);
+  o = mix(o, vec4(uColor, 1.0), uStrobe);
+  gl_FragColor = o;
+}`;
+
+function signalOverlay(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number) => void {
+  const p = spec.params;
+  const renderer = track(new THREE.WebGLRenderer({ canvas, alpha: true, antialias: false, preserveDrawingBuffer: true }));
+  renderer.setPixelRatio(1);
+  renderer.setSize(spec.width, spec.height, false);
+  renderer.setClearColor(0x000000, 0);
+  const u = {
+    uTime: { value: 0 }, uHit: { value: 0 }, uBurst: { value: 0 }, uStrobe: { value: 0 },
+    uGrain: { value: Number(p.grain ?? 0.5) }, uScan: { value: Number(p.scanlines ?? 0.5) }, uRoll: { value: Number(p.roll ?? 0.5) },
+    uColor: { value: new THREE.Color(String(p.strobeColor ?? "#ffffff")) },
+  };
+  const scene = new THREE.Scene();
+  const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
+  scene.add(new THREE.Mesh(new THREE.PlaneGeometry(2, 2), new THREE.ShaderMaterial({ uniforms: u, vertexShader: QUAD_VERT, fragmentShader: SIGNAL_FRAG, transparent: true, depthTest: false, premultipliedAlpha: true, blending: THREE.CustomBlending, blendSrc: THREE.OneFactor, blendDst: THREE.OneMinusSrcAlphaFactor })));
+  const clockOffset = Number(p.clockOffsetSec ?? 0);
+  const strobe = Math.max(0, Math.min(1, Number(p.strobe ?? 0)));
+  return (t: number) => {
+    const c = t + clockOffset;
+    const b = beatState(c, p, (spec.seed || 1) + 13);
+    u.uTime.value = c;
+    u.uHit.value = b.hit;
+    u.uBurst.value = b.burst;
+    u.uStrobe.value = strobe > 0 && b.beatN >= 0 && hash1(b.beatN * 5.17 + 2) < strobe * 0.35 && b.phase < 0.07 ? 0.85 : 0;
+    renderer.clear();
+    renderer.render(scene, camera);
+  };
+}
+
 const COMPONENTS: Record<string, (canvas: HTMLCanvasElement, spec: ThreeLayerSpec) => (t: number) => void> = {
   "platonic-shader@1": platonicShader,
+  "footage-fx@1": footageFx,
+  "signal-overlay@1": signalOverlay,
 };
 
 const layers: Layer[] = [];
@@ -405,21 +652,46 @@ async function setup() {
   for (const spec of specs) {
     const make = COMPONENTS[`${spec.component}@${spec.version}`];
     if (!make) throw new Error(`Unsupported three.js component ${spec.component}@${spec.version}`);
-    const canvas = document.getElementById(`gfx-${spec.id}`) as HTMLCanvasElement | null;
-    if (!canvas) throw new Error(`Missing canvas for ${spec.id}`);
-    layers.push({ spec, draw: make(canvas, spec), lastT: null });
+    if (!document.getElementById(`gfx-${spec.id}`)) throw new Error(`Missing canvas for ${spec.id}`);
+    layers.push({ spec, make, live: null, lastT: null });
   }
   report.layers = layers.length;
 }
 
-function drawAll(time: number) {
+/** Build the layer on a fresh canvas (a released context cannot be reused). */
+function wake(L: Layer) {
+  const old = document.getElementById(`gfx-${L.spec.id}`) as HTMLCanvasElement;
+  const canvas = old.cloneNode(false) as HTMLCanvasElement;
+  old.replaceWith(canvas);
+  building = [];
+  const draw = L.make(canvas, L.spec);
+  L.live = { draw, renderers: building };
+  building = [];
+  L.lastT = null;
+}
+
+function sleep(L: Layer) {
+  for (const r of L.live?.renderers ?? []) {
+    r.dispose();
+    r.forceContextLoss();
+  }
+  L.live = null;
+  L.lastT = null;
+}
+
+function drawAll(time: number, force = false) {
   for (const L of layers) {
     const t = time - L.spec.startSec;
-    if (t < -1e-6 || t > L.spec.durationSec + 1e-6) continue;
+    if (t < -1e-6 || t > L.spec.durationSec + 1e-6) {
+      // Off screen: give the context back unless the scene is about to come round again.
+      if (L.live && (t < -1 || t > L.spec.durationSec + 0.5)) sleep(L);
+      continue;
+    }
+    if (!L.live) wake(L);
     const tt = Math.max(0, Math.min(t, L.spec.durationSec));
-    if (L.lastT === tt) continue;
+    if (L.lastT === tt && !force) continue;
     try {
-      L.draw(tt);
+      L.live!.draw(tt);
       L.lastT = tt;
       report.frames++;
     } catch (e) {
@@ -438,4 +710,16 @@ window.addEventListener("hf-seek", (e: Event) => {
   const p = ready.then(() => drawAll(d.time));
   d.waitUntil?.(p);
 });
-ready.then(() => drawAll(0)).catch((e) => report.errors.push(String(e)));
+let isReady = false;
+ready.then(() => {
+  isReady = true;
+  drawAll(0);
+}).catch((e) => report.errors.push(String(e)));
+// After the renderer injects this frame's video images it calls __hfReseekGpu: redraw (in the
+// same task, before capture) so footage effects use the new frame. Chained with other runtimes.
+type ReseekWindow = { __hfReseekGpu?: (t: number) => void };
+const prevReseek = (window as unknown as ReseekWindow).__hfReseekGpu;
+(window as unknown as ReseekWindow).__hfReseekGpu = (t: number) => {
+  prevReseek?.(t);
+  if (isReady) drawAll(t, true);
+};

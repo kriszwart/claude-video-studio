@@ -308,10 +308,14 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           if (masked) {
             const n = Math.max(1, layer.text.split(WORD_GAP).filter(Boolean).length);
             tweens.push(`tl.fromTo("#${lid} .wm > .w",{yPercent:115},{yPercent:0,duration:${f3(Math.max(0.35, Number(m.dur) * 0.9))},stagger:${f3(Math.min(0.09, (dur * 0.3) / n))},ease:"power4.out"},${delay});`);
+          } else if (layer.animation.in === "scramble") {
+            tweens.push(...scrambleTweens(layer.text, lid, start, Number(delay), dur));
+          } else if (layer.animation.in === "glitch") {
+            tweens.push(...glitchTweens(`#${lid}`, lid, start, Number(delay), dur, unit));
           } else {
             tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m, layer.animation.stagger));
           }
-          if (layer.animation.in === "type" || layer.animation.stagger) {
+          if ((layer.animation.in === "type" || layer.animation.stagger) && layer.animation.in !== "scramble" && layer.animation.in !== "glitch") {
             tweens.push(`tl.fromTo("#${lid} .w",{opacity:0,y:${f3(m.dist * 0.4)}},{opacity:1,y:0,duration:${f3(m.dur * 0.6)},stagger:${f3(Math.min(0.12, (dur * 0.35) / Math.max(1, layer.text.split(WORD_GAP).length)))},ease:"power2.out"},${delay});`);
           }
           // Gentle drift while on screen, so held frames are never frozen.
@@ -474,6 +478,35 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           tweens.push(`tl.fromTo("#${sid}",{yPercent:28,opacity:0},{yPercent:0,opacity:1,duration:${f3(o * 0.8)},ease:"expo.out"},${f3(start + o * 0.2)});`);
           break;
         }
+        case "glitch": {
+          // A digital stutter: for a few frames the two scenes flicker against each other, jumping
+          // sideways through inverted and hue-shifted filters, while inverted bands tear across.
+          const prev = `s-${doc.scenes[index - 1]!.id}`;
+          const frames = Math.max(3, Math.round(Number(o) * fps));
+          const tid = `tr-${scene.id}`;
+          const bands = 5;
+          transitionHtml.push(
+            `<div id="${tid}" class="clip" data-start="${start}" data-duration="${o}" style="z-index:850;pointer-events:none;">` +
+              Array.from({ length: bands }, (_, b) => `<div id="${tid}-b${b}" class="layer" style="left:0;width:100%;top:0;height:0;opacity:0;backdrop-filter:invert(1) hue-rotate(${b * 70}deg) saturate(2.5);-webkit-backdrop-filter:invert(1) hue-rotate(${b * 70}deg) saturate(2.5);"></div>`).join("") +
+              `</div>`,
+          );
+          const filters = ["invert(1)", "hue-rotate(120deg) saturate(3) contrast(1.5)", "contrast(2.2) brightness(1.3)", "hue-rotate(-90deg) saturate(4)", "none"];
+          for (let k = 0; k < frames; k++) {
+            const at = f3(Number(start) + k / fps);
+            const r = (j: number) => hashUnit(scene.id, k * 17 + j);
+            const showNext = k >= frames - 2 || r(1) > 0.45;
+            const x = f3((r(2) - 0.5) * 0.12 * width);
+            const f = filters[Math.floor(r(3) * filters.length)]!;
+            tweens.push(`tl.set("#${sid}",{opacity:${showNext ? 1 : 0},x:${showNext ? x : 0},filter:"${showNext ? f : "none"}"},${at});`);
+            tweens.push(`tl.set("#${prev}",{opacity:${showNext ? 0 : 1},x:${showNext ? 0 : x},filter:"${showNext ? "none" : f}"},${at});`);
+            for (let b = 0; b < bands; b++) {
+              const on = r(10 + b) < 0.6;
+              tweens.push(`tl.set("#${tid}-b${b}",{opacity:${on ? 1 : 0},top:"${f3(r(20 + b) * 92)}%",height:"${f3(1 + r(30 + b) * 9)}%",x:${f3((r(40 + b) - 0.5) * 0.1 * width)}},${at});`);
+            }
+          }
+          tweens.push(`tl.set("#${sid}",{opacity:1,x:0,filter:"none"},${f3(Number(start) + Number(o))});`);
+          break;
+        }
         case "tiles":
         case "colorfield": {
           // A brief overlay covers both scenes; the next scene is revealed under it at the midpoint.
@@ -607,6 +640,7 @@ html,body{margin:0;padding:0;background:#000;}
 .cap-minimal span{color:#fff;background:rgba(0,0,0,.45);}
 .w{display:inline-block;white-space:pre;}
 .wm{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .04em .16em;margin:0 -.04em -.16em;}
+.ch{position:relative;display:inline-block;}.ch>.cg{position:absolute;left:0;top:0;white-space:pre;}
 .bglight{position:absolute;left:-15%;top:-15%;width:130%;height:130%;pointer-events:none;}
 #finish{position:absolute;inset:0;pointer-events:none;z-index:850;}
 #finish .vig{position:absolute;inset:0;background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.38) 100%);}
@@ -697,9 +731,83 @@ function entrance(sel: string, kind: string, at: number, m: { dist: number; dur:
       return [`tl.fromTo("${sel}",{clipPath:"inset(0% 100% 0% 0%)"},{clipPath:"inset(0% 0% 0% 0%)",duration:${m.dur},ease:"power2.inOut"},${at});`];
     case "draw":
       return [`tl.fromTo("${sel}",{clipPath:"inset(0% 0% 100% 0%)"},{clipPath:"inset(0% 0% 0% 0%)",duration:${f3(m.dur * 1.4)},ease:"power1.inOut"},${at});`];
+    // A focus pull: out of a soft blur, slightly large, settling sharp.
+    case "blur":
+      return [`tl.fromTo("${sel}",{opacity:0,filter:"blur(22px)",scale:1.14},{opacity:1,filter:"blur(0px)",scale:1,duration:${f3(m.dur * 1.5)},ease:"expo.out"},${at});`];
     default:
       return [];
   }
+}
+
+/** Deterministic 0..1 from a string and a number (stable across renders). */
+function hashUnit(key: string, n: number): number {
+  let h = 2166136261 ^ n;
+  for (let i = 0; i < key.length; i++) h = Math.imul(h ^ key.charCodeAt(i), 16777619);
+  h = Math.imul(h ^ (h >>> 13), 0x5bd1e995);
+  return ((h ^ (h >>> 15)) >>> 0) / 4294967296;
+}
+
+const SCRAMBLE_GLYPHS = "!<>-_\\/[]{}=+*^?#%&01ΔΣΩ∆◊▲▼░▒▓█";
+
+/** Words with one span per character: the real glyph and a scramble glyph drawn over it. */
+function scrambleWords(text: string, lid: string): string {
+  let n = 0;
+  return text
+    .split(/([ \t\n\r]+)/)
+    .map((w) => {
+      if (!w.trim()) return w;
+      const chars = [...w].map((c) => `<span class="ch" id="${lid}-c${n++}"><span class="cf">${escapeHtml(c)}</span><span class="cg"></span></span>`);
+      return `<span class="w">${chars.join("")}</span>`;
+    })
+    .join("");
+}
+
+/**
+ * Scramble entrance: each character cycles through glitch glyphs for a few frames, then resolves,
+ * left to right. Every step is a timeline set at an exact frame, so any seek shows the same frame.
+ */
+function scrambleTweens(text: string, lid: string, sceneStart: number, at: number, dur: number): string[] {
+  const chars = [...text].filter((c) => c.trim());
+  const n = chars.length;
+  if (!n) return [];
+  const out = [`tl.set("#${lid} .cf",{opacity:0},${f3(sceneStart)});`];
+  const step = 1 / 30;
+  const stagger = Math.min(0.035, (dur * 0.35) / n);
+  chars.forEach((c, i) => {
+    const t0 = at + i * stagger;
+    const cycles = 4 + Math.floor(hashUnit(lid, i * 7) * 5);
+    for (let k = 0; k < cycles; k++) {
+      const g = SCRAMBLE_GLYPHS[Math.floor(hashUnit(lid, i * 31 + k) * SCRAMBLE_GLYPHS.length)]!;
+      out.push(`tl.set("#${lid}-c${i} .cg",{textContent:${JSON.stringify(g)}},${f3(t0 + k * step)});`);
+    }
+    out.push(`tl.set("#${lid}-c${i} .cg",{textContent:""},${f3(t0 + cycles * step)});`, `tl.set("#${lid}-c${i} .cf",{opacity:1},${f3(t0 + cycles * step)});`);
+  });
+  return out;
+}
+
+/**
+ * Glitch entrance: ten frames of jitter, skew, RGB-split shadows and sliced clipping, then clean;
+ * a shorter re-glitch hits again past the middle of the scene.
+ */
+function glitchTweens(sel: string, lid: string, sceneStart: number, at: number, dur: number, unit: number): string[] {
+  const out = [`tl.set("${sel}",{opacity:0},${f3(sceneStart)});`];
+  const burst = (t0: number, frames: number, salt: number) => {
+    for (let k = 0; k < frames; k++) {
+      const r = (j: number) => hashUnit(lid, salt + k * 13 + j);
+      const amp = 1 - k / frames;
+      const x = (r(1) - 0.5) * 60 * unit * amp;
+      const sk = (r(2) - 0.5) * 24 * amp;
+      const sp = (4 + r(3) * 14) * unit * amp;
+      const a = Math.floor(r(4) * 60), b = Math.floor(r(5) * (90 - a));
+      out.push(
+        `tl.set("${sel}",{opacity:${k % 4 === 1 ? 0.35 : 1},x:${f3(x)},skewX:${f3(sk)},textShadow:"${f3(sp)}px 0 rgba(255,42,109,.9), ${f3(-sp)}px 0 rgba(5,217,232,.9)",clipPath:"inset(${a}% 0% ${b}% 0%)"},${f3(t0 + k / 30)});`,
+      );
+    }
+    out.push(`tl.set("${sel}",{opacity:1,x:0,skewX:0,textShadow:"none",clipPath:"inset(0% 0% 0% 0%)"},${f3(t0 + frames / 30)});`);
+  };
+  burst(at, 10, 0);
+  if (dur > 1.6) burst(sceneStart + dur * (0.55 + 0.2 * hashUnit(lid, 99)), 4, 500);
+  return out;
 }
 
 /** Roles whose words rise from behind a mask when entering with "rise". */
@@ -737,7 +845,9 @@ function textHtml(layer: TextLayer, lid: string, box: Box, z: number, slot: Slot
   // A counting number is one span whose text is set every frame; sized for its widest value.
   const words = layer.count
     ? `<span class="w num" id="${lid}-num" style="font-variant-numeric:tabular-nums;white-space:nowrap">${escapeHtml(widestCount(layer.count))}</span>`
-    : escapeHtml(layer.text)
+    : layer.animation.in === "scramble"
+      ? scrambleWords(layer.text, lid)
+      : escapeHtml(layer.text)
         .split(/([ \t\n\r]+)/)
         .map((w) => (w.trim() ? (masked ? `<span class="wm"><span class="w">${w}</span></span>` : `<span class="w">${w}</span>`) : w))
         .join("");

@@ -59,7 +59,7 @@ export const CreativeProfileSnapshot = z.object({
   name: z.string().max(80).default("Default"),
   pacing: z.enum(["calm", "balanced", "fast"]).default("balanced"),
   typeScale: z.number().min(0.7).max(1.6).default(1),
-  transition: z.enum(["cut", "fade", "slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield"]).default("fade"),
+  transition: z.enum(["cut", "fade", "slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield", "glitch"]).default("fade"),
   motionIntensity: Unit.default(0.6),
   soundDensity: z.enum(["minimal", "moderate", "rich"]).default("moderate"),
   textDensity: z.enum(["sparse", "balanced", "dense"]).default("balanced"),
@@ -105,7 +105,7 @@ export const Brief = z.object({
 });
 export type Brief = z.infer<typeof Brief>;
 
-export const EntranceAnimation = z.enum(["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw"]);
+export const EntranceAnimation = z.enum(["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw", "scramble", "glitch", "blur"]);
 
 /** Normalised frame box; may extend off-canvas for bleeding decoration. */
 export const LayerBox = z.object({ x: z.number().min(-1).max(2), y: z.number().min(-1).max(2), w: z.number().positive().max(3), h: z.number().positive().max(3) });
@@ -238,7 +238,7 @@ export type Background = z.infer<typeof Background>;
  * (the next scene opens out of a growing circle), fold (the outgoing panel folds away as the next
  * rises), tiles (a tiled chapter break) and colorfield (a brand-colour cloud hands over).
  */
-export const TRANSITION_TYPES = ["cut", "fade", "slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield"] as const;
+export const TRANSITION_TYPES = ["cut", "fade", "slide", "wipe", "zoom", "flythrough", "portal", "fold", "tiles", "colorfield", "glitch"] as const;
 export type TransitionType = (typeof TRANSITION_TYPES)[number];
 export const Transition = z.object({
   type: z.enum(TRANSITION_TYPES),
