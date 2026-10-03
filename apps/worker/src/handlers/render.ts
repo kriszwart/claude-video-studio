@@ -45,6 +45,8 @@ export const renderRevision: Handler = async (ctx) => {
       output,
       scale,
       quality: kind === "final" ? "standard" : "draft",
+      // 4K frames are four times the GPU work: one capture browser at a time keeps the GPU from stalling.
+      ...(fourK ? { workers: 1 } : {}),
       signal: ctx.signal,
       graphics: await graphicsCompilerFor(doc, ctx),
       webgpu: needsWebGpu(doc),
