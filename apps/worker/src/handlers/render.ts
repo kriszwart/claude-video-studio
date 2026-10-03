@@ -10,7 +10,8 @@ import { graphicsCompilerFor, needsWebGpu } from "../graphics";
 import { programMixInputs } from "../program";
 
 /**
- * Render an immutable revision. "preview" = half-resolution draft, "final" = 1080p export.
+ * Render an immutable revision. "preview" = half-resolution draft, "final" = 1080p export (or 4K
+ * when the export asks for it).
  * Publishing is idempotent per job: a retried job that already published returns the
  * existing export instead of creating a duplicate (A07).
  */
@@ -32,7 +33,8 @@ export const renderRevision: Handler = async (ctx) => {
 
   await ctx.stage("staging assets");
   const assets = await resolveAssets(ctx.job.workspaceId, referencedAssetIds(doc));
-  const scale = kind === "final" ? 1 : Number(process.env.PREVIEW_SCALE ?? 0.5);
+  const fourK = kind === "final" && ctx.job.input.resolution === "4k";
+  const scale = kind === "final" ? (fourK ? 2 : 1) : Number(process.env.PREVIEW_SCALE ?? 0.5);
   const output = join(ctx.workDir, `${kind}.mp4`);
   let result;
   try {
@@ -65,7 +67,7 @@ export const renderRevision: Handler = async (ctx) => {
   const timeline = computeTimeline(doc);
   const video = await registerFile(ctx.job.workspaceId, output, {
     kind: "render",
-    originalName: `${slug(doc.title)}-${kind}${sized ? `-${doc.format.aspect.replace(":", "x")}` : ""}-r${revision.seq}.mp4`,
+    originalName: `${slug(doc.title)}-${kind}${sized ? `-${doc.format.aspect.replace(":", "x")}` : ""}${fourK ? "-4k" : ""}-r${revision.seq}.mp4`,
     mime: "video/mp4",
     provenance: { source: "render", kind, projectId: ctx.job.projectId, revisionId, jobId: ctx.job.id, bundleHash: result.bundleHash },
   });

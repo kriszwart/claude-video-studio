@@ -476,6 +476,8 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
 const FX_FRAG = /* glsl */ `
 uniform sampler2D uTex; uniform float uHas; uniform float uTexAspect; uniform float uAspect;
 uniform sampler2D uFlash; uniform float uFlashOn; uniform float uFlashAspect; uniform int uFlashGrade;
+uniform sampler2D uBlend; uniform float uBlendOn; uniform float uBlendAspect; uniform int uBlendMode; uniform float uBlendAmt;
+uniform float uZoomBlur; uniform float uEcho; uniform float uMosaic;
 uniform float uTime; uniform float uHit; uniform float uBurst; uniform float uInvert; uniform float uSeed;
 uniform float uRgb; uniform float uWarp; uniform float uSort; uniform float uKaleido; uniform float uMirror;
 uniform int uGrade; uniform float uDim; uniform float uGrain; uniform float uScan; uniform float uZoom; uniform vec3 uTint;
@@ -491,7 +493,29 @@ vec2 coverA(vec2 uv, float ta){
   return clamp((uv - 0.5) * s / uZoom + 0.5, 0.0, 1.0);
 }
 // A snippet cut-in replaces the frame for a few frames (with its own grade).
-vec3 tex(vec2 uv){ return uFlashOn > 0.5 ? texture2D(uFlash, coverA(uv, uFlashAspect)).rgb : texture2D(uTex, cover(uv)).rgb; }
+vec3 base(vec2 uv){ return uFlashOn > 0.5 ? texture2D(uFlash, coverA(uv, uFlashAspect)).rgb : texture2D(uTex, cover(uv)).rgb; }
+// Double exposure: a second clip blended over the first (screen, add, difference, multiply).
+vec3 tex(vec2 uv){
+  vec3 a = base(uv);
+  if (uBlendOn < 0.5 || uFlashOn > 0.5) return a;
+  vec3 b = texture2D(uBlend, coverA(vec2(1.0 - uv.x, uv.y), uBlendAspect)).rgb;
+  vec3 m = uBlendMode == 1 ? a + b : uBlendMode == 2 ? abs(a - b) : uBlendMode == 3 ? a * b * 1.6 : 1.0 - (1.0 - a) * (1.0 - b);
+  return mix(a, m, uBlendAmt);
+}
+// Zoom blur towards the centre plus echo trails (zoomed copies), both functions of this frame only.
+vec3 texFx(vec2 uv){
+  vec3 c = tex(uv);
+  if (uZoomBlur > 0.001) {
+    vec3 acc = c;
+    for (int i = 1; i <= 8; i++) acc += tex(mix(uv, vec2(0.5), float(i) * 0.012 * uZoomBlur));
+    c = acc / 9.0;
+  }
+  if (uEcho > 0.001) {
+    vec3 e1 = tex(mix(uv, vec2(0.5), 0.05)), e2 = tex(mix(uv, vec2(0.5), 0.1)), e3 = tex(mix(uv, vec2(0.5), 0.15));
+    c = max(c, max(e1 * 0.7, max(e2 * 0.5, e3 * 0.35)) * uEcho + c * (1.0 - uEcho));
+  }
+  return c;
+}
 vec3 hue(vec3 c, float a){
   const vec3 k = vec3(0.57735);
   float ca = cos(a);
@@ -518,9 +542,12 @@ void main(){
   uv.x += tear * (hash(vec2(row * 1.7, frameN)) - 0.5) * 0.18 * uBurst;
   vec2 blk = floor(uv * vec2(14.0, 8.0));
   if (hash(blk + frameN * 0.37) < uBurst * 0.32) uv += (vec2(hash(blk + 1.3), hash(blk + 2.1)) - 0.5) * 0.2 * uBurst;
-  // Chromatic split.
+  // Pixel mosaic in bursts.
+  if (uMosaic > 0.0 && uBurst > 0.05) { float cells = mix(160.0, 22.0, uMosaic * uBurst); vec2 g = vec2(cells * uAspect, cells); uv = (floor(uv * g) + 0.5) / g; }
+  // Chromatic split (the centre tap carries zoom blur and echoes).
   float sp = uRgb * (0.003 + 0.012 * uHit) + 0.03 * uBurst;
-  vec3 col = vec3(tex(uv + vec2(sp, 0.0)).r, tex(uv).g, tex(uv - vec2(sp, sp * 0.4)).b);
+  vec3 mid = texFx(uv);
+  vec3 col = vec3(tex(uv + vec2(sp, 0.0)).r * 0.5 + mid.r * 0.5, mid.g, tex(uv - vec2(sp, sp * 0.4)).b * 0.5 + mid.b * 0.5);
   // Pixel-sort smear: bright pixels streak downwards.
   if (uSort > 0.0) {
     for (int i = 1; i <= 10; i++) {
@@ -536,6 +563,19 @@ void main(){
   if (grade == 1) col = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.1, 0.2) + l * 0.9 + 0.55));
   else if (grade == 2) col = hue(col * 1.25, uTime * 0.9 + l * 4.0);
   else if (grade == 3) col = vec3(smoothstep(0.12, 0.8, l));
+  else if (grade == 6) {
+    // Halftone: dots sized by brightness on a rotated grid, in the tint colour.
+    vec2 p = mat2(0.866, -0.5, 0.5, 0.866) * (vUv * vec2(uAspect, 1.0) * 95.0);
+    float d = length(fract(p) - 0.5);
+    col = mix(vec3(0.02), uTint * 1.2, smoothstep(0.5 * sqrt(l) + 0.04, 0.5 * sqrt(l) - 0.04, d));
+  } else if (grade == 7) {
+    // Glyph grade: each cell becomes a procedural character chosen by brightness.
+    vec2 cell = vec2(uAspect * 70.0, 70.0);
+    vec2 q = fract(vUv * cell) - 0.5;
+    float lv = floor(l * 5.0);
+    float g = lv < 1.0 ? 0.0 : lv < 2.0 ? step(length(q), 0.12) : lv < 3.0 ? step(abs(q.y), 0.07) * step(abs(q.x), 0.32) : lv < 4.0 ? max(step(abs(q.x), 0.07), step(abs(q.y), 0.07)) * step(max(abs(q.x), abs(q.y)), 0.34) : step(max(abs(q.x), abs(q.y)), 0.34);
+    col = mix(vec3(0.0), mix(uTint, vec3(1.0), 0.35), g) * (0.4 + 0.8 * l);
+  }
   else if (grade == 4) col = mix(vec3(0.02, 0.01, 0.04), uTint, smoothstep(0.05, 0.9, l)) + pow(l, 4.0) * 0.6;
   // Posterize in bursts (datamosh-ish banding).
   if (uBurst > 0.3) col = floor(col * 5.0) / 5.0;
@@ -573,7 +613,7 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
-  const grade = ({ none: 0, thermal: 1, acid: 2, mono: 3, duotone: 4 } as Record<string, number>)[String(p.grade ?? "none")] ?? 0;
+  const grade = ({ none: 0, thermal: 1, acid: 2, mono: 3, duotone: 4, halftone: 6, glyph: 7 } as Record<string, number>)[String(p.grade ?? "none")] ?? 0;
   // One texture per cut-in clip: clips differ in size, and a texture keeps its first allocation.
   const flashTexs = new Map<string, THREE.Texture>();
   const flashTexFor = (id: string) => {
@@ -599,7 +639,11 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
     uGrade: { value: grade }, uDim: { value: Number(p.brightness ?? 1) }, uGrain: { value: Number(p.grain ?? 0.4) }, uScan: { value: Number(p.scanlines ?? 0.3) },
     uZoom: { value: 1 }, uTint: { value: new THREE.Color(String(p.tint ?? "#ff4fd8")) },
     uFlash: { value: flashTex }, uFlashOn: { value: 0 }, uFlashAspect: { value: 16 / 9 },
-    uFlashGrade: { value: ({ none: 0, thermal: 1, acid: 2, mono: 3, duotone: 4, invert: 5 } as Record<string, number>)[String(p.flashGrade ?? "none")] ?? 0 },
+    uBlend: { value: flashTexFor("blend") }, uBlendOn: { value: 0 }, uBlendAspect: { value: 16 / 9 },
+    uBlendMode: { value: ({ screen: 0, add: 1, difference: 2, multiply: 3 } as Record<string, number>)[String(p.blendMode ?? "screen")] ?? 0 },
+    uBlendAmt: { value: Math.max(0, Math.min(1, Number(p.blendAmount ?? 0.5))) },
+    uZoomBlur: { value: 0 }, uEcho: { value: Math.max(0, Math.min(1, Number(p.echo ?? 0))) }, uMosaic: { value: Math.max(0, Math.min(1, Number(p.mosaic ?? 0))) },
+    uFlashGrade: { value: ({ none: 0, thermal: 1, acid: 2, mono: 3, duotone: 4, invert: 5, halftone: 6, glyph: 7 } as Record<string, number>)[String(p.flashGrade ?? "none")] ?? 0 },
   };
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -631,6 +675,20 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
       u.uHas.value = 1;
     }
     const b = beatState(c, p, spec.seed || 1);
+    // Double exposure source.
+    const blendId = String(p.blend ?? "");
+    u.uBlendOn.value = 0;
+    if (blendId) {
+      const bs = frameOf(findVideo(blendId));
+      if (bs) {
+        const bt = flashTexFor("blend");
+        bt.image = bs.el;
+        bt.needsUpdate = true;
+        u.uBlendAspect.value = bs.w / bs.h;
+        u.uBlendOn.value = 1;
+      }
+    }
+    u.uZoomBlur.value = Math.max(0, Math.min(2, Number(p.zoomBlur ?? 0))) * b.hit;
     // Snippet cut-ins: on some 16th notes, another clip from the scene flashes in for a frame or two.
     u.uFlashOn.value = 0;
     const bpmF = Number(p.bpm ?? 0);

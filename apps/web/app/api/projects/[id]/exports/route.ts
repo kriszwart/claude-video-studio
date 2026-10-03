@@ -21,14 +21,16 @@ export const GET = route<{ id: string }>(async (_req, { id }) => {
  */
 export const POST = route<{ id: string }>(async (req, { id }) => {
   const s = await requireSession();
-  const b = await body(req, z.object({ revisionId: z.string().max(64).optional(), aspects: z.array(AspectRatio).max(3).optional() }));
-  if (!b.aspects?.length) return json(await enqueueProjectJob(s, id, "export", b.revisionId, {}, idempotencyKey(req)), 202);
+  const b = await body(req, z.object({ revisionId: z.string().max(64).optional(), aspects: z.array(AspectRatio).max(3).optional(), resolution: z.enum(["1080p", "4k"]).default("1080p") }));
+  // 4K renders the same composition at twice the scale (3840×2160 for 16:9).
+  const res = b.resolution === "4k" ? { resolution: "4k" } : {};
+  if (!b.aspects?.length) return json(await enqueueProjectJob(s, id, "export", b.revisionId, res, idempotencyKey(req)), 202);
   const { doc } = await getProject(getDb(), id, s.workspaceId);
   const own = ProjectDocument.parse(doc).format.aspect;
   const idem = idempotencyKey(req);
   const results = [];
   for (const aspect of exportSizes(own, b.aspects)) {
-    results.push(await enqueueProjectJob(s, id, "export", b.revisionId, aspect === own ? {} : { aspect }, idem ? `${idem}:${aspect}` : null));
+    results.push(await enqueueProjectJob(s, id, "export", b.revisionId, aspect === own ? { ...res } : { aspect, ...res }, idem ? `${idem}:${aspect}${b.resolution === "4k" ? ":4k" : ""}` : null));
   }
   return json({ ...results[0]!, jobs: results.map((r) => r.job) }, 202);
 });

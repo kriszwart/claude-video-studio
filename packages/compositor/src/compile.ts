@@ -508,6 +508,14 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           tweens.push(`tl.fromTo("#${sid}",{yPercent:28,opacity:0},{yPercent:0,opacity:1,duration:${f3(o * 0.8)},ease:"expo.out"},${f3(start + o * 0.2)});`);
           break;
         }
+        case "punch": {
+          // A hard zoom punch: the next scene slams in from a blown-out, blurred close-up.
+          const prev = `s-${doc.scenes[index - 1]!.id}`;
+          tweens.push(`tl.fromTo("#${sid}",{scale:1.35,filter:"blur(18px) brightness(2.2)"},{scale:1,filter:"blur(0px) brightness(1)",duration:${o},ease:"expo.out"},${start});`);
+          tweens.push(`tl.set("#${sid}",{filter:"none"},${f3(Number(start) + Number(o))});`);
+          tweens.push(`tl.fromTo("#${prev}",{scale:1,opacity:1},{scale:1.12,opacity:0,duration:${f3(Number(o) * 0.6)},ease:"power2.in",immediateRender:false},${start});`);
+          break;
+        }
         case "glitch": {
           // A digital stutter: for a few frames the two scenes flicker against each other, jumping
           // sideways through inverted and hue-shifted filters, while inverted bands tear across.
