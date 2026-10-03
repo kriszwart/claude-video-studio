@@ -347,6 +347,28 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
     return holder;
   });
 
+  // Satellites: the five solids in miniature, orbiting the main one (each with its own faces).
+  const satCount = Math.max(0, Math.min(1, Number(p.satellites ?? 0)));
+  const satGroup = new THREE.Group();
+  scene.add(satGroup);
+  const sats = satCount > 0
+    ? ["tetrahedron", "cube", "octahedron", "dodecahedron", "icosahedron"].map((name, i) => {
+        const so = SOLIDS[name]!;
+        const centres = so.faces.map((f) => f.reduce((a, k) => a.add(new THREE.Vector3(...so.vertices[k]!)), new THREE.Vector3()).divideScalar(f.length));
+        const mat = new THREE.ShaderMaterial({
+          uniforms: {
+            ...uniforms, uInflate: { value: 0 }, uMutate: { value: 0.05 }, uSpike: { value: 0 }, uSnap: { value: 0 }, uMaterial: { value: (i % 3) },
+            uFaceN: { value: Array.from({ length: 20 }, (_, k) => (centres[k] ? centres[k]!.clone().normalize() : new THREE.Vector3())) },
+            uFaceCount: { value: centres.length }, uRin: { value: centres[0]!.length() },
+          },
+          vertexShader: SOLID_VERT, fragmentShader: SOLID_FRAG,
+        });
+        const m = new THREE.Mesh(solidGeometry(so, 2), mat);
+        satGroup.add(m);
+        return m;
+      })
+    : [];
+
   // Seeded particles on a loose shell around the solid; they twinkle and drift with t.
   const r = rng(spec.seed || 1);
   const N = Math.max(0, Math.min(2000, Math.round(Number(p.particles ?? 420))));
@@ -430,6 +452,13 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
     const burst = glitch > 0 && bpm > 0 && hash1(beatN * 7.13 + (spec.seed || 1)) < glitch * 0.5 ? Math.exp(-5 * Math.max(0, beatPhase)) : 0;
     uniforms.uSnap.value = burst > 0.15 ? 6 + 10 * (1 - burst) : 0;
     group.position.x = burst > 0.15 ? (hash1(beatN * 3.7 + Math.floor(c * 30)) - 0.5) * 0.25 * burst : 0;
+    sats.forEach((m, i) => {
+      const a = c * 0.55 + (i * Math.PI * 2) / sats.length;
+      m.position.set(Math.cos(a) * 1.85, 0.45 * Math.sin(a * 2 + i), Math.sin(a) * 1.85);
+      m.rotation.set(c * (0.7 + i * 0.13), c * (1.1 - i * 0.09), 0);
+      m.scale.setScalar(0.17 * satCount * (1 + 0.25 * hit));
+    });
+    satGroup.rotation.set(0.35, 0, 0.12);
     edgeUniforms.uAlpha.value = showEdges ? Math.min(1, (0.95 + 0.6 * hit) * (1 - inflation)) : 0;
     group.rotation.set(0.42 + 0.2 * Math.sin(c * 0.37), c * spin * 0.6 * Math.PI, 0.1 * Math.sin(c * 0.23));
     group.scale.setScalar(1 + 0.03 * Math.sin(c * 1.3) + 0.05 * inflation + 0.07 * hit);
@@ -446,6 +475,7 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
 // ---------------------------------------------------------------------------------------------
 const FX_FRAG = /* glsl */ `
 uniform sampler2D uTex; uniform float uHas; uniform float uTexAspect; uniform float uAspect;
+uniform sampler2D uFlash; uniform float uFlashOn; uniform float uFlashAspect; uniform int uFlashGrade;
 uniform float uTime; uniform float uHit; uniform float uBurst; uniform float uInvert; uniform float uSeed;
 uniform float uRgb; uniform float uWarp; uniform float uSort; uniform float uKaleido; uniform float uMirror;
 uniform int uGrade; uniform float uDim; uniform float uGrain; uniform float uScan; uniform float uZoom; uniform vec3 uTint;
@@ -456,7 +486,12 @@ vec2 cover(vec2 uv){
   vec2 s = uAspect > uTexAspect ? vec2(1.0, uTexAspect / uAspect) : vec2(uAspect / uTexAspect, 1.0);
   return clamp((uv - 0.5) * s / uZoom + 0.5, 0.0, 1.0);
 }
-vec3 tex(vec2 uv){ return texture2D(uTex, cover(uv)).rgb; }
+vec2 coverA(vec2 uv, float ta){
+  vec2 s = uAspect > ta ? vec2(1.0, ta / uAspect) : vec2(uAspect / ta, 1.0);
+  return clamp((uv - 0.5) * s / uZoom + 0.5, 0.0, 1.0);
+}
+// A snippet cut-in replaces the frame for a few frames (with its own grade).
+vec3 tex(vec2 uv){ return uFlashOn > 0.5 ? texture2D(uFlash, coverA(uv, uFlashAspect)).rgb : texture2D(uTex, cover(uv)).rgb; }
 vec3 hue(vec3 c, float a){
   const vec3 k = vec3(0.57735);
   float ca = cos(a);
@@ -496,10 +531,12 @@ void main(){
   }
   // Grades: 1 thermal, 2 acid, 3 mono, 4 tint duotone.
   float l = lum(col);
-  if (uGrade == 1) col = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.1, 0.2) + l * 0.9 + 0.55));
-  else if (uGrade == 2) col = hue(col * 1.25, uTime * 0.9 + l * 4.0);
-  else if (uGrade == 3) col = vec3(smoothstep(0.12, 0.8, l));
-  else if (uGrade == 4) col = mix(vec3(0.02, 0.01, 0.04), uTint, smoothstep(0.05, 0.9, l)) + pow(l, 4.0) * 0.6;
+  int grade = uFlashOn > 0.5 ? uFlashGrade : uGrade;
+  if (uFlashOn > 0.5 && uFlashGrade == 5) col = 1.0 - col;
+  if (grade == 1) col = 0.5 + 0.5 * cos(6.28318 * (vec3(0.0, 0.1, 0.2) + l * 0.9 + 0.55));
+  else if (grade == 2) col = hue(col * 1.25, uTime * 0.9 + l * 4.0);
+  else if (grade == 3) col = vec3(smoothstep(0.12, 0.8, l));
+  else if (grade == 4) col = mix(vec3(0.02, 0.01, 0.04), uTint, smoothstep(0.05, 0.9, l)) + pow(l, 4.0) * 0.6;
   // Posterize in bursts (datamosh-ish banding).
   if (uBurst > 0.3) col = floor(col * 5.0) / 5.0;
   col = mix(col, 1.0 - col, uInvert);
@@ -537,6 +574,23 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
   texture.minFilter = THREE.LinearFilter;
   texture.generateMipmaps = false;
   const grade = ({ none: 0, thermal: 1, acid: 2, mono: 3, duotone: 4 } as Record<string, number>)[String(p.grade ?? "none")] ?? 0;
+  // One texture per cut-in clip: clips differ in size, and a texture keeps its first allocation.
+  const flashTexs = new Map<string, THREE.Texture>();
+  const flashTexFor = (id: string) => {
+    let t = flashTexs.get(id);
+    if (!t) {
+      t = new THREE.Texture();
+      t.colorSpace = THREE.SRGBColorSpace;
+      t.minFilter = THREE.LinearFilter;
+      t.generateMipmaps = false;
+      flashTexs.set(id, t);
+    }
+    return t;
+  };
+  const flashTex = flashTexFor("");
+  const flashIds = String(p.flash ?? "").split(",").map((x) => x.trim()).filter(Boolean);
+  const flashRate = Math.max(0, Math.min(1, Number(p.flashRate ?? 0.25)));
+  const flashFrames = Math.max(1, Math.min(4, Math.round(Number(p.flashFrames ?? 2))));
   const u = {
     uTex: { value: texture }, uHas: { value: 0 }, uTexAspect: { value: 16 / 9 }, uAspect: { value: spec.width / spec.height },
     uTime: { value: 0 }, uHit: { value: 0 }, uBurst: { value: 0 }, uInvert: { value: 0 }, uSeed: { value: (spec.seed % 97) * 0.731 },
@@ -544,6 +598,8 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
     uKaleido: { value: Math.round(Number(p.kaleido ?? 0)) }, uMirror: { value: ({ off: 0, left: 1, right: 2 } as Record<string, number>)[String(p.mirror ?? "off")] ?? 0 },
     uGrade: { value: grade }, uDim: { value: Number(p.brightness ?? 1) }, uGrain: { value: Number(p.grain ?? 0.4) }, uScan: { value: Number(p.scanlines ?? 0.3) },
     uZoom: { value: 1 }, uTint: { value: new THREE.Color(String(p.tint ?? "#ff4fd8")) },
+    uFlash: { value: flashTex }, uFlashOn: { value: 0 }, uFlashAspect: { value: 16 / 9 },
+    uFlashGrade: { value: ({ none: 0, thermal: 1, acid: 2, mono: 3, duotone: 4, invert: 5 } as Record<string, number>)[String(p.flashGrade ?? "none")] ?? 0 },
   };
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
@@ -554,26 +610,47 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
   const punch = Math.max(0, Math.min(0.5, Number(p.beatZoom ?? 0.04)));
   const drift = Number(p.zoomDrift ?? 0.06);
   const glitchIn = Math.max(0, Math.min(1, Number(p.glitchIn ?? 0.6)));
-  const findVideo = () => {
+  const findVideo = (id = layerId) => {
     const root = canvas.closest(".scene") ?? document;
-    return (layerId ? root.querySelector<HTMLVideoElement>(`video[id$="-${layerId}"]`) : null) ?? root.querySelector<HTMLVideoElement>("video");
+    return (id ? root.querySelector<HTMLVideoElement>(`video[id$="-${id}"]`) : null) ?? (id === layerId ? root.querySelector<HTMLVideoElement>("video") : null);
+  };
+  /** The frame to show for a video: the renderer's injected frame image, else the live video. */
+  const frameOf = (v: HTMLVideoElement | null) => {
+    const f = v?.nextElementSibling as HTMLImageElement | null;
+    if (f && f.classList.contains("__render_frame__") && f.complete && f.naturalWidth > 0) return { el: f as HTMLImageElement | HTMLVideoElement, w: f.naturalWidth, h: f.naturalHeight };
+    if (v && v.readyState >= 2 && v.videoWidth > 0) return { el: v as HTMLImageElement | HTMLVideoElement, w: v.videoWidth, h: v.videoHeight };
+    return null;
   };
   return (t: number) => {
     const c = t + clockOffset;
-    const v = findVideo();
-    const frame = v?.nextElementSibling as HTMLImageElement | null;
-    let src: HTMLImageElement | HTMLVideoElement | null = null;
-    if (frame && frame.classList.contains("__render_frame__") && frame.complete && frame.naturalWidth > 0) src = frame;
-    else if (v && v.readyState >= 2 && v.videoWidth > 0) src = v;
+    const src = frameOf(findVideo());
     if (src) {
-      texture.image = src;
+      texture.image = src.el;
       texture.needsUpdate = true;
-      const sw = src instanceof HTMLVideoElement ? src.videoWidth : src.naturalWidth;
-      const sh = src instanceof HTMLVideoElement ? src.videoHeight : src.naturalHeight;
-      u.uTexAspect.value = sw / sh;
+      u.uTexAspect.value = src.w / src.h;
       u.uHas.value = 1;
     }
     const b = beatState(c, p, spec.seed || 1);
+    // Snippet cut-ins: on some 16th notes, another clip from the scene flashes in for a frame or two.
+    u.uFlashOn.value = 0;
+    const bpmF = Number(p.bpm ?? 0);
+    if (flashIds.length && bpmF > 0 && c >= Number(p.beatOffsetSec ?? 0)) {
+      const q = ((c - Number(p.beatOffsetSec ?? 0)) * bpmF) / 15;
+      const n16 = Math.floor(q);
+      const framesIn = Math.floor((q - n16) * (15 / bpmF) * 30 + 1e-6);
+      if (framesIn < flashFrames && hash1(n16 * 2.71 + (spec.seed || 1)) < flashRate) {
+        const fid = flashIds[Math.floor(hash1(n16 * 1.37 + 9) * flashIds.length)]!;
+        const fs = frameOf(findVideo(fid));
+        if (fs) {
+          const ft = flashTexFor(fid);
+          ft.image = fs.el;
+          ft.needsUpdate = true;
+          u.uFlash.value = ft;
+          u.uFlashAspect.value = fs.w / fs.h;
+          u.uFlashOn.value = 1;
+        }
+      }
+    }
     const intro = glitchIn * Math.max(0, 1 - t / 0.35);
     u.uTime.value = c;
     u.uHit.value = b.hit;
@@ -590,6 +667,7 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
  */
 const SIGNAL_FRAG = /* glsl */ `
 uniform float uTime; uniform float uHit; uniform float uBurst; uniform float uStrobe; uniform float uGrain; uniform float uScan; uniform float uRoll; uniform vec3 uColor;
+uniform float uLeaks; uniform vec3 uLeakA; uniform vec3 uLeakB;
 varying vec2 vUv;
 float hash(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 void main(){
@@ -607,6 +685,14 @@ void main(){
   o += vec4(vec3(roll), roll);
   o = mix(o, vec4(bandC * 0.8, 0.8), band * 0.55);
   o = mix(o, vec4(uColor, 1.0), uStrobe);
+  // Light leaks: two soft, drifting blooms of warm light from the frame edges (pure added light).
+  if (uLeaks > 0.0) {
+    vec2 a = vec2(-0.1 + 0.25 * sin(uTime * 0.21), 0.2 + 0.5 * sin(uTime * 0.13 + 1.0));
+    vec2 b2 = vec2(1.1 + 0.2 * sin(uTime * 0.17 + 2.0), 0.7 + 0.4 * sin(uTime * 0.11));
+    float la = exp(-dot(vUv - a, vUv - a) * 4.0) * (0.55 + 0.45 * sin(uTime * 0.7));
+    float lb = exp(-dot(vUv - b2, vUv - b2) * 5.0) * (0.55 + 0.45 * sin(uTime * 0.53 + 1.3));
+    o.rgb += (uLeakA * la + uLeakB * lb) * uLeaks * (0.6 + 0.6 * uHit);
+  }
   gl_FragColor = o;
 }`;
 
@@ -620,6 +706,8 @@ function signalOverlay(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: num
     uTime: { value: 0 }, uHit: { value: 0 }, uBurst: { value: 0 }, uStrobe: { value: 0 },
     uGrain: { value: Number(p.grain ?? 0.5) }, uScan: { value: Number(p.scanlines ?? 0.5) }, uRoll: { value: Number(p.roll ?? 0.5) },
     uColor: { value: new THREE.Color(String(p.strobeColor ?? "#ffffff")) },
+    uLeaks: { value: Math.max(0, Math.min(1, Number(p.leaks ?? 0))) },
+    uLeakA: { value: new THREE.Color(String(p.leakColor ?? "#ff7a2f")) }, uLeakB: { value: new THREE.Color(String(p.leakColor2 ?? "#ff2e88")) },
   };
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
