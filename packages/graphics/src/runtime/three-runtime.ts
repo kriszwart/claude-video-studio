@@ -608,7 +608,10 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
   const p = spec.params;
   const renderer = track(new THREE.WebGLRenderer({ canvas, alpha: false, antialias: false, preserveDrawingBuffer: true }));
   renderer.setPixelRatio(1);
-  renderer.setSize(spec.width, spec.height, false);
+  // Footage is at most 1080p: above that, render at 1080-class size and let the box scale it (4K
+  // renders would otherwise spend four times the GPU memory on pixels the source never had).
+  const fxScale = Math.min(1, 1920 / Math.max(spec.width, spec.height));
+  renderer.setSize(Math.round(spec.width * fxScale), Math.round(spec.height * fxScale), false);
   const texture = new THREE.Texture();
   texture.colorSpace = THREE.SRGBColorSpace;
   texture.minFilter = THREE.LinearFilter;
@@ -658,11 +661,23 @@ function footageFx(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: number)
     const root = canvas.closest(".scene") ?? document;
     return (id ? root.querySelector<HTMLVideoElement>(`video[id$="-${id}"]`) : null) ?? (id === layerId ? root.querySelector<HTMLVideoElement>("video") : null);
   };
+  // Frames wider than 1920 (a 4K render injects upscaled frames) are drawn down first, one
+  // reusable canvas per video, so GPU uploads stay at source size.
+  const shrink = new Map<HTMLElement, HTMLCanvasElement>();
+  const capped = (el: HTMLImageElement | HTMLVideoElement, w: number, h: number) => {
+    if (w <= 1920) return { el: el as TexImageSource, w, h };
+    let c = shrink.get(el);
+    const cw = 1920, ch = Math.round((h * 1920) / w);
+    if (!c) { c = document.createElement("canvas"); shrink.set(el, c); }
+    if (c.width !== cw || c.height !== ch) { c.width = cw; c.height = ch; }
+    c.getContext("2d")!.drawImage(el, 0, 0, cw, ch);
+    return { el: c as TexImageSource, w: cw, h: ch };
+  };
   /** The frame to show for a video: the renderer's injected frame image, else the live video. */
   const frameOf = (v: HTMLVideoElement | null) => {
     const f = v?.nextElementSibling as HTMLImageElement | null;
-    if (f && f.classList.contains("__render_frame__") && f.complete && f.naturalWidth > 0) return { el: f as HTMLImageElement | HTMLVideoElement, w: f.naturalWidth, h: f.naturalHeight };
-    if (v && v.readyState >= 2 && v.videoWidth > 0) return { el: v as HTMLImageElement | HTMLVideoElement, w: v.videoWidth, h: v.videoHeight };
+    if (f && f.classList.contains("__render_frame__") && f.complete && f.naturalWidth > 0) return capped(f, f.naturalWidth, f.naturalHeight);
+    if (v && v.readyState >= 2 && v.videoWidth > 0) return capped(v, v.videoWidth, v.videoHeight);
     return null;
   };
   return (t: number) => {
@@ -829,8 +844,8 @@ function drawAll(time: number, force = false) {
   for (const L of layers) {
     const t = time - L.spec.startSec;
     if (t < -1e-6 || t > L.spec.durationSec + 1e-6) {
-      // Off screen: give the context back unless the scene is about to come round again.
-      if (L.live && (t < -1 || t > L.spec.durationSec + 0.5)) sleep(L);
+      // Off screen: give the context back straight away (contexts and GPU memory are scarce).
+      if (L.live) sleep(L);
       continue;
     }
     if (!L.live) wake(L);
