@@ -351,26 +351,44 @@ function platonicShader(canvas: HTMLCanvasElement, spec: ThreeLayerSpec): (t: nu
   const spin = Number(p.spin ?? 0.4);
   const mutation = Math.max(0, Math.min(2, Number(p.mutation ?? 1)));
   const showEdges = p.edges !== false;
+  shadow.visible = p.shadow !== false;
+  // A layer can be one window onto a longer piece: the morph timeline and the clock (spin, ripples,
+  // particles, colour, beat) are shifted separately, so consecutive scenes continue one motion.
+  const morphOffset = Number(p.morphOffsetSec ?? 0);
+  const clockOffset = Number(p.clockOffsetSec ?? 0);
+  const colorCycle = Math.max(0, Number(p.colorCycleSec ?? 0));
+  const bpm = Math.max(0, Math.min(240, Number(p.bpm ?? 0)));
+  const beatOffset = Number(p.beatOffsetSec ?? 0);
+  const pulse = Math.max(0, Math.min(1, Number(p.pulse ?? 0.5)));
+  const minInflate = Math.max(0, Math.min(1, Number(p.minInflate ?? 0)));
   return (t: number) => {
-    const st = morphAt(t, seq.length, hold, morph);
+    const st = morphAt(t + morphOffset, seq.length, hold, morph);
+    const c = t + clockOffset;
     meshes.forEach((m, i) => (m.visible = i === st.index));
     const shape = shapes[st.index]!;
     shape.normals.forEach((n, i) => uniforms.uFaceN.value[i]!.copy(n));
     uniforms.uFaceCount.value = shape.normals.length;
     uniforms.uRin.value = shape.rin;
-    const wave = Math.sin(Math.PI * st.inflation);
-    uniforms.uInflate.value = st.inflation;
+    // minInflate holds the form partway (1 = a rippling sphere whatever the sequence says).
+    const inflation = Math.max(st.inflation, minInflate);
+    const wave = Math.sin(Math.PI * inflation);
+    uniforms.uInflate.value = inflation;
+    // Beat: a sharp hit that decays over the beat (0 when no tempo is set).
+    const beatPhase = bpm > 0 ? (((c - beatOffset) * bpm) / 60) % 1 : 0;
+    const hit = bpm > 0 && c >= beatOffset ? Math.exp(-7 * (beatPhase < 0 ? beatPhase + 1 : beatPhase)) * pulse : 0;
     // Ripples peak mid-melt and keep moving through the sphere (both solids meet there, so the
-    // hand-off stays seamless).
-    uniforms.uMutate.value = mutation * (0.6 * wave + 0.4 * st.inflation);
-    uniforms.uTime.value = t;
-    uniforms.uProgress.value = st.progress;
-    const gi = (st.progress * 1.5 * pal.length) % pal.length;
+    // hand-off stays seamless); each beat kicks them a little.
+    uniforms.uMutate.value = mutation * (0.6 * wave + 0.4 * inflation + 0.25 * hit);
+    uniforms.uTime.value = c;
+    const progress = colorCycle > 0 ? c / colorCycle : st.progress;
+    uniforms.uProgress.value = progress;
+    const gi = (((progress * 1.5 * pal.length) % pal.length) + pal.length) % pal.length;
     glow.copy(pal[Math.floor(gi)]!).lerp(pal[(Math.floor(gi) + 1) % pal.length]!, gi - Math.floor(gi));
-    edgeUniforms.uAlpha.value = showEdges ? 0.95 * (1 - st.inflation) : 0;
-    group.rotation.set(0.42 + 0.2 * Math.sin(t * 0.37), t * spin * 0.6 * Math.PI, 0.1 * Math.sin(t * 0.23));
-    group.scale.setScalar(1 + 0.03 * Math.sin(t * 1.3) + 0.05 * st.inflation);
-    shadow.scale.setScalar(1 + 0.08 * st.inflation);
+    shellUniforms.uStrength.value = 0.9 + 1.1 * hit;
+    edgeUniforms.uAlpha.value = showEdges ? Math.min(1, (0.95 + 0.6 * hit) * (1 - inflation)) : 0;
+    group.rotation.set(0.42 + 0.2 * Math.sin(c * 0.37), c * spin * 0.6 * Math.PI, 0.1 * Math.sin(c * 0.23));
+    group.scale.setScalar(1 + 0.03 * Math.sin(c * 1.3) + 0.05 * inflation + 0.07 * hit);
+    shadow.scale.setScalar(1 + 0.08 * inflation);
     renderer.render(scene, camera);
   };
 }
