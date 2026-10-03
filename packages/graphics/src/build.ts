@@ -1,16 +1,14 @@
 import { createHash } from "node:crypto";
 import { existsSync } from "node:fs";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 
-/** Bundle a browser runtime with esbuild; cached by source content hash. */
+/**
+ * Bundle a browser runtime with esbuild, named by the hash of the bundled output. Hashing the
+ * output (not the entry file) covers every imported module, so a change anywhere in the runtime's
+ * imports gives a new file name, and caches keyed by it (graphics frames) invalidate.
+ */
 export async function bundleRuntime(entry: string, cacheDir: string, opts: { alias?: Record<string, string>; external?: string[]; nodePaths?: string[] } = {}): Promise<string> {
-  const src = await readFile(entry);
-  const aliasKey = JSON.stringify([opts.alias ?? {}, opts.nodePaths ?? []]);
-  const h = createHash("sha256").update(src).update(aliasKey).digest("hex").slice(0, 16);
-  const out = join(cacheDir, `${h}.js`);
-  if (existsSync(out)) return out;
-  await mkdir(dirname(out), { recursive: true });
   const esbuild = await import("esbuild");
   const r = await esbuild.build({
     entryPoints: [entry],
@@ -25,6 +23,11 @@ export async function bundleRuntime(entry: string, cacheDir: string, opts: { ali
     nodePaths: opts.nodePaths,
     logLevel: "silent",
   });
-  await writeFile(out, r.outputFiles[0]!.contents);
+  const code = r.outputFiles[0]!.contents;
+  const h = createHash("sha256").update(code).digest("hex").slice(0, 16);
+  const out = join(cacheDir, `${h}.js`);
+  if (existsSync(out)) return out;
+  await mkdir(dirname(out), { recursive: true });
+  await writeFile(out, code);
   return out;
 }

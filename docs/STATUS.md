@@ -229,4 +229,8 @@ and e2e tests use the SDK test double.
   with the video, lands it on the payoff (a counter's last value, else the proof, a number or the
   call to action) to the frame, and moves cuts onto beats. The analysis measures the music; it can't
   hear it, so play it back and check the drop feels right.
+- Shader effects (mesh gradient, aurora, metaballs, liquid morph, glass lens) are Skia SkSL shaders
+  drawn on a WebGL surface (~0.1 s per 1080p frame on software WebGL). The same revision re-renders
+  identically on the same machine; across GPUs the pixels may differ very slightly. The glass lens
+  refracts only the image chosen for it, not the layers beneath it.
 - Redraw export is slow on software WebGPU; production should use GPU workers (routing supports it).

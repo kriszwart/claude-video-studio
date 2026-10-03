@@ -8,7 +8,8 @@
  */
 import { sketchIconFor } from "../../../compositor/src/sketch";
 import { inflate, lerp3, morphAt, norm, SOLIDS, subdivide, type Tri, type V3 } from "./polyhedra";
-import type { Canvas, CanvasKit, Image, Paint, Path, Surface, Typeface } from "canvaskit-wasm";
+import { SHADER_EFFECTS } from "./sksl";
+import type { Canvas, CanvasKit, Image, Paint, Path, RuntimeEffect, Shader, Surface, Typeface } from "canvaskit-wasm";
 
 declare const CanvasKitInit: (opts: { locateFile: (f: string) => string }) => Promise<CanvasKit>;
 
@@ -32,7 +33,11 @@ export interface SkiaLayerSpec {
 interface Layer {
   spec: SkiaLayerSpec;
   canvasEl: HTMLCanvasElement;
-  surface: Surface;
+  /** CPU raster surface (drawn components); null for shader effects, which draw on the shared GPU surface. */
+  surface: Surface | null;
+  /** Shader effects: the layer's 2D canvas the shared GPU frame is copied into, and image children. */
+  ctx2d?: CanvasRenderingContext2D;
+  children?: Shader[];
   images: Record<string, Image>;
   typeface: Typeface;
   lastT: number | null;
@@ -525,7 +530,7 @@ async function setup() {
   CK = await CanvasKitInit({ locateFile: (f) => `vendor/${f}` });
   for (const spec of specs) {
     const key = `${spec.component}@${spec.version}`;
-    if (!COMPONENTS[key]) throw new Error(`Unsupported Skia component ${key}`);
+    if (!COMPONENTS[key] && !SHADER_EFFECTS[key]) throw new Error(`Unsupported Skia component ${key}`);
     if (!fontBytes.has(spec.fontUrl)) fontBytes.set(spec.fontUrl, await (await fetch(spec.fontUrl)).arrayBuffer());
     const images: Record<string, Image> = {};
     for (const [name, url] of Object.entries(spec.assetUrls)) {
@@ -535,13 +540,87 @@ async function setup() {
     }
     const canvasEl = document.getElementById(`gfx-${spec.id}`) as HTMLCanvasElement | null;
     if (!canvasEl) throw new Error(`Missing canvas for ${spec.id}`);
-    const surface = CK.MakeSWCanvasSurface(canvasEl);
-    if (!surface) throw new Error(`Could not create a Skia surface for ${spec.id}`);
     const typeface = CK.Typeface.MakeTypefaceFromData(fontBytes.get(spec.fontUrl)!);
     if (!typeface) throw new Error(`Font ${spec.fontUrl} could not be loaded by Skia`);
+    const fx = SHADER_EFFECTS[key];
+    if (fx) {
+      const ctx2d = canvasEl.getContext("2d");
+      if (!ctx2d) throw new Error(`No 2D context for ${spec.id}`);
+      // No image chosen yet: a neutral studio gradient stands in, so the scene still renders.
+      const children = (fx.images ?? []).map((name) => (images[name] ? coverShader(CK!, images[name]!, spec.width, spec.height) : CK!.Shader.MakeLinearGradient([0, 0], [spec.width, spec.height], [CK!.Color(42, 42, 52, 1), CK!.Color(18, 18, 24, 1)], null, CK!.TileMode.Clamp)));
+      layers.push({ spec, canvasEl, surface: null, ctx2d, children, images, typeface, lastT: null });
+      continue;
+    }
+    const surface = CK.MakeSWCanvasSurface(canvasEl);
+    if (!surface) throw new Error(`Could not create a Skia surface for ${spec.id}`);
     layers.push({ spec, canvasEl, surface, images, typeface, lastT: null });
   }
+  // Shader effects share one GPU surface, sized to the largest of them (one WebGL context per page).
+  const shaderLayers = layers.filter((L) => !L.surface);
+  if (shaderLayers.length) {
+    const glCanvas = document.createElement("canvas");
+    glCanvas.width = Math.max(...shaderLayers.map((L) => L.spec.width));
+    glCanvas.height = Math.max(...shaderLayers.map((L) => L.spec.height));
+    const surface = CK.MakeWebGLCanvasSurface(glCanvas, CK.ColorSpace.SRGB, { preserveDrawingBuffer: 1, antialias: 0, alpha: 1, premultipliedAlpha: 1 } as never);
+    if (!surface) throw new Error("Skia shader effects need WebGL in the render browser, and it isn't available.");
+    gpu = { canvas: glCanvas, surface };
+    for (const L of shaderLayers) {
+      const key = `${L.spec.component}@${L.spec.version}`;
+      if (!effects.has(key)) {
+        const errs: string[] = [];
+        const fx = CK.RuntimeEffect.Make(SHADER_EFFECTS[key]!.sksl, (m) => errs.push(m));
+        if (!fx) throw new Error(`Shader ${key} did not compile: ${errs.join(" ")}`);
+        effects.set(key, fx);
+      }
+    }
+  }
   report.layers = layers.length;
+}
+
+let gpu: { canvas: HTMLCanvasElement; surface: Surface } | null = null;
+const effects = new Map<string, RuntimeEffect>();
+
+/** An image as a shader that covers a w×h box (centred, cropped), clamped at its edges. */
+function coverShader(ck: CanvasKit, img: Image, w: number, h: number): Shader {
+  const iw = img.width(), ih = img.height();
+  const s = Math.max(w / iw, h / ih);
+  const m = [s, 0, (w - iw * s) / 2, 0, s, (h - ih * s) / 2, 0, 0, 1];
+  return img.makeShaderOptions(ck.TileMode.Clamp, ck.TileMode.Clamp, ck.FilterMode.Linear, ck.MipmapMode.None, m);
+}
+
+/** Uniform values in the effect's declared order (vectors and arrays flattened). */
+function uniformArray(fx: RuntimeEffect, values: Record<string, number | number[]>): number[] {
+  const out: number[] = [];
+  for (let i = 0; i < fx.getUniformCount(); i++) {
+    const name = fx.getUniformName(i);
+    const u = fx.getUniform(i);
+    const n = u.columns * u.rows;
+    const v = values[name];
+    if (v === undefined) throw new Error(`Shader uniform ${name} has no value`);
+    const arr = typeof v === "number" ? [v] : v;
+    if (arr.length !== n) throw new Error(`Shader uniform ${name} needs ${n} values, got ${arr.length}`);
+    out.push(...arr);
+  }
+  return out;
+}
+
+/** Draw a shader effect for time t on the shared GPU surface, then copy it into the layer's canvas. */
+function drawShaderLayer(ck: CanvasKit, L: Layer, t: number) {
+  const key = `${L.spec.component}@${L.spec.version}`;
+  const fx = effects.get(key)!;
+  const { width: w, height: h } = L.spec;
+  const values = SHADER_EFFECTS[key]!.uniforms({ params: L.spec.params, seed: L.spec.seed, t, dur: L.spec.durationSec, w, h, unit: Number(L.spec.unit ?? 1) });
+  const shader = L.children?.length ? fx.makeShaderWithChildren(uniformArray(fx, values), L.children) : fx.makeShader(uniformArray(fx, values));
+  const c = gpu!.surface.getCanvas();
+  c.clear(ck.TRANSPARENT);
+  const paint = new ck.Paint();
+  paint.setShader(shader);
+  c.drawRect(ck.XYWHRect(0, 0, w, h), paint);
+  gpu!.surface.flush();
+  paint.delete();
+  shader.delete();
+  L.ctx2d!.clearRect(0, 0, w, h);
+  L.ctx2d!.drawImage(gpu!.canvas, 0, 0, w, h, 0, 0, w, h);
 }
 
 function drawAll(time: number) {
@@ -553,10 +632,13 @@ function drawAll(time: number) {
     const tt = Math.max(0, Math.min(t, L.spec.durationSec));
     if (L.lastT === tt) continue; // idempotent re-seek
     try {
-      const c = L.surface.getCanvas();
-      c.clear(CK.TRANSPARENT);
-      COMPONENTS[`${L.spec.component}@${L.spec.version}`]!(CK, c, L, tt, L.spec.durationSec);
-      L.surface.flush();
+      if (!L.surface) drawShaderLayer(CK, L, tt);
+      else {
+        const c = L.surface.getCanvas();
+        c.clear(CK.TRANSPARENT);
+        COMPONENTS[`${L.spec.component}@${L.spec.version}`]!(CK, c, L, tt, L.spec.durationSec);
+        L.surface.flush();
+      }
       L.lastT = tt;
       report.frames++;
     } catch (e) {

@@ -4,7 +4,7 @@ import { secondsToFrames, TRANSITION_TYPES, type Background, type Layer, type Op
 import { useEffect, useState } from "react";
 import { AssetPicker } from "@/components/AssetPicker";
 import { FootageSearch } from "@/components/FootageSearch";
-import { brandEffectParams } from "./brandEffects";
+import { brandEffectParams, FULL_FRAME_FX } from "./brandEffects";
 import { MatchFootage } from "./MatchFootage";
 import { api, fmtDuration } from "@/lib/client/api";
 import { ColorField, DebouncedText, NumberField } from "./fields";
@@ -243,7 +243,7 @@ function AddToScene({ scene, query, brand, apply }: { scene: Scene; query: strin
           // Brand colours, and the scene's headline for text effects.
           params: brandEffectParams(c.id, c.params, brand, query),
           seed: 1,
-          box: c.id === "type-overlay" ? { x: 0.08, y: 0.08, w: 0.84, h: 0.16 } : { x: 0.1, y: 0.2, w: 0.8, h: 0.6 },
+          box: c.id === "type-overlay" ? { x: 0.08, y: 0.08, w: 0.84, h: 0.16 } : FULL_FRAME_FX.has(c.id) ? { x: 0, y: 0, w: 1, h: 1 } : { x: 0.1, y: 0.2, w: 0.8, h: 0.6 },
         },
       } as Operation,
     ]).then(() => setAdding(""));
@@ -428,7 +428,9 @@ function LayerEditor({ layer, scene, doc, apply, colors }: { layer: Layer; scene
             {Object.entries(layer.params).map(([k, v]) => (
               <div key={k}>
                 <label className="label">{k}</label>
-                {typeof v === "number" ? (
+                {k === "image" ? (
+                  <AssetPicker kind="image" value={typeof v === "string" && v ? [v] : []} onChange={(ids) => apply([{ op: "setGraphicsParams", ...base, params: { [k]: ids[0] ?? "" } }])} />
+                ) : typeof v === "number" ? (
                   <NumberField value={v} step={0.05} onCommit={(n) => apply([{ op: "setGraphicsParams", ...base, params: { [k]: n } }])} />
                 ) : typeof v === "boolean" ? (
                   <input type="checkbox" checked={v} onChange={(e) => apply([{ op: "setGraphicsParams", ...base, params: { [k]: e.target.checked } }])} />
