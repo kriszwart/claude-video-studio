@@ -105,7 +105,7 @@ export const Brief = z.object({
 });
 export type Brief = z.infer<typeof Brief>;
 
-export const EntranceAnimation = z.enum(["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw", "scramble", "glitch", "blur"]);
+export const EntranceAnimation = z.enum(["none", "fade", "rise", "pop", "slide", "type", "wipe", "draw", "scramble", "glitch", "blur", "letters", "words"]);
 
 /** Normalised frame box; may extend off-canvas for bleeding decoration. */
 export const LayerBox = z.object({ x: z.number().min(-1).max(2), y: z.number().min(-1).max(2), w: z.number().positive().max(3), h: z.number().positive().max(3) });
@@ -143,7 +143,13 @@ export const TextLayer = LayerBase.extend({
     })
     .default({ scale: 1, backing: "none" }),
   animation: z
-    .object({ in: EntranceAnimation.default("rise"), delayFrames: Frames.default(0), stagger: z.boolean().default(false) })
+    .object({
+      in: EntranceAnimation.default("rise"),
+      delayFrames: Frames.default(0),
+      stagger: z.boolean().default(false),
+      /** "words" entrance: the scene-local frame each word appears on (e.g. timed to a vocal). */
+      wordFrames: z.array(Frames).max(80).optional(),
+    })
     .default({ in: "rise", delayFrames: 0, stagger: false }),
   /**
    * A counting number: the text counts from stop to stop, each value reached at its scene-local

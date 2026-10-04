@@ -312,14 +312,26 @@ export function compileComposition(doc: ProjectDocument, ctx: CompileContext): C
           if (masked) {
             const n = Math.max(1, layer.text.split(WORD_GAP).filter(Boolean).length);
             tweens.push(`tl.fromTo("#${lid} .wm > .w",{yPercent:115},{yPercent:0,duration:${f3(Math.max(0.35, Number(m.dur) * 0.9))},stagger:${f3(Math.min(0.09, (dur * 0.3) / n))},ease:"power4.out"},${delay});`);
-          } else if (layer.animation.in === "scramble") {
+          } else if (layer.animation.in === "letters") {
+            // Letter by letter: each glyph rises out of a soft blur, left to right.
+            const n = Math.max(1, [...layer.text].filter((c) => c.trim()).length);
+            tweens.push(`tl.fromTo("#${lid} .cf",{opacity:0,y:"0.38em",filter:"blur(8px)"},{opacity:1,y:0,filter:"blur(0px)",duration:0.8,ease:"power3.out",stagger:${f3(Math.min(0.07, (dur * 0.3) / n))}},${delay});`);
+          } else if (layer.animation.in === "words") {
+            // Word by word, each on its own frame (timed to the vocal when wordFrames are given).
+            const words = layer.text.split(WORD_GAP).filter(Boolean);
+            const wf = layer.animation.wordFrames ?? [];
+            const step = Math.min(0.25, (dur * 0.4) / Math.max(1, words.length));
+            words.forEach((_, wi) => {
+              const at = wf[wi] !== undefined ? start + wf[wi]! / fps : Number(delay) + wi * step;
+              tweens.push(`tl.fromTo("#${lid}-w${wi}",{opacity:0,y:${f3(m.dist * 0.3)},filter:"blur(6px)"},{opacity:1,y:0,filter:"blur(0px)",duration:0.55,ease:"power2.out"},${f3(at)});`);
+            });
             tweens.push(...scrambleTweens(layer.text, lid, start, Number(delay), dur));
           } else if (layer.animation.in === "glitch") {
             tweens.push(...glitchTweens(`#${lid}`, lid, start, Number(delay), dur, unit));
           } else {
             tweens.push(...entrance(`#${lid}`, layer.animation.in, delay, m, layer.animation.stagger));
           }
-          if ((layer.animation.in === "type" || layer.animation.stagger) && layer.animation.in !== "scramble" && layer.animation.in !== "glitch") {
+          if ((layer.animation.in === "type" || layer.animation.stagger) && !["scramble", "glitch", "letters", "words"].includes(layer.animation.in)) {
             tweens.push(`tl.fromTo("#${lid} .w",{opacity:0,y:${f3(m.dist * 0.4)}},{opacity:1,y:0,duration:${f3(m.dur * 0.6)},stagger:${f3(Math.min(0.12, (dur * 0.35) / Math.max(1, layer.text.split(WORD_GAP).length)))},ease:"power2.out"},${delay});`);
           }
           // Gentle drift while on screen, so held frames are never frozen.
@@ -678,7 +690,7 @@ html,body{margin:0;padding:0;background:#000;}
 .cap-minimal span{color:#fff;background:rgba(0,0,0,.45);}
 .w{display:inline-block;white-space:pre;}
 .wm{display:inline-block;overflow:hidden;vertical-align:top;padding:0 .04em .16em;margin:0 -.04em -.16em;}
-.ch{position:relative;display:inline-block;}.ch>.cg{position:absolute;left:0;top:0;white-space:pre;}
+.ch{position:relative;display:inline-block;}.ch>.cg{position:absolute;left:0;top:0;white-space:pre;}.ch>.cf{display:inline-block;}
 .bglight{position:absolute;left:-15%;top:-15%;width:130%;height:130%;pointer-events:none;}
 #finish{position:absolute;inset:0;pointer-events:none;z-index:850;}
 #finish .vig{position:absolute;inset:0;background:radial-gradient(ellipse at center, transparent 55%, rgba(0,0,0,.38) 100%);}
@@ -884,12 +896,20 @@ function textHtml(layer: TextLayer, lid: string, box: Box, z: number, slot: Slot
   // A counting number is one span whose text is set every frame; sized for its widest value.
   const words = layer.count
     ? `<span class="w num" id="${lid}-num" style="font-variant-numeric:tabular-nums;white-space:nowrap">${escapeHtml(widestCount(layer.count))}</span>`
-    : layer.animation.in === "scramble"
+    : layer.animation.in === "scramble" || layer.animation.in === "letters"
       ? scrambleWords(layer.text, lid)
       : escapeHtml(layer.text)
         .split(/([ \t\n\r]+)/)
-        .map((w) => (w.trim() ? (masked ? `<span class="wm"><span class="w">${w}</span></span>` : `<span class="w">${w}</span>`) : w))
-        .join("");
+        .map((w) => w)
+        .reduce<{ out: string[]; n: number }>((acc, w) => {
+          if (!w.trim()) acc.out.push(w);
+          else {
+            const id = `${lid}-w${acc.n++}`;
+            acc.out.push(masked ? `<span class="wm"><span class="w" id="${id}">${w}</span></span>` : `<span class="w" id="${id}">${w}</span>`);
+          }
+          return acc;
+        }, { out: [], n: 0 })
+        .out.join("");
   const inner =
     role === "cta"
       ? `<span class="cta-pill" style="background:${resolveColor(brand, "brand.primary", "#3355ff")};">${words}</span>`
